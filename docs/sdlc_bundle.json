@@ -1,0 +1,70 @@
+{
+  "meta": {
+    "generated_at": "2025-09-16T13:38:56.587519Z",
+    "generator": "OPNXT sdlc_generator.py",
+    "artifacts_count": 4
+  },
+  "input": {
+    "project": {
+      "title": "Feature Voting Web App"
+    },
+    "answers": {
+      "Planning": [
+        "Build a simple web app where users can propose features and upvote them.",
+        "Stakeholders: PM, small dev team, early adopters.",
+        "Timeline: MVP in 2 weeks, public beta in 1 month."
+      ],
+      "Requirements": [
+        "MVP features: create feature, upvote, list sorted by votes, delete feature (admin).",
+        "Non-functional: fast page load (<1s), no PII, persistence not required in MVP.",
+        "KPI: number of submitted features, vote activity per day, retention week-1."
+      ],
+      "Design": [
+        "Tech: Python Streamlit for UI; optional FastAPI backend; in-memory store for MVP.",
+        "No external integrations MVP. Future: auth provider, DB.",
+        "Data model: Feature {id, title, votes}. Simple REST-like ops for future."
+      ],
+      "Implementation": [
+        "Agile, 1 dev + 1 reviewer. Prioritize MVP features first.",
+        "Branch strategy: main + feature branches; PR + CI on push."
+      ],
+      "Testing": [
+        "Unit tests for business rules; smoke tests for web app endpoints (where applicable).",
+        "No external QA env needed; use local run and CI."
+      ],
+      "Deployment": [
+        "CI on GitHub Actions to run pytest.",
+        "Later: deploy to Streamlit Cloud or containerize for cloud run."
+      ],
+      "Maintenance": [
+        "Basic logs; no paging/on-call. Track issues via GitHub.",
+        "Manual monitoring of KPIs weekly."
+      ]
+    },
+    "summaries": {
+      "Planning": "Summary for Planning:\n- Build a simple web app where users can propose features and upvote them.\n- Stakeholders: PM, small dev team, early adopters.\n- Timeline: MVP in 2 weeks, public beta in 1 month.",
+      "Requirements": "Summary for Requirements:\n- MVP features: create feature, upvote, list sorted by votes, delete feature (admin).\n- Non-functional: fast page load (<1s), no PII, persistence not required in MVP.\n- KPI: number of submitted features, vote activity per day, retention week-1.",
+      "Design": "Summary for Design:\n- Tech: Python Streamlit for UI; optional FastAPI backend; in-memory store for MVP.\n- No external integrations MVP. Future: auth provider, DB.\n- Data model: Feature {id, title, votes}. Simple REST-like ops for future.",
+      "Implementation": "Summary for Implementation:\n- Agile, 1 dev + 1 reviewer. Prioritize MVP features first.\n- Branch strategy: main + feature branches; PR + CI on push.",
+      "Testing": "Summary for Testing:\n- Unit tests for business rules; smoke tests for web app endpoints (where applicable).\n- No external QA env needed; use local run and CI.",
+      "Deployment": "Summary for Deployment:\n- CI on GitHub Actions to run pytest.\n- Later: deploy to Streamlit Cloud or containerize for cloud run.",
+      "Maintenance": "Summary for Maintenance:\n- Basic logs; no paging/on-call. Track issues via GitHub.\n- Manual monitoring of KPIs weekly."
+    },
+    "phases": [
+      "Planning",
+      "Requirements",
+      "Design",
+      "Implementation",
+      "Testing",
+      "Deployment",
+      "Maintenance"
+    ],
+    "generated_at": "2025-09-16T13:38:56.413663Z"
+  },
+  "artifacts": {
+    "ProjectCharter.md": "# Project Charter\n\n## Project Overview\n- Title: Feature Voting Web App\n- Generated: 2025-09-16T13:38:56.485157Z\n\n## Purpose and Justification\nSummary for Planning:\n- Build a simple web app where users can propose features and upvote them.\n- Stakeholders: PM, small dev team, early adopters.\n- Timeline: MVP in 2 weeks, public beta in 1 month.\n\n## Objectives\n- Define the main goal, stakeholders, and timeline.\n\n## Stakeholders\n- Stakeholders: PM, small dev team, early adopters.\n\n## Timeline (High-Level)\n- Timeline: MVP in 2 weeks, public beta in 1 month.\n\n## Success Criteria\n- KPI: number of submitted features, vote activity per day, retention week-1.\n\n## Risks and Assumptions\n- TBD",
+    "SRS.md": "# Software Requirements Specification (SRS)\n\n- Standard: IEEE 29148 (adapted)\n- Generated: 2025-09-16T13:38:56.519395Z\n\n## 1. Introduction\n### 1.1 Purpose\nProvide a detailed description of the software requirements.\n\n### 1.2 Scope\nSummary for Planning:\n- Build a simple web app where users can propose features and upvote them.\n- Stakeholders: PM, small dev team, early adopters.\n- Timeline: MVP in 2 weeks, public beta in 1 month.\n\n### 1.3 Definitions, Acronyms, and Abbreviations\n- TBD\n\n## 2. Overall Description\n### 2.1 Product Perspective\nSummary for Design:\n- Tech: Python Streamlit for UI; optional FastAPI backend; in-memory store for MVP.\n- No external integrations MVP. Future: auth provider, DB.\n- Data model: Feature {id, title, votes}. Simple REST-like ops for future.\n\n### 2.2 Product Functions\n- MVP features: create feature, upvote, list sorted by votes, delete feature (admin).\n- Non-functional: fast page load (<1s), no PII, persistence not required in MVP.\n- KPI: number of submitted features, vote activity per day, retention week-1.\n\n### 2.3 User Classes and Characteristics\n- Stakeholders/Users: Stakeholders: PM, small dev team, early adopters.\n\n### 2.4 Operating Environment\n- TBD\n\n## 3. External Interface Requirements\n- APIs / Integrations: No external integrations MVP. Future: auth provider, DB.\n\n## 4. System Features\n### 4.1 Feature\n- Description: MVP features: create feature, upvote, list sorted by votes, delete feature (admin).\n- Priority: TBD\n- Acceptance Criteria: TBD\n### 4.2 Feature\n- Description: Non-functional: fast page load (<1s), no PII, persistence not required in MVP.\n- Priority: TBD\n- Acceptance Criteria: TBD\n### 4.3 Feature\n- Description: KPI: number of submitted features, vote activity per day, retention week-1.\n- Priority: TBD\n- Acceptance Criteria: TBD\n\n## 5. Nonfunctional Requirements\n- Performance / Security / Compliance: Non-functional: fast page load (<1s), no PII, persistence not required in MVP.\n\n## 6. Other Requirements\n- Success Metrics: KPI: number of submitted features, vote activity per day, retention week-1.",
+    "SDD.md": "# Software Design Description (SDD)\n\n- Standard: IEEE 1016 (adapted)\n- Generated: 2025-09-16T13:38:56.552695Z\n\n## 1. Introduction\n### 1.1 Purpose\nDescribe the architecture and detailed design of the system.\n\n### 1.2 Scope\nSummary for Design:\n- Tech: Python Streamlit for UI; optional FastAPI backend; in-memory store for MVP.\n- No external integrations MVP. Future: auth provider, DB.\n- Data model: Feature {id, title, votes}. Simple REST-like ops for future.\n\n## 2. System Overview\n### 2.1 Architectural Context\n- Architecture/Stack Constraints: Tech: Python Streamlit for UI; optional FastAPI backend; in-memory store for MVP.\n- Integrations/External Systems: No external integrations MVP. Future: auth provider, DB.\n\n### 2.2 Components\n- TBD\n\n## 3. Detailed Design\n### 3.1 Data Model\n- Considerations: Data model: Feature {id, title, votes}. Simple REST-like ops for future.\n\n### 3.2 Interfaces\n- APIs and contracts: TBD\n\n### 3.3 Error Handling and Logging\n- TBD\n\n## 4. Quality Attributes\n- Performance, Security, Reliability: Non-functional: fast page load (<1s), no PII, persistence not required in MVP.",
+    "TestPlan.md": "# Test Plan\n\n- Standard: IEEE 829 / ISO/IEC/IEEE 29119 (adapted)\n- Generated: 2025-09-16T13:38:56.584251Z\n\n## 1. Introduction\n### 1.1 Purpose\nDefine the objectives, resources, and processes for testing the product.\n\n### 1.2 Scope\nSummary for Testing:\n- Unit tests for business rules; smoke tests for web app endpoints (where applicable).\n- No external QA env needed; use local run and CI.\n\n## 2. Test Items\n- Features under test:\n- MVP features: create feature, upvote, list sorted by votes, delete feature (admin).\n- Non-functional: fast page load (<1s), no PII, persistence not required in MVP.\n- KPI: number of submitted features, vote activity per day, retention week-1.\n\n## 3. Features to be Tested\n- As listed above; prioritized based on MVP and risk.\n\n## 4. Features Not to Be Tested\n- TBD\n\n## 5. Approach\n- Strategy (unit/integration/e2e): Unit tests for business rules; smoke tests for web app endpoints (where applicable).\n- Environments / Test Data: No external QA env needed; use local run and CI.\n\n## 6. Pass/Fail Criteria\n- Acceptance Criteria derived per feature in SRS.\n\n## 7. Suspension Criteria and Resumption Requirements\n- TBD\n\n## 8. Test Deliverables\n- Test cases, results, defect reports, coverage reports.\n\n## 9. Testing Tasks\n- TBD\n\n## 10. Responsibilities\n- Team roles: Agile, 1 dev + 1 reviewer. Prioritize MVP features first.\n\n## 11. Schedule\n- Aligned with project timeline: Timeline: MVP in 2 weeks, public beta in 1 month.\n\n## 12. Risks and Contingencies\n- TBD"
+  }
+}

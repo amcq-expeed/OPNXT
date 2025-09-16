@@ -1,0 +1,67 @@
+name: Render PDFs from Markdown
+
+on:
+  workflow_dispatch: {}
+  push:
+    branches: [ main ]
+    paths:
+      - 'docs/**/*.md'
+      - '.github/workflows/render-pdfs.yml'
+      - 'templates/pandoc/**'
+
+jobs:
+  build-pdfs:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Pandoc
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pandoc
+
+      - name: Install wkhtmltopdf
+        run: |
+          sudo apt-get install -y wkhtmltopdf
+
+      - name: Create output directory
+        run: |
+          mkdir -p docs/pdf
+
+      - name: Render PDFs from docs/*.md
+        shell: bash
+        run: |
+          set -euo pipefail
+          CSS="templates/pandoc/style.css"
+          shopt -s nullglob
+          for f in docs/*.md; do
+            base=$(basename "$f" .md)
+            out="docs/pdf/${base}.pdf"
+            echo "Rendering $f -> $out"
+            pandoc -s "$f" -t html5 ${CSS:+-c "$CSS"} \
+              --metadata title="$base" \
+              --pdf-engine=wkhtmltopdf \
+              -o "$out"
+          done
+
+      - name: Upload PDFs artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sdlc-pdfs
+          path: docs/pdf/*.pdf
+          if-no-files-found: warn
+
+      - name: Commit PDFs back to repo (optional)
+        if: ${{ github.ref == 'refs/heads/main' }}
+        run: |
+          if [ -n "$(git status --porcelain docs/pdf)" ]; then
+            git config user.name "github-actions"
+            git config user.email "github-actions@users.noreply.github.com"
+            git add docs/pdf
+            git commit -m "chore(ci): render PDFs from Markdown"
+            git push
+          else
+            echo "No PDF changes to commit."

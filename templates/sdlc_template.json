@@ -1,0 +1,16 @@
+{
+  "project_name": "",
+  "overview": "",
+  "requirements": [
+    { "id": "FR-1", "description": "", "priority": "must" }
+  ],
+  "architecture": {
+    "diagram": "",
+    "components": []
+  },
+  "risks": [],
+  "assumptions": [],
+  "milestones": [
+    { "name": "", "due": "" }
+  ]
+}
