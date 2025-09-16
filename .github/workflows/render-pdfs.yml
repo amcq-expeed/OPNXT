@@ -65,3 +65,55 @@ jobs:
             git push
           else
             echo "No PDF changes to commit."
+
+  build-pdfs-latex:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Pandoc and TeX Live (XeLaTeX)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pandoc texlive-latex-recommended texlive-fonts-recommended texlive-latex-extra
+
+      - name: Create output directory
+        run: |
+          mkdir -p docs/pdf-latex
+
+      - name: Render PDFs from docs/*.md with XeLaTeX
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          for f in docs/*.md; do
+            base=$(basename "$f" .md)
+            out="docs/pdf-latex/${base}.pdf"
+            echo "Rendering (LaTeX) $f -> $out"
+            pandoc -s "$f" \
+              --metadata title="$base" \
+              --pdf-engine=xelatex \
+              -V geometry:margin=1in \
+              -o "$out"
+          done
+
+      - name: Upload PDFs (LaTeX) artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sdlc-pdfs-latex
+          path: docs/pdf-latex/*.pdf
+          if-no-files-found: warn
+
+      - name: Commit LaTeX PDFs back to repo (optional)
+        if: ${{ github.ref == 'refs/heads/main' }}
+        run: |
+          if [ -n "$(git status --porcelain docs/pdf-latex)" ]; then
+            git config user.name "github-actions"
+            git config user.email "github-actions@users.noreply.github.com"
+            git add docs/pdf-latex
+            git commit -m "chore(ci): render PDFs from Markdown (LaTeX)"
+            git push
+          else
+            echo "No LaTeX PDF changes to commit."
