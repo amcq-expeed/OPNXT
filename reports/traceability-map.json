@@ -1,0 +1,151 @@
+{
+  "source_of_truth": [
+    "docs/Claude/orchestrator_charter.md",
+    "docs/Claude/orchestrator_brd.md",
+    "docs/Claude/orchestrator_srs.md",
+    "docs/Claude/orchestrator_tdd.md",
+    "docs/Claude/ai_sdlc_platform_architecture.md",
+    "docs/Claude/orchestrator_backlog.md"
+  ],
+  "map": {
+    "FR-001": {
+      "title": "User Registration",
+      "status": "present",
+      "code": [
+        "src/orchestrator/api/routers/auth.py"
+      ]
+    },
+    "FR-002": {
+      "title": "Authentication (JWT)",
+      "status": "present",
+      "code": [
+        "src/orchestrator/api/routers/auth.py",
+        "src/orchestrator/security/auth.py",
+        "src/orchestrator/security/rbac.py"
+      ]
+    },
+    "FR-003": {
+      "title": "Project Creation API",
+      "status": "present",
+      "code": [
+        "src/orchestrator/api/routers/projects.py",
+        "src/orchestrator/domain/models.py",
+        "src/orchestrator/infrastructure/repository.py"
+      ]
+    },
+    "FR-004": {
+      "title": "Project State Management",
+      "status": "present",
+      "code": [
+        "src/orchestrator/core/state_machine.py",
+        "src/orchestrator/api/routers/projects.py",
+        "src/orchestrator/domain/models.py",
+        "src/orchestrator/infrastructure/repository.py"
+      ]
+    },
+    "FR-005": {
+      "title": "Agent Selection",
+      "status": "partial",
+      "code": [
+        "src/discovery_agent.py",
+        "src/orchestrator/api/routers/agents.py",
+        "src/orchestrator/infrastructure/agent_repository.py",
+        "src/orchestrator/domain/agent_models.py"
+      ]
+    },
+    "FR-006": {
+      "title": "Context Management",
+      "status": "missing",
+      "code": []
+    },
+    "FR-007": {
+      "title": "Agent Communication",
+      "status": "missing",
+      "code": []
+    },
+    "FR-008": {
+      "title": "Document Generation",
+      "status": "present",
+      "code": [
+        "src/sdlc_generator.py"
+      ]
+    },
+    "FR-009": {
+      "title": "Document Version Control",
+      "status": "missing",
+      "code": []
+    },
+    "FR-010": {
+      "title": "Document Storage (DB/GridFS)",
+      "status": "missing",
+      "code": []
+    },
+    "FR-011": {
+      "title": "Requirements Traceability",
+      "status": "present",
+      "code": [
+        "src/orchestrator/tools/traceability.py"
+      ]
+    },
+    "FR-012": {
+      "title": "Change Impact Analysis",
+      "status": "missing",
+      "code": []
+    },
+    "FR-013": {
+      "title": "Dashboard UI",
+      "status": "present",
+      "code": [
+        "frontend/pages/projects.tsx",
+        "frontend/pages/projects/[id].tsx",
+        "frontend/pages/agents.tsx",
+        "frontend/pages/login.tsx",
+        "frontend/lib/api.ts"
+      ]
+    },
+    "FR-014": {
+      "title": "Chat Interface",
+      "status": "present",
+      "code": [
+        "frontend/pages/projects/[id].tsx"
+      ]
+    },
+    "FR-015": {
+      "title": "Document Viewer",
+      "status": "present",
+      "code": [
+        "frontend/pages/projects/[id].tsx"
+      ]
+    },
+    "FR-016": {
+      "title": "LLM Integration (OpenAI/Claude)",
+      "status": "present",
+      "code": [
+        "src/orchestrator/services/doc_ai.py"
+      ]
+    },
+    "FR-017": {
+      "title": "Webhook Support",
+      "status": "missing",
+      "code": []
+    }
+  },
+  "nfr": {
+    "jwt": "present",
+    "rbac": "present",
+    "tls": "missing",
+    "observability": "present",
+    "p95_latency_ms": {
+      "targets": {
+        "chat": 3000,
+        "doc_gen": 10000,
+        "dashboard": 2000
+      },
+      "measurement": "metrics_exposed"
+    },
+    "tests": {
+      "coverage_target": 80,
+      "current": 82.7
+    }
+  }
+}

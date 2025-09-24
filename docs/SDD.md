@@ -1,29 +1,36 @@
 # Software Design Description (SDD)
 
 - Standard: IEEE 1016 (adapted)
-- Generated: 2025-09-16T13:38:56.552695Z
+- Generated: 2025-09-17T17:52:24.137061Z
 
 ## 1. Introduction
 ### 1.1 Purpose
 Describe the architecture and detailed design of the system.
 
 ### 1.2 Scope
-Summary for Design:
-- Tech: Python Streamlit for UI; optional FastAPI backend; in-memory store for MVP.
-- No external integrations MVP. Future: auth provider, DB.
-- Data model: Feature {id, title, votes}. Simple REST-like ops for future.
+Design summary based on inputs:
+- Technical consideration: Built on Apptor low-code platform
+- Technical consideration: CRUD operations for all major entities
+- Technical consideration: Integration capabilities for social media feeds
+- Technical consideration: Email automation functionality
+- Technical consideration: Search and filtering capabilities
+- Technical consideration: Media storage for event documentation
+- Platform: Apptor low-code. Model-driven CRUD for entities.
+- Entities: Event, Host, Request, Sponsor, Conference, User.
+- Integrations: Email service, social media aggregation, storage for media artifacts.
+- Search: Location + filters by type/date, directory lookup.
 
 ## 2. System Overview
 ### 2.1 Architectural Context
-- Architecture/Stack Constraints: Tech: Python Streamlit for UI; optional FastAPI backend; in-memory store for MVP.
-- Integrations/External Systems: No external integrations MVP. Future: auth provider, DB.
+- Architecture/Stack Constraints: Technical consideration: Built on Apptor low-code platform
+- Integrations/External Systems: Technical consideration: CRUD operations for all major entities
 
 ### 2.2 Components
 - TBD
 
 ## 3. Detailed Design
 ### 3.1 Data Model
-- Considerations: Data model: Feature {id, title, votes}. Simple REST-like ops for future.
+- Considerations: Technical consideration: Integration capabilities for social media feeds
 
 ### 3.2 Interfaces
 - APIs and contracts: TBD
@@ -32,4 +39,4 @@ Summary for Design:
 - TBD
 
 ## 4. Quality Attributes
-- Performance, Security, Reliability: Non-functional: fast page load (<1s), no PII, persistence not required in MVP.
+- Performance, Security, Reliability: The system SHALL support event type: Field trips.

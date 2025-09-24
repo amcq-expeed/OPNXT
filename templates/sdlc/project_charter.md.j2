@@ -11,15 +11,15 @@
 - Define the main goal, stakeholders, and timeline.
 
 ## Stakeholders
-{% set stakeholders = answers.get('Planning', [])[1] if answers.get('Planning')|length > 1 else '' %}
+{% set stakeholders = answers.get('Planning', [])[1] if (answers.get('Planning', [])|length) > 1 else '' %}
 - {{ stakeholders or 'TBD' }}
 
 ## Timeline (High-Level)
-{% set timeline = answers.get('Planning', [])[2] if answers.get('Planning')|length > 2 else '' %}
+{% set timeline = answers.get('Planning', [])[2] if (answers.get('Planning', [])|length) > 2 else '' %}
 - {{ timeline or 'TBD' }}
 
 ## Success Criteria
-- {{ (answers.get('Requirements', [])[2] if answers.get('Requirements')|length > 2 else 'TBD') }}
+- {{ (answers.get('Requirements', [])[2] if (answers.get('Requirements', [])|length) > 2 else 'TBD') }}
 
 ## Risks and Assumptions
 - TBD

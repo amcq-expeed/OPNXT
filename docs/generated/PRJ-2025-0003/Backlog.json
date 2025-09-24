@@ -1,0 +1,87 @@
+{
+  "Epics": [
+    {
+      "Title": "Event Management",
+      "Description": "Develop a CRUD event management application to support Ohio Tech Day activities.",
+      "Features": [
+        {
+          "Title": "Create Event",
+          "Description": "Allow administrators to create new events."
+        },
+        {
+          "Title": "Read Event",
+          "Description": "Allow administrators to view existing events."
+        },
+        {
+          "Title": "Update Event",
+          "Description": "Allow administrators to update details of existing events."
+        },
+        {
+          "Title": "Delete Event",
+          "Description": "Allow administrators to delete events."
+        }
+      ],
+      "UserStories": [
+        {
+          "Title": "Create Event",
+          "AsA": "administrator",
+          "IWant": "to create a new event",
+          "SoThat": "I can manage event details",
+          "AcceptanceCriteria": [
+            "Given I am on the event creation page, When I fill in the event details and submit, Then the event should be created and displayed in the event list.",
+            "And I should receive a confirmation message.",
+            "And the event should be stored in the database.",
+            "And the event should be accessible via the event list."
+          ]
+        },
+        {
+          "Title": "Read Event",
+          "AsA": "administrator",
+          "IWant": "to view existing events",
+          "SoThat": "I can manage them effectively",
+          "AcceptanceCriteria": [
+            "Given I am on the event list page, When I view the list of events, Then I should see all created events with their details.",
+            "And I should be able to click on an event to view more details.",
+            "And the events should be sorted by date."
+          ]
+        },
+        {
+          "Title": "Update Event",
+          "AsA": "administrator",
+          "IWant": "to update an existing event",
+          "SoThat": "I can change its details",
+          "AcceptanceCriteria": [
+            "Given I am on the event details page, When I modify the event details and submit, Then the event should be updated in the database.",
+            "And I should see the updated details on the event list page.",
+            "And I should receive a confirmation message."
+          ]
+        },
+        {
+          "Title": "Delete Event",
+          "AsA": "administrator",
+          "IWant": "to delete an event",
+          "SoThat": "I can remove it from the system",
+          "AcceptanceCriteria": [
+            "Given I am on the event list page, When I select an event and choose to delete it, Then the event should be removed from the database.",
+            "And I should receive a confirmation message.",
+            "And the event should no longer appear in the event list."
+          ]
+        }
+      ],
+      "NonFunctionalRequirements": [
+        {
+          "Type": "Performance",
+          "Description": "The application should load within 2 seconds."
+        },
+        {
+          "Type": "Security",
+          "Description": "User data should be encrypted in transit and at rest."
+        },
+        {
+          "Type": "Compliance",
+          "Description": "The application should comply with relevant data protection regulations."
+        }
+      ]
+    }
+  ]
+}

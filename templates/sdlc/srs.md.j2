@@ -23,13 +23,13 @@ Provide a detailed description of the software requirements.
 {% endfor %}
 
 ### 2.3 User Classes and Characteristics
-- Stakeholders/Users: {{ (answers.get('Planning', [])[1] if answers.get('Planning')|length > 1 else 'TBD') }}
+- Stakeholders/Users: {{ (answers.get('Planning', [])[1] if (answers.get('Planning', [])|length) > 1 else 'TBD') }}
 
 ### 2.4 Operating Environment
 - TBD
 
 ## 3. External Interface Requirements
-- APIs / Integrations: {{ (answers.get('Design', [])[1] if answers.get('Design')|length > 1 else 'TBD') }}
+- APIs / Integrations: {{ (answers.get('Design', [])[1] if (answers.get('Design', [])|length) > 1 else 'TBD') }}
 
 ## 4. System Features
 {% for req in answers.get('Requirements', []) %}
@@ -42,7 +42,7 @@ Provide a detailed description of the software requirements.
 {% endfor %}
 
 ## 5. Nonfunctional Requirements
-- Performance / Security / Compliance: {{ (answers.get('Requirements', [])[1] if answers.get('Requirements')|length > 1 else 'TBD') }}
+- Performance / Security / Compliance: {{ (answers.get('Requirements', [])[1] if (answers.get('Requirements', [])|length) > 1 else 'TBD') }}
 
 ## 6. Other Requirements
-- Success Metrics: {{ (answers.get('Requirements', [])[2] if answers.get('Requirements')|length > 2 else 'TBD') }}
+- Success Metrics: {{ (answers.get('Requirements', [])[2] if (answers.get('Requirements', [])|length) > 2 else 'TBD') }}

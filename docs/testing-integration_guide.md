@@ -2,7 +2,7 @@
 phase_key: Testing
 formal_phase_title: Testing & Integration
 version: 1.0
-generated_at: 2025-09-16T15:24:48.409973Z
+generated_at: 2025-09-18T16:17:04.715000Z
 standards_refs:
   - ISO/IEC/IEEE 12207
   - ISO/IEC/IEEE 29148
@@ -21,9 +21,9 @@ Align with ISO/IEC/IEEE 29119 principles: define levels (unit/integration/e2e), 
 - [ ] Test strategy levels and coverage targets set (ISO/IEC/IEEE 29119)
 - [ ] Test environments and data management defined
 - [ ] Traceability to requirements established
-- [ ] Test Plan produced (docs/TestPlan.md)
+- [x] Test Plan produced (docs/TestPlan.md)
 
 > Note: Checklist items referencing docs/ will be auto-checked when those files exist.
 
 ## Changelog
-- 2025-09-16T15:24:48.409973Z: Generated/updated by OPNXT phase guides.
+- 2025-09-18T16:17:04.715000Z: Generated/updated by OPNXT phase guides.

@@ -1,0 +1,1127 @@
+{
+  "stories": [
+    {
+      "id": "US-001",
+      "epic": "Core Functionality",
+      "title": "Support event type: Class visits",
+      "as_a": "user",
+      "i_want": "support event type: Class visits",
+      "so_that": "achieve the intended outcome",
+      "acceptance_criteria": [
+        "Given a valid context, when the user performs 'support event type: Class visits', then the operation succeeds.",
+        "Given an alternate context, when the user performs 'support event type: Class visits', then the system handles the edge case gracefully.",
+        "Given invalid inputs, when the user performs 'support event type: Class visits', then the system returns a clear validation error.",
+        "Given normal load, when the user performs 'support event type: Class visits', then the response time meets performance targets."
+      ]
+    },
+    {
+      "id": "US-002",
+      "epic": "Core Functionality",
+      "title": "Support event type: Field trips",
+      "as_a": "user",
+      "i_want": "support event type: Field trips",
+      "so_that": "achieve the intended outcome",
+      "acceptance_criteria": [
+        "Given a valid context, when the user performs 'support event type: Field trips', then the operation succeeds.",
+        "Given an alternate context, when the user performs 'support event type: Field trips', then the system handles the edge case gracefully.",
+        "Given invalid inputs, when the user performs 'support event type: Field trips', then the system returns a clear validation error.",
+        "Given normal load, when the user performs 'support event type: Field trips', then the response time meets performance targets."
+      ]
+    },
+    {
+      "id": "US-003",
+      "epic": "Core Functionality",
+      "title": "Support event type: Company visits",
+      "as_a": "user",
+      "i_want": "support event type: Company visits",
+      "so_that": "achieve the intended outcome",
+      "acceptance_criteria": [
+        "Given a valid context, when the user performs 'support event type: Company visits', then the operation succeeds.",
+        "Given an alternate context, when the user performs 'support event type: Company visits', then the system handles the edge case gracefully.",
+        "Given invalid inputs, when the user performs 'support event type: Company visits', then the system returns a clear validation error.",
+        "Given normal load, when the user performs 'support event type: Company visits', then the response time meets performance targets."
+      ]
+    },
+    {
+      "id": "US-004",
+      "epic": "Core Functionality",
+      "title": "Support event type: Virtual events",
+      "as_a": "user",
+      "i_want": "support event type: Virtual events",
+      "so_that": "achieve the intended outcome",
+      "acceptance_criteria": [
+        "Given a valid context, when the user performs 'support event type: Virtual events', then the operation succeeds.",
+        "Given an alternate context, when the user performs 'support event type: Virtual events', then the system handles the edge case gracefully.",
+        "Given invalid inputs, when the user performs 'support event type: Virtual events', then the system returns a clear validation error.",
+        "Given normal load, when the user performs 'support event type: Virtual events', then the response time meets performance targets."
+      ]
+    },
+    {
+      "id": "US-005",
+      "epic": "Core Functionality",
+      "title": "Support event type: Miscellaneous activities",
+      "as_a": "user",
+      "i_want": "support event type: Miscellaneous activities",
+      "so_that": "achieve the intended outcome",
+      "acceptance_criteria": [
+        "Given a valid context, when the user performs 'support event type: Miscellaneous activities', then the operation succeeds.",
+        "Given an alternate context, when the user performs 'support event type: Miscellaneous activities', then the system handles the edge case gracefully.",
+        "Given invalid inputs, when the user performs 'support event type: Miscellaneous activities', then the system returns a clear validation error.",
+        "Given normal load, when the user performs 'support event type: Miscellaneous activities', then the response time meets performance targets."
+      ]
+    },
+    {
+      "id": "US-006",
+      "epic": "Core Functionality",
+      "title": "Store event data field: Event type classification",
+      "as_a": "user",
+      "i_want": "store event data field: Event type classification",
+      "so_that": "achieve the intended outcome",
+      "acceptance_criteria": [
+        "Given a valid context, when the user performs 'store event data field: Event type classification', then the operation succeeds.",
+        "Given an alternate context, when the user performs 'store event data field: Event type classification', then the system handles the edge case gracefully.",
+        "Given invalid inputs, when the user performs 'store event data field: Event type classification', then the system returns a clear validation error.",
+        "Given normal load, when the user performs 'store event data field: Event type classification', then the response time meets performance targets."
+      ]
+    },
+    {
+      "id": "US-007",
+      "epic": "Core Functionality",
+      "title": "Store event data field: Host information",
+      "as_a": "user",
+      "i_want": "store event data field: Host information",
+      "so_that": "achieve the intended outcome",
+      "acceptance_criteria": [
+        "Given a valid context, when the user performs 'store event data field: Host information', then the operation succeeds.",
+        "Given an alternate context, when the user performs 'store event data field: Host information', then the system handles the edge case gracefully.",
+        "Given invalid inputs, when the user performs 'store event data field: Host information', then the system returns a clear validation error.",
+        "Given normal load, when the user performs 'store event data field: Host information', then the response time meets performance targets."
+      ]
+    },
+    {
+      "id": "US-008",
+      "epic": "Core Functionality",
+      "title": "Store event data field: Date/time details",
+      "as_a": "user",
+      "i_want": "store event data field: Date/time details",
+      "so_that": "achieve the intended outcome",
+      "acceptance_criteria": [
+        "Given a valid context, when the user performs 'store event data field: Date/time details', then the operation succeeds.",
+        "Given an alternate context, when the user performs 'store event data field: Date/time details', then the system handles the edge case gracefully.",
+        "Given invalid inputs, when the user performs 'store event data field: Date/time details', then the system returns a clear validation error.",
+        "Given normal load, when the user performs 'store event data field: Date/time details', then the response time meets performance targets."
+      ]
+    },
+    {
+      "id": "US-009",
+      "epic": "Core Functionality",
+      "title": "Store event data field: Location/venue",
+      "as_a": "user",
+      "i_want": "store event data field: Location/venue",
+      "so_that": "achieve the intended outcome",
+      "acceptance_criteria": [
+        "Given a valid context, when the user performs 'store event data field: Location/venue', then the operation succeeds.",
+        "Given an alternate context, when the user performs 'store event data field: Location/venue', then the system handles the edge case gracefully.",
+        "Given invalid inputs, when the user performs 'store event data field: Location/venue', then the system returns a clear validation error.",
+        "Given normal load, when the user performs 'store event data field: Location/venue', then the response time meets performance targets."
+      ]
+    },
+    {
+      "id": "US-010",
+      "epic": "Core Functionality",
+      "title": "Store event data field: Description and requirements",
+      "as_a": "user",
+      "i_want": "store event data field: Description and requirements",
+      "so_that": "achieve the intended outcome",
+      "acceptance_criteria": [
+        "Given a valid context, when the user performs 'store event data field: Description and requirements', then the operation succeeds.",
+        "Given an alternate context, when the user performs 'store event data field: Description and requirements', then the system handles the edge case gracefully.",
+        "Given invalid inputs, when the user performs 'store event data field: Description and requirements', then the system returns a clear validation error.",
+        "Given normal load, when the user performs 'store event data field: Description and requirements', then the response time meets performance targets."
+      ]
+    },
+    {
+      "id": "US-011",
+      "epic": "Core Functionality",
+      "title": "Maintain host profile field: Organization name",
+      "as_a": "user",
+      "i_want": "maintain host profile field: Organization name",
+      "so_that": "achieve the intended outcome",
+      "acceptance_criteria": [
+        "Given a valid context, when the user performs 'maintain host profile field: Organization name', then the operation succeeds.",
+        "Given an alternate context, when the user performs 'maintain host profile field: Organization name', then the system handles the edge case gracefully.",
+        "Given invalid inputs, when the user performs 'maintain host profile field: Organization name', then the system returns a clear validation error.",
+        "Given normal load, when the user performs 'maintain host profile field: Organization name', then the response time meets performance targets."
+      ]
+    },
+    {
+      "id": "US-012",
+      "epic": "Core Functionality",
+      "title": "Maintain host profile field: County location",
+      "as_a": "user",
+      "i_want": "maintain host profile field: County location",
+      "so_that": "achieve the intended outcome",
+      "acceptance_criteria": [
+        "Given a valid context, when the user performs 'maintain host profile field: County location', then the operation succeeds.",
+        "Given an alternate context, when the user performs 'maintain host profile field: County location', then the system handles the edge case gracefully.",
+        "Given invalid inputs, when the user performs 'maintain host profile field: County location', then the system returns a clear validation error.",
+        "Given normal load, when the user performs 'maintain host profile field: County location', then the response time meets performance targets."
+      ]
+    },
+    {
+      "id": "US-013",
+      "epic": "Core Functionality",
+      "title": "Maintain host profile field: Website URL",
+      "as_a": "user",
+      "i_want": "maintain host profile field: Website URL",
+      "so_that": "achieve the intended outcome",
+      "acceptance_criteria": [
+        "Given a valid context, when the user performs 'maintain host profile field: Website URL', then the operation succeeds.",
+        "Given an alternate context, when the user performs 'maintain host profile field: Website URL', then the system handles the edge case gracefully.",
+        "Given invalid inputs, when the user performs 'maintain host profile field: Website URL', then the system returns a clear validation error.",
+        "Given normal load, when the user performs 'maintain host profile field: Website URL', then the response time meets performance targets."
+      ]
+    },
+    {
+      "id": "US-014",
+      "epic": "Core Functionality",
+      "title": "Maintain host profile field: Industry classification",
+      "as_a": "user",
+      "i_want": "maintain host profile field: Industry classification",
+      "so_that": "achieve the intended outcome",
+      "acceptance_criteria": [
+        "Given a valid context, when the user performs 'maintain host profile field: Industry classification', then the operation succeeds.",
+        "Given an alternate context, when the user performs 'maintain host profile field: Industry classification', then the system handles the edge case gracefully.",
+        "Given invalid inputs, when the user performs 'maintain host profile field: Industry classification', then the system returns a clear validation error.",
+        "Given normal load, when the user performs 'maintain host profile field: Industry classification', then the response time meets performance targets."
+      ]
+    },
+    {
+      "id": "US-015",
+      "epic": "Core Functionality",
+      "title": "Maintain host profile field: Organization type (Company vs Non-Profit)",
+      "as_a": "user",
+      "i_want": "maintain host profile field: Organization type (Company vs Non-Profit)",
+      "so_that": "achieve the intended outcome",
+      "acceptance_criteria": [
+        "Given a valid context, when the user performs 'maintain host profile field: Organization type (Company vs Non-Profit)', then the operation succeeds.",
+        "Given an alternate context, when the user performs 'maintain host profile field: Organization type (Company vs Non-Profit)', then the system handles the edge case gracefully.",
+        "Given invalid inputs, when the user performs 'maintain host profile field: Organization type (Company vs Non-Profit)', then the system returns a clear validation error.",
+        "Given normal load, when the user performs 'maintain host profile field: Organization type (Company vs Non-Profit)', then the response time meets performance targets."
+      ]
+    },
+    {
+      "id": "US-016",
+      "epic": "Core Functionality",
+      "title": "Support request type: School visit requests (companies visiting schools)",
+      "as_a": "user",
+      "i_want": "support request type: School visit requests (companies visiting schools)",
+      "so_that": "achieve the intended outcome",
+      "acceptance_criteria": [
+        "Given a valid context, when the user performs 'support request type: School visit requests (companies visiting schools)', then the operation succeeds.",
+        "Given an alternate context, when the user performs 'support request type: School visit requests (companies visiting schools)', then the system handles the edge case gracefully.",
+        "Given invalid inputs, when the user performs 'support request type: School visit requests (companies visiting schools)', then the system returns a clear validation error.",
+        "Given normal load, when the user performs 'support request type: School visit requests (companies visiting schools)', then the response time meets performance targets."
+      ]
+    },
+    {
+      "id": "US-017",
+      "epic": "Core Functionality",
+      "title": "Support request type: Reverse visit requests (schools visiting companies)",
+      "as_a": "user",
+      "i_want": "support request type: Reverse visit requests (schools visiting companies)",
+      "so_that": "achieve the intended outcome",
+      "acceptance_criteria": [
+        "Given a valid context, when the user performs 'support request type: Reverse visit requests (schools visiting companies)', then the operation succeeds.",
+        "Given an alternate context, when the user performs 'support request type: Reverse visit requests (schools visiting companies)', then the system handles the edge case gracefully.",
+        "Given invalid inputs, when the user performs 'support request type: Reverse visit requests (schools visiting companies)', then the system returns a clear validation error.",
+        "Given normal load, when the user performs 'support request type: Reverse visit requests (schools visiting companies)', then the response time meets performance targets."
+      ]
+    },
+    {
+      "id": "US-018",
+      "epic": "Core Functionality",
+      "title": "Support request type: Sponsorship requests",
+      "as_a": "user",
+      "i_want": "support request type: Sponsorship requests",
+      "so_that": "achieve the intended outcome",
+      "acceptance_criteria": [
+        "Given a valid context, when the user performs 'support request type: Sponsorship requests', then the operation succeeds.",
+        "Given an alternate context, when the user performs 'support request type: Sponsorship requests', then the system handles the edge case gracefully.",
+        "Given invalid inputs, when the user performs 'support request type: Sponsorship requests', then the system returns a clear validation error.",
+        "Given normal load, when the user performs 'support request type: Sponsorship requests', then the response time meets performance targets."
+      ]
+    },
+    {
+      "id": "US-019",
+      "epic": "Core Functionality",
+      "title": "Provide discovery capability: Location-based event search (\"I'm in Westerville, find me something to do\")",
+      "as_a": "user",
+      "i_want": "provide discovery capability: Location-based event search (\"I'm in Westerville, find me something to do\")",
+      "so_that": "achieve the intended outcome",
+      "acceptance_criteria": [
+        "Given a valid context, when the user performs 'provide discovery capability: Location-based event search (\"I'm in Westerville, find me something to do\")', then the operation succeeds.",
+        "Given an alternate context, when the user performs 'provide discovery capability: Location-based event search (\"I'm in Westerville, find me something to do\")', then the system handles the edge case gracefully.",
+        "Given invalid inputs, when the user performs 'provide discovery capability: Location-based event search (\"I'm in Westerville, find me something to do\")', then the system returns a clear validation error.",
+        "Given normal load, when the user performs 'provide discovery capability: Location-based event search (\"I'm in Westerville, find me something to do\")', then the response time meets performance targets."
+      ]
+    },
+    {
+      "id": "US-020",
+      "epic": "Core Functionality",
+      "title": "Provide discovery capability: Member directory with contact preferences",
+      "as_a": "user",
+      "i_want": "provide discovery capability: Member directory with contact preferences",
+      "so_that": "achieve the intended outcome",
+      "acceptance_criteria": [
+        "Given a valid context, when the user performs 'provide discovery capability: Member directory with contact preferences', then the operation succeeds.",
+        "Given an alternate context, when the user performs 'provide discovery capability: Member directory with contact preferences', then the system handles the edge case gracefully.",
+        "Given invalid inputs, when the user performs 'provide discovery capability: Member directory with contact preferences', then the system returns a clear validation error.",
+        "Given normal load, when the user performs 'provide discovery capability: Member directory with contact preferences', then the response time meets performance targets."
+      ]
+    },
+    {
+      "id": "US-021",
+      "epic": "Core Functionality",
+      "title": "Provide discovery capability: Event filtering by type, location, date",
+      "as_a": "user",
+      "i_want": "provide discovery capability: Event filtering by type, location, date",
+      "so_that": "achieve the intended outcome",
+      "acceptance_criteria": [
+        "Given a valid context, when the user performs 'provide discovery capability: Event filtering by type, location, date', then the operation succeeds.",
+        "Given an alternate context, when the user performs 'provide discovery capability: Event filtering by type, location, date', then the system handles the edge case gracefully.",
+        "Given invalid inputs, when the user performs 'provide discovery capability: Event filtering by type, location, date', then the system returns a clear validation error.",
+        "Given normal load, when the user performs 'provide discovery capability: Event filtering by type, location, date', then the response time meets performance targets."
+      ]
+    },
+    {
+      "id": "US-022",
+      "epic": "Core Functionality",
+      "title": "Support sponsorship capability: Sponsor profile creation",
+      "as_a": "user",
+      "i_want": "support sponsorship capability: Sponsor profile creation",
+      "so_that": "achieve the intended outcome",
+      "acceptance_criteria": [
+        "Given a valid context, when the user performs 'support sponsorship capability: Sponsor profile creation', then the operation succeeds.",
+        "Given an alternate context, when the user performs 'support sponsorship capability: Sponsor profile creation', then the system handles the edge case gracefully.",
+        "Given invalid inputs, when the user performs 'support sponsorship capability: Sponsor profile creation', then the system returns a clear validation error.",
+        "Given normal load, when the user performs 'support sponsorship capability: Sponsor profile creation', then the response time meets performance targets."
+      ]
+    },
+    {
+      "id": "US-023",
+      "epic": "Core Functionality",
+      "title": "Support sponsorship capability: Sponsorship opportunity matching",
+      "as_a": "user",
+      "i_want": "support sponsorship capability: Sponsorship opportunity matching",
+      "so_that": "achieve the intended outcome",
+      "acceptance_criteria": [
+        "Given a valid context, when the user performs 'support sponsorship capability: Sponsorship opportunity matching', then the operation succeeds.",
+        "Given an alternate context, when the user performs 'support sponsorship capability: Sponsorship opportunity matching', then the system handles the edge case gracefully.",
+        "Given invalid inputs, when the user performs 'support sponsorship capability: Sponsorship opportunity matching', then the system returns a clear validation error.",
+        "Given normal load, when the user performs 'support sponsorship capability: Sponsorship opportunity matching', then the response time meets performance targets."
+      ]
+    },
+    {
+      "id": "US-024",
+      "epic": "Core Functionality",
+      "title": "Support sponsorship capability: Sponsor form completion with option selection",
+      "as_a": "user",
+      "i_want": "support sponsorship capability: Sponsor form completion with option selection",
+      "so_that": "achieve the intended outcome",
+      "acceptance_criteria": [
+        "Given a valid context, when the user performs 'support sponsorship capability: Sponsor form completion with option selection', then the operation succeeds.",
+        "Given an alternate context, when the user performs 'support sponsorship capability: Sponsor form completion with option selection', then the system handles the edge case gracefully.",
+        "Given invalid inputs, when the user performs 'support sponsorship capability: Sponsor form completion with option selection', then the system returns a clear validation error.",
+        "Given normal load, when the user performs 'support sponsorship capability: Sponsor form completion with option selection', then the response time meets performance targets."
+      ]
+    },
+    {
+      "id": "US-025",
+      "epic": "Core Functionality",
+      "title": "Provide email/notification capability: Customizable email templates for different scenarios",
+      "as_a": "user",
+      "i_want": "provide email/notification capability: Customizable email templates for different scenarios",
+      "so_that": "achieve the intended outcome",
+      "acceptance_criteria": [
+        "Given a valid context, when the user performs 'provide email/notification capability: Customizable email templates for different scenarios', then the operation succeeds.",
+        "Given an alternate context, when the user performs 'provide email/notification capability: Customizable email templates for different scenarios', then the system handles the edge case gracefully.",
+        "Given invalid inputs, when the user performs 'provide email/notification capability: Customizable email templates for different scenarios', then the system returns a clear validation error.",
+        "Given normal load, when the user performs 'provide email/notification capability: Customizable email templates for different scenarios', then the response time meets performance targets."
+      ]
+    },
+    {
+      "id": "US-026",
+      "epic": "Core Functionality",
+      "title": "Provide email/notification capability: Automated teacher notifications for sticker programs",
+      "as_a": "user",
+      "i_want": "provide email/notification capability: Automated teacher notifications for sticker programs",
+      "so_that": "achieve the intended outcome",
+      "acceptance_criteria": [
+        "Given a valid context, when the user performs 'provide email/notification capability: Automated teacher notifications for sticker programs', then the operation succeeds.",
+        "Given an alternate context, when the user performs 'provide email/notification capability: Automated teacher notifications for sticker programs', then the system handles the edge case gracefully.",
+        "Given invalid inputs, when the user performs 'provide email/notification capability: Automated teacher notifications for sticker programs', then the system returns a clear validation error.",
+        "Given normal load, when the user performs 'provide email/notification capability: Automated teacher notifications for sticker programs', then the response time meets performance targets."
+      ]
+    },
+    {
+      "id": "US-027",
+      "epic": "Core Functionality",
+      "title": "Provide email/notification capability: Event reminder system for hosts and participants",
+      "as_a": "user",
+      "i_want": "provide email/notification capability: Event reminder system for hosts and participants",
+      "so_that": "achieve the intended outcome",
+      "acceptance_criteria": [
+        "Given a valid context, when the user performs 'provide email/notification capability: Event reminder system for hosts and participants', then the operation succeeds.",
+        "Given an alternate context, when the user performs 'provide email/notification capability: Event reminder system for hosts and participants', then the system handles the edge case gracefully.",
+        "Given invalid inputs, when the user performs 'provide email/notification capability: Event reminder system for hosts and participants', then the system returns a clear validation error.",
+        "Given normal load, when the user performs 'provide email/notification capability: Event reminder system for hosts and participants', then the response time meets performance targets."
+      ]
+    },
+    {
+      "id": "US-028",
+      "epic": "Core Functionality",
+      "title": "Provide email/notification capability: Pre-event instruction emails",
+      "as_a": "user",
+      "i_want": "provide email/notification capability: Pre-event instruction emails",
+      "so_that": "achieve the intended outcome",
+      "acceptance_criteria": [
+        "Given a valid context, when the user performs 'provide email/notification capability: Pre-event instruction emails', then the operation succeeds.",
+        "Given an alternate context, when the user performs 'provide email/notification capability: Pre-event instruction emails', then the system handles the edge case gracefully.",
+        "Given invalid inputs, when the user performs 'provide email/notification capability: Pre-event instruction emails', then the system returns a clear validation error.",
+        "Given normal load, when the user performs 'provide email/notification capability: Pre-event instruction emails', then the response time meets performance targets."
+      ]
+    },
+    {
+      "id": "US-029",
+      "epic": "Core Functionality",
+      "title": "Provide email/notification capability: Follow-up communication templates",
+      "as_a": "user",
+      "i_want": "provide email/notification capability: Follow-up communication templates",
+      "so_that": "achieve the intended outcome",
+      "acceptance_criteria": [
+        "Given a valid context, when the user performs 'provide email/notification capability: Follow-up communication templates', then the operation succeeds.",
+        "Given an alternate context, when the user performs 'provide email/notification capability: Follow-up communication templates', then the system handles the edge case gracefully.",
+        "Given invalid inputs, when the user performs 'provide email/notification capability: Follow-up communication templates', then the system returns a clear validation error.",
+        "Given normal load, when the user performs 'provide email/notification capability: Follow-up communication templates', then the response time meets performance targets."
+      ]
+    },
+    {
+      "id": "US-030",
+      "epic": "Core Functionality",
+      "title": "Provide reporting capability: Daily activity summaries powered by AI",
+      "as_a": "user",
+      "i_want": "provide reporting capability: Daily activity summaries powered by AI",
+      "so_that": "achieve the intended outcome",
+      "acceptance_criteria": [
+        "Given a valid context, when the user performs 'provide reporting capability: Daily activity summaries powered by AI', then the operation succeeds.",
+        "Given an alternate context, when the user performs 'provide reporting capability: Daily activity summaries powered by AI', then the system handles the edge case gracefully.",
+        "Given invalid inputs, when the user performs 'provide reporting capability: Daily activity summaries powered by AI', then the system returns a clear validation error.",
+        "Given normal load, when the user performs 'provide reporting capability: Daily activity summaries powered by AI', then the response time meets performance targets."
+      ]
+    },
+    {
+      "id": "US-031",
+      "epic": "Core Functionality",
+      "title": "Provide reporting capability: Event participation tracking",
+      "as_a": "user",
+      "i_want": "provide reporting capability: Event participation tracking",
+      "so_that": "achieve the intended outcome",
+      "acceptance_criteria": [
+        "Given a valid context, when the user performs 'provide reporting capability: Event participation tracking', then the operation succeeds.",
+        "Given an alternate context, when the user performs 'provide reporting capability: Event participation tracking', then the system handles the edge case gracefully.",
+        "Given invalid inputs, when the user performs 'provide reporting capability: Event participation tracking', then the system returns a clear validation error.",
+        "Given normal load, when the user performs 'provide reporting capability: Event participation tracking', then the response time meets performance targets."
+      ]
+    },
+    {
+      "id": "US-032",
+      "epic": "Core Functionality",
+      "title": "Provide reporting capability: Social media integration (hashtag aggregation)",
+      "as_a": "user",
+      "i_want": "provide reporting capability: Social media integration (hashtag aggregation)",
+      "so_that": "achieve the intended outcome",
+      "acceptance_criteria": [
+        "Given a valid context, when the user performs 'provide reporting capability: Social media integration (hashtag aggregation)', then the operation succeeds.",
+        "Given an alternate context, when the user performs 'provide reporting capability: Social media integration (hashtag aggregation)', then the system handles the edge case gracefully.",
+        "Given invalid inputs, when the user performs 'provide reporting capability: Social media integration (hashtag aggregation)', then the system returns a clear validation error.",
+        "Given normal load, when the user performs 'provide reporting capability: Social media integration (hashtag aggregation)', then the response time meets performance targets."
+      ]
+    },
+    {
+      "id": "US-033",
+      "epic": "Core Functionality",
+      "title": "Provide reporting capability: Screenshot/media archiving from events",
+      "as_a": "user",
+      "i_want": "provide reporting capability: Screenshot/media archiving from events",
+      "so_that": "achieve the intended outcome",
+      "acceptance_criteria": [
+        "Given a valid context, when the user performs 'provide reporting capability: Screenshot/media archiving from events', then the operation succeeds.",
+        "Given an alternate context, when the user performs 'provide reporting capability: Screenshot/media archiving from events', then the system handles the edge case gracefully.",
+        "Given invalid inputs, when the user performs 'provide reporting capability: Screenshot/media archiving from events', then the system returns a clear validation error.",
+        "Given normal load, when the user performs 'provide reporting capability: Screenshot/media archiving from events', then the response time meets performance targets."
+      ]
+    },
+    {
+      "id": "US-034",
+      "epic": "Core Functionality",
+      "title": "Maintain conference data: Year and title",
+      "as_a": "user",
+      "i_want": "maintain conference data: Year and title",
+      "so_that": "achieve the intended outcome",
+      "acceptance_criteria": [
+        "Given a valid context, when the user performs 'maintain conference data: Year and title', then the operation succeeds.",
+        "Given an alternate context, when the user performs 'maintain conference data: Year and title', then the system handles the edge case gracefully.",
+        "Given invalid inputs, when the user performs 'maintain conference data: Year and title', then the system returns a clear validation error.",
+        "Given normal load, when the user performs 'maintain conference data: Year and title', then the response time meets performance targets."
+      ]
+    },
+    {
+      "id": "US-035",
+      "epic": "Core Functionality",
+      "title": "Maintain conference data: Theme and description",
+      "as_a": "user",
+      "i_want": "maintain conference data: Theme and description",
+      "so_that": "achieve the intended outcome",
+      "acceptance_criteria": [
+        "Given a valid context, when the user performs 'maintain conference data: Theme and description', then the operation succeeds.",
+        "Given an alternate context, when the user performs 'maintain conference data: Theme and description', then the system handles the edge case gracefully.",
+        "Given invalid inputs, when the user performs 'maintain conference data: Theme and description', then the system returns a clear validation error.",
+        "Given normal load, when the user performs 'maintain conference data: Theme and description', then the response time meets performance targets."
+      ]
+    },
+    {
+      "id": "US-036",
+      "epic": "Core Functionality",
+      "title": "Maintain conference data: Venue and dates (start/end)",
+      "as_a": "user",
+      "i_want": "maintain conference data: Venue and dates (start/end)",
+      "so_that": "achieve the intended outcome",
+      "acceptance_criteria": [
+        "Given a valid context, when the user performs 'maintain conference data: Venue and dates (start/end)', then the operation succeeds.",
+        "Given an alternate context, when the user performs 'maintain conference data: Venue and dates (start/end)', then the system handles the edge case gracefully.",
+        "Given invalid inputs, when the user performs 'maintain conference data: Venue and dates (start/end)', then the system returns a clear validation error.",
+        "Given normal load, when the user performs 'maintain conference data: Venue and dates (start/end)', then the response time meets performance targets."
+      ]
+    },
+    {
+      "id": "US-037",
+      "epic": "Core Functionality",
+      "title": "Maintain conference data: Pre-event activities",
+      "as_a": "user",
+      "i_want": "maintain conference data: Pre-event activities",
+      "so_that": "achieve the intended outcome",
+      "acceptance_criteria": [
+        "Given a valid context, when the user performs 'maintain conference data: Pre-event activities', then the operation succeeds.",
+        "Given an alternate context, when the user performs 'maintain conference data: Pre-event activities', then the system handles the edge case gracefully.",
+        "Given invalid inputs, when the user performs 'maintain conference data: Pre-event activities', then the system returns a clear validation error.",
+        "Given normal load, when the user performs 'maintain conference data: Pre-event activities', then the response time meets performance targets."
+      ]
+    },
+    {
+      "id": "US-038",
+      "epic": "Core Functionality",
+      "title": "Maintain conference data: During-event activities",
+      "as_a": "user",
+      "i_want": "maintain conference data: During-event activities",
+      "so_that": "achieve the intended outcome",
+      "acceptance_criteria": [
+        "Given a valid context, when the user performs 'maintain conference data: During-event activities', then the operation succeeds.",
+        "Given an alternate context, when the user performs 'maintain conference data: During-event activities', then the system handles the edge case gracefully.",
+        "Given invalid inputs, when the user performs 'maintain conference data: During-event activities', then the system returns a clear validation error.",
+        "Given normal load, when the user performs 'maintain conference data: During-event activities', then the response time meets performance targets."
+      ]
+    },
+    {
+      "id": "US-039",
+      "epic": "Core Functionality",
+      "title": "Maintain conference data: Post-event activities",
+      "as_a": "user",
+      "i_want": "maintain conference data: Post-event activities",
+      "so_that": "achieve the intended outcome",
+      "acceptance_criteria": [
+        "Given a valid context, when the user performs 'maintain conference data: Post-event activities', then the operation succeeds.",
+        "Given an alternate context, when the user performs 'maintain conference data: Post-event activities', then the system handles the edge case gracefully.",
+        "Given invalid inputs, when the user performs 'maintain conference data: Post-event activities', then the system returns a clear validation error.",
+        "Given normal load, when the user performs 'maintain conference data: Post-event activities', then the response time meets performance targets."
+      ]
+    },
+    {
+      "id": "US-040",
+      "epic": "Core Functionality",
+      "title": "- Description: The system SHALL support event type: Class visits",
+      "as_a": "user",
+      "i_want": "- Description: The system SHALL support event type: Class visits",
+      "so_that": "achieve the intended outcome",
+      "acceptance_criteria": [
+        "Given a valid context, when the user performs '- Description: The system SHALL support event type: Class visits', then the operation succeeds.",
+        "Given an alternate context, when the user performs '- Description: The system SHALL support event type: Class visits', then the system handles the edge case gracefully.",
+        "Given invalid inputs, when the user performs '- Description: The system SHALL support event type: Class visits', then the system returns a clear validation error.",
+        "Given normal load, when the user performs '- Description: The system SHALL support event type: Class visits', then the response time meets performance targets."
+      ]
+    },
+    {
+      "id": "US-041",
+      "epic": "Core Functionality",
+      "title": "- Description: The system SHALL support event type: Field trips",
+      "as_a": "user",
+      "i_want": "- Description: The system SHALL support event type: Field trips",
+      "so_that": "achieve the intended outcome",
+      "acceptance_criteria": [
+        "Given a valid context, when the user performs '- Description: The system SHALL support event type: Field trips', then the operation succeeds.",
+        "Given an alternate context, when the user performs '- Description: The system SHALL support event type: Field trips', then the system handles the edge case gracefully.",
+        "Given invalid inputs, when the user performs '- Description: The system SHALL support event type: Field trips', then the system returns a clear validation error.",
+        "Given normal load, when the user performs '- Description: The system SHALL support event type: Field trips', then the response time meets performance targets."
+      ]
+    },
+    {
+      "id": "US-042",
+      "epic": "Core Functionality",
+      "title": "- Description: The system SHALL support event type: Company visits",
+      "as_a": "user",
+      "i_want": "- Description: The system SHALL support event type: Company visits",
+      "so_that": "achieve the intended outcome",
+      "acceptance_criteria": [
+        "Given a valid context, when the user performs '- Description: The system SHALL support event type: Company visits', then the operation succeeds.",
+        "Given an alternate context, when the user performs '- Description: The system SHALL support event type: Company visits', then the system handles the edge case gracefully.",
+        "Given invalid inputs, when the user performs '- Description: The system SHALL support event type: Company visits', then the system returns a clear validation error.",
+        "Given normal load, when the user performs '- Description: The system SHALL support event type: Company visits', then the response time meets performance targets."
+      ]
+    },
+    {
+      "id": "US-043",
+      "epic": "Core Functionality",
+      "title": "- Description: The system SHALL support event type: Virtual events",
+      "as_a": "user",
+      "i_want": "- Description: The system SHALL support event type: Virtual events",
+      "so_that": "achieve the intended outcome",
+      "acceptance_criteria": [
+        "Given a valid context, when the user performs '- Description: The system SHALL support event type: Virtual events', then the operation succeeds.",
+        "Given an alternate context, when the user performs '- Description: The system SHALL support event type: Virtual events', then the system handles the edge case gracefully.",
+        "Given invalid inputs, when the user performs '- Description: The system SHALL support event type: Virtual events', then the system returns a clear validation error.",
+        "Given normal load, when the user performs '- Description: The system SHALL support event type: Virtual events', then the response time meets performance targets."
+      ]
+    },
+    {
+      "id": "US-044",
+      "epic": "Core Functionality",
+      "title": "- Description: The system SHALL support event type: Miscellaneous activities",
+      "as_a": "user",
+      "i_want": "- Description: The system SHALL support event type: Miscellaneous activities",
+      "so_that": "achieve the intended outcome",
+      "acceptance_criteria": [
+        "Given a valid context, when the user performs '- Description: The system SHALL support event type: Miscellaneous activities', then the operation succeeds.",
+        "Given an alternate context, when the user performs '- Description: The system SHALL support event type: Miscellaneous activities', then the system handles the edge case gracefully.",
+        "Given invalid inputs, when the user performs '- Description: The system SHALL support event type: Miscellaneous activities', then the system returns a clear validation error.",
+        "Given normal load, when the user performs '- Description: The system SHALL support event type: Miscellaneous activities', then the response time meets performance targets."
+      ]
+    },
+    {
+      "id": "US-045",
+      "epic": "Core Functionality",
+      "title": "- Description: The system SHALL store event data field: Event type classification",
+      "as_a": "user",
+      "i_want": "- Description: The system SHALL store event data field: Event type classification",
+      "so_that": "achieve the intended outcome",
+      "acceptance_criteria": [
+        "Given a valid context, when the user performs '- Description: The system SHALL store event data field: Event type classification', then the operation succeeds.",
+        "Given an alternate context, when the user performs '- Description: The system SHALL store event data field: Event type classification', then the system handles the edge case gracefully.",
+        "Given invalid inputs, when the user performs '- Description: The system SHALL store event data field: Event type classification', then the system returns a clear validation error.",
+        "Given normal load, when the user performs '- Description: The system SHALL store event data field: Event type classification', then the response time meets performance targets."
+      ]
+    },
+    {
+      "id": "US-046",
+      "epic": "Core Functionality",
+      "title": "- Description: The system SHALL store event data field: Host information",
+      "as_a": "user",
+      "i_want": "- Description: The system SHALL store event data field: Host information",
+      "so_that": "achieve the intended outcome",
+      "acceptance_criteria": [
+        "Given a valid context, when the user performs '- Description: The system SHALL store event data field: Host information', then the operation succeeds.",
+        "Given an alternate context, when the user performs '- Description: The system SHALL store event data field: Host information', then the system handles the edge case gracefully.",
+        "Given invalid inputs, when the user performs '- Description: The system SHALL store event data field: Host information', then the system returns a clear validation error.",
+        "Given normal load, when the user performs '- Description: The system SHALL store event data field: Host information', then the response time meets performance targets."
+      ]
+    },
+    {
+      "id": "US-047",
+      "epic": "Core Functionality",
+      "title": "- Description: The system SHALL store event data field: Date/time details",
+      "as_a": "user",
+      "i_want": "- Description: The system SHALL store event data field: Date/time details",
+      "so_that": "achieve the intended outcome",
+      "acceptance_criteria": [
+        "Given a valid context, when the user performs '- Description: The system SHALL store event data field: Date/time details', then the operation succeeds.",
+        "Given an alternate context, when the user performs '- Description: The system SHALL store event data field: Date/time details', then the system handles the edge case gracefully.",
+        "Given invalid inputs, when the user performs '- Description: The system SHALL store event data field: Date/time details', then the system returns a clear validation error.",
+        "Given normal load, when the user performs '- Description: The system SHALL store event data field: Date/time details', then the response time meets performance targets."
+      ]
+    },
+    {
+      "id": "US-048",
+      "epic": "Core Functionality",
+      "title": "- Description: The system SHALL store event data field: Location/venue",
+      "as_a": "user",
+      "i_want": "- Description: The system SHALL store event data field: Location/venue",
+      "so_that": "achieve the intended outcome",
+      "acceptance_criteria": [
+        "Given a valid context, when the user performs '- Description: The system SHALL store event data field: Location/venue', then the operation succeeds.",
+        "Given an alternate context, when the user performs '- Description: The system SHALL store event data field: Location/venue', then the system handles the edge case gracefully.",
+        "Given invalid inputs, when the user performs '- Description: The system SHALL store event data field: Location/venue', then the system returns a clear validation error.",
+        "Given normal load, when the user performs '- Description: The system SHALL store event data field: Location/venue', then the response time meets performance targets."
+      ]
+    },
+    {
+      "id": "US-049",
+      "epic": "Core Functionality",
+      "title": "- Description: The system SHALL store event data field: Description and requirements",
+      "as_a": "user",
+      "i_want": "- Description: The system SHALL store event data field: Description and requirements",
+      "so_that": "achieve the intended outcome",
+      "acceptance_criteria": [
+        "Given a valid context, when the user performs '- Description: The system SHALL store event data field: Description and requirements', then the operation succeeds.",
+        "Given an alternate context, when the user performs '- Description: The system SHALL store event data field: Description and requirements', then the system handles the edge case gracefully.",
+        "Given invalid inputs, when the user performs '- Description: The system SHALL store event data field: Description and requirements', then the system returns a clear validation error.",
+        "Given normal load, when the user performs '- Description: The system SHALL store event data field: Description and requirements', then the response time meets performance targets."
+      ]
+    },
+    {
+      "id": "US-050",
+      "epic": "Core Functionality",
+      "title": "- Description: The system SHALL maintain host profile field: Organization name",
+      "as_a": "user",
+      "i_want": "- Description: The system SHALL maintain host profile field: Organization name",
+      "so_that": "achieve the intended outcome",
+      "acceptance_criteria": [
+        "Given a valid context, when the user performs '- Description: The system SHALL maintain host profile field: Organization name', then the operation succeeds.",
+        "Given an alternate context, when the user performs '- Description: The system SHALL maintain host profile field: Organization name', then the system handles the edge case gracefully.",
+        "Given invalid inputs, when the user performs '- Description: The system SHALL maintain host profile field: Organization name', then the system returns a clear validation error.",
+        "Given normal load, when the user performs '- Description: The system SHALL maintain host profile field: Organization name', then the response time meets performance targets."
+      ]
+    },
+    {
+      "id": "US-051",
+      "epic": "Core Functionality",
+      "title": "- Description: The system SHALL maintain host profile field: County location",
+      "as_a": "user",
+      "i_want": "- Description: The system SHALL maintain host profile field: County location",
+      "so_that": "achieve the intended outcome",
+      "acceptance_criteria": [
+        "Given a valid context, when the user performs '- Description: The system SHALL maintain host profile field: County location', then the operation succeeds.",
+        "Given an alternate context, when the user performs '- Description: The system SHALL maintain host profile field: County location', then the system handles the edge case gracefully.",
+        "Given invalid inputs, when the user performs '- Description: The system SHALL maintain host profile field: County location', then the system returns a clear validation error.",
+        "Given normal load, when the user performs '- Description: The system SHALL maintain host profile field: County location', then the response time meets performance targets."
+      ]
+    },
+    {
+      "id": "US-052",
+      "epic": "Core Functionality",
+      "title": "- Description: The system SHALL maintain host profile field: Website URL",
+      "as_a": "user",
+      "i_want": "- Description: The system SHALL maintain host profile field: Website URL",
+      "so_that": "achieve the intended outcome",
+      "acceptance_criteria": [
+        "Given a valid context, when the user performs '- Description: The system SHALL maintain host profile field: Website URL', then the operation succeeds.",
+        "Given an alternate context, when the user performs '- Description: The system SHALL maintain host profile field: Website URL', then the system handles the edge case gracefully.",
+        "Given invalid inputs, when the user performs '- Description: The system SHALL maintain host profile field: Website URL', then the system returns a clear validation error.",
+        "Given normal load, when the user performs '- Description: The system SHALL maintain host profile field: Website URL', then the response time meets performance targets."
+      ]
+    },
+    {
+      "id": "US-053",
+      "epic": "Core Functionality",
+      "title": "- Description: The system SHALL maintain host profile field: Industry classification",
+      "as_a": "user",
+      "i_want": "- Description: The system SHALL maintain host profile field: Industry classification",
+      "so_that": "achieve the intended outcome",
+      "acceptance_criteria": [
+        "Given a valid context, when the user performs '- Description: The system SHALL maintain host profile field: Industry classification', then the operation succeeds.",
+        "Given an alternate context, when the user performs '- Description: The system SHALL maintain host profile field: Industry classification', then the system handles the edge case gracefully.",
+        "Given invalid inputs, when the user performs '- Description: The system SHALL maintain host profile field: Industry classification', then the system returns a clear validation error.",
+        "Given normal load, when the user performs '- Description: The system SHALL maintain host profile field: Industry classification', then the response time meets performance targets."
+      ]
+    },
+    {
+      "id": "US-054",
+      "epic": "Core Functionality",
+      "title": "- Description: The system SHALL maintain host profile field: Organization type (Company vs Non-Profit)",
+      "as_a": "user",
+      "i_want": "- Description: The system SHALL maintain host profile field: Organization type (Company vs Non-Profit)",
+      "so_that": "achieve the intended outcome",
+      "acceptance_criteria": [
+        "Given a valid context, when the user performs '- Description: The system SHALL maintain host profile field: Organization type (Company vs Non-Profit)', then the operation succeeds.",
+        "Given an alternate context, when the user performs '- Description: The system SHALL maintain host profile field: Organization type (Company vs Non-Profit)', then the system handles the edge case gracefully.",
+        "Given invalid inputs, when the user performs '- Description: The system SHALL maintain host profile field: Organization type (Company vs Non-Profit)', then the system returns a clear validation error.",
+        "Given normal load, when the user performs '- Description: The system SHALL maintain host profile field: Organization type (Company vs Non-Profit)', then the response time meets performance targets."
+      ]
+    },
+    {
+      "id": "US-055",
+      "epic": "Core Functionality",
+      "title": "- Description: The system SHALL support request type: School visit requests (companies visiting schools)",
+      "as_a": "user",
+      "i_want": "- Description: The system SHALL support request type: School visit requests (companies visiting schools)",
+      "so_that": "achieve the intended outcome",
+      "acceptance_criteria": [
+        "Given a valid context, when the user performs '- Description: The system SHALL support request type: School visit requests (companies visiting schools)', then the operation succeeds.",
+        "Given an alternate context, when the user performs '- Description: The system SHALL support request type: School visit requests (companies visiting schools)', then the system handles the edge case gracefully.",
+        "Given invalid inputs, when the user performs '- Description: The system SHALL support request type: School visit requests (companies visiting schools)', then the system returns a clear validation error.",
+        "Given normal load, when the user performs '- Description: The system SHALL support request type: School visit requests (companies visiting schools)', then the response time meets performance targets."
+      ]
+    },
+    {
+      "id": "US-056",
+      "epic": "Core Functionality",
+      "title": "- Description: The system SHALL support request type: Reverse visit requests (schools visiting companies)",
+      "as_a": "user",
+      "i_want": "- Description: The system SHALL support request type: Reverse visit requests (schools visiting companies)",
+      "so_that": "achieve the intended outcome",
+      "acceptance_criteria": [
+        "Given a valid context, when the user performs '- Description: The system SHALL support request type: Reverse visit requests (schools visiting companies)', then the operation succeeds.",
+        "Given an alternate context, when the user performs '- Description: The system SHALL support request type: Reverse visit requests (schools visiting companies)', then the system handles the edge case gracefully.",
+        "Given invalid inputs, when the user performs '- Description: The system SHALL support request type: Reverse visit requests (schools visiting companies)', then the system returns a clear validation error.",
+        "Given normal load, when the user performs '- Description: The system SHALL support request type: Reverse visit requests (schools visiting companies)', then the response time meets performance targets."
+      ]
+    },
+    {
+      "id": "US-057",
+      "epic": "Core Functionality",
+      "title": "- Description: The system SHALL support request type: Sponsorship requests",
+      "as_a": "user",
+      "i_want": "- Description: The system SHALL support request type: Sponsorship requests",
+      "so_that": "achieve the intended outcome",
+      "acceptance_criteria": [
+        "Given a valid context, when the user performs '- Description: The system SHALL support request type: Sponsorship requests', then the operation succeeds.",
+        "Given an alternate context, when the user performs '- Description: The system SHALL support request type: Sponsorship requests', then the system handles the edge case gracefully.",
+        "Given invalid inputs, when the user performs '- Description: The system SHALL support request type: Sponsorship requests', then the system returns a clear validation error.",
+        "Given normal load, when the user performs '- Description: The system SHALL support request type: Sponsorship requests', then the response time meets performance targets."
+      ]
+    },
+    {
+      "id": "US-058",
+      "epic": "Core Functionality",
+      "title": "- Description: The system SHALL provide discovery capability: Location-based event search (\"I'm in Westerville, find me something to do\")",
+      "as_a": "user",
+      "i_want": "- Description: The system SHALL provide discovery capability: Location-based event search (\"I'm in Westerville, find me something to do\")",
+      "so_that": "achieve the intended outcome",
+      "acceptance_criteria": [
+        "Given a valid context, when the user performs '- Description: The system SHALL provide discovery capability: Location-based event search (\"I'm in Westerville, find me something to do\")', then the operation succeeds.",
+        "Given an alternate context, when the user performs '- Description: The system SHALL provide discovery capability: Location-based event search (\"I'm in Westerville, find me something to do\")', then the system handles the edge case gracefully.",
+        "Given invalid inputs, when the user performs '- Description: The system SHALL provide discovery capability: Location-based event search (\"I'm in Westerville, find me something to do\")', then the system returns a clear validation error.",
+        "Given normal load, when the user performs '- Description: The system SHALL provide discovery capability: Location-based event search (\"I'm in Westerville, find me something to do\")', then the response time meets performance targets."
+      ]
+    },
+    {
+      "id": "US-059",
+      "epic": "Core Functionality",
+      "title": "- Description: The system SHALL provide discovery capability: Member directory with contact preferences",
+      "as_a": "user",
+      "i_want": "- Description: The system SHALL provide discovery capability: Member directory with contact preferences",
+      "so_that": "achieve the intended outcome",
+      "acceptance_criteria": [
+        "Given a valid context, when the user performs '- Description: The system SHALL provide discovery capability: Member directory with contact preferences', then the operation succeeds.",
+        "Given an alternate context, when the user performs '- Description: The system SHALL provide discovery capability: Member directory with contact preferences', then the system handles the edge case gracefully.",
+        "Given invalid inputs, when the user performs '- Description: The system SHALL provide discovery capability: Member directory with contact preferences', then the system returns a clear validation error.",
+        "Given normal load, when the user performs '- Description: The system SHALL provide discovery capability: Member directory with contact preferences', then the response time meets performance targets."
+      ]
+    },
+    {
+      "id": "US-060",
+      "epic": "Core Functionality",
+      "title": "- Description: The system SHALL provide discovery capability: Event filtering by type, location, date",
+      "as_a": "user",
+      "i_want": "- Description: The system SHALL provide discovery capability: Event filtering by type, location, date",
+      "so_that": "achieve the intended outcome",
+      "acceptance_criteria": [
+        "Given a valid context, when the user performs '- Description: The system SHALL provide discovery capability: Event filtering by type, location, date', then the operation succeeds.",
+        "Given an alternate context, when the user performs '- Description: The system SHALL provide discovery capability: Event filtering by type, location, date', then the system handles the edge case gracefully.",
+        "Given invalid inputs, when the user performs '- Description: The system SHALL provide discovery capability: Event filtering by type, location, date', then the system returns a clear validation error.",
+        "Given normal load, when the user performs '- Description: The system SHALL provide discovery capability: Event filtering by type, location, date', then the response time meets performance targets."
+      ]
+    },
+    {
+      "id": "US-061",
+      "epic": "Core Functionality",
+      "title": "- Description: The system SHALL support sponsorship capability: Sponsor profile creation",
+      "as_a": "user",
+      "i_want": "- Description: The system SHALL support sponsorship capability: Sponsor profile creation",
+      "so_that": "achieve the intended outcome",
+      "acceptance_criteria": [
+        "Given a valid context, when the user performs '- Description: The system SHALL support sponsorship capability: Sponsor profile creation', then the operation succeeds.",
+        "Given an alternate context, when the user performs '- Description: The system SHALL support sponsorship capability: Sponsor profile creation', then the system handles the edge case gracefully.",
+        "Given invalid inputs, when the user performs '- Description: The system SHALL support sponsorship capability: Sponsor profile creation', then the system returns a clear validation error.",
+        "Given normal load, when the user performs '- Description: The system SHALL support sponsorship capability: Sponsor profile creation', then the response time meets performance targets."
+      ]
+    },
+    {
+      "id": "US-062",
+      "epic": "Core Functionality",
+      "title": "- Description: The system SHALL support sponsorship capability: Sponsorship opportunity matching",
+      "as_a": "user",
+      "i_want": "- Description: The system SHALL support sponsorship capability: Sponsorship opportunity matching",
+      "so_that": "achieve the intended outcome",
+      "acceptance_criteria": [
+        "Given a valid context, when the user performs '- Description: The system SHALL support sponsorship capability: Sponsorship opportunity matching', then the operation succeeds.",
+        "Given an alternate context, when the user performs '- Description: The system SHALL support sponsorship capability: Sponsorship opportunity matching', then the system handles the edge case gracefully.",
+        "Given invalid inputs, when the user performs '- Description: The system SHALL support sponsorship capability: Sponsorship opportunity matching', then the system returns a clear validation error.",
+        "Given normal load, when the user performs '- Description: The system SHALL support sponsorship capability: Sponsorship opportunity matching', then the response time meets performance targets."
+      ]
+    },
+    {
+      "id": "US-063",
+      "epic": "Core Functionality",
+      "title": "- Description: The system SHALL support sponsorship capability: Sponsor form completion with option selection",
+      "as_a": "user",
+      "i_want": "- Description: The system SHALL support sponsorship capability: Sponsor form completion with option selection",
+      "so_that": "achieve the intended outcome",
+      "acceptance_criteria": [
+        "Given a valid context, when the user performs '- Description: The system SHALL support sponsorship capability: Sponsor form completion with option selection', then the operation succeeds.",
+        "Given an alternate context, when the user performs '- Description: The system SHALL support sponsorship capability: Sponsor form completion with option selection', then the system handles the edge case gracefully.",
+        "Given invalid inputs, when the user performs '- Description: The system SHALL support sponsorship capability: Sponsor form completion with option selection', then the system returns a clear validation error.",
+        "Given normal load, when the user performs '- Description: The system SHALL support sponsorship capability: Sponsor form completion with option selection', then the response time meets performance targets."
+      ]
+    },
+    {
+      "id": "US-064",
+      "epic": "Core Functionality",
+      "title": "- Description: The system SHALL provide email/notification capability: Customizable email templates for different scenarios",
+      "as_a": "user",
+      "i_want": "- Description: The system SHALL provide email/notification capability: Customizable email templates for different scenarios",
+      "so_that": "achieve the intended outcome",
+      "acceptance_criteria": [
+        "Given a valid context, when the user performs '- Description: The system SHALL provide email/notification capability: Customizable email templates for different scenarios', then the operation succeeds.",
+        "Given an alternate context, when the user performs '- Description: The system SHALL provide email/notification capability: Customizable email templates for different scenarios', then the system handles the edge case gracefully.",
+        "Given invalid inputs, when the user performs '- Description: The system SHALL provide email/notification capability: Customizable email templates for different scenarios', then the system returns a clear validation error.",
+        "Given normal load, when the user performs '- Description: The system SHALL provide email/notification capability: Customizable email templates for different scenarios', then the response time meets performance targets."
+      ]
+    },
+    {
+      "id": "US-065",
+      "epic": "Core Functionality",
+      "title": "- Description: The system SHALL provide email/notification capability: Automated teacher notifications for sticker programs",
+      "as_a": "user",
+      "i_want": "- Description: The system SHALL provide email/notification capability: Automated teacher notifications for sticker programs",
+      "so_that": "achieve the intended outcome",
+      "acceptance_criteria": [
+        "Given a valid context, when the user performs '- Description: The system SHALL provide email/notification capability: Automated teacher notifications for sticker programs', then the operation succeeds.",
+        "Given an alternate context, when the user performs '- Description: The system SHALL provide email/notification capability: Automated teacher notifications for sticker programs', then the system handles the edge case gracefully.",
+        "Given invalid inputs, when the user performs '- Description: The system SHALL provide email/notification capability: Automated teacher notifications for sticker programs', then the system returns a clear validation error.",
+        "Given normal load, when the user performs '- Description: The system SHALL provide email/notification capability: Automated teacher notifications for sticker programs', then the response time meets performance targets."
+      ]
+    },
+    {
+      "id": "US-066",
+      "epic": "Core Functionality",
+      "title": "- Description: The system SHALL provide email/notification capability: Event reminder system for hosts and participants",
+      "as_a": "user",
+      "i_want": "- Description: The system SHALL provide email/notification capability: Event reminder system for hosts and participants",
+      "so_that": "achieve the intended outcome",
+      "acceptance_criteria": [
+        "Given a valid context, when the user performs '- Description: The system SHALL provide email/notification capability: Event reminder system for hosts and participants', then the operation succeeds.",
+        "Given an alternate context, when the user performs '- Description: The system SHALL provide email/notification capability: Event reminder system for hosts and participants', then the system handles the edge case gracefully.",
+        "Given invalid inputs, when the user performs '- Description: The system SHALL provide email/notification capability: Event reminder system for hosts and participants', then the system returns a clear validation error.",
+        "Given normal load, when the user performs '- Description: The system SHALL provide email/notification capability: Event reminder system for hosts and participants', then the response time meets performance targets."
+      ]
+    },
+    {
+      "id": "US-067",
+      "epic": "Core Functionality",
+      "title": "- Description: The system SHALL provide email/notification capability: Pre-event instruction emails",
+      "as_a": "user",
+      "i_want": "- Description: The system SHALL provide email/notification capability: Pre-event instruction emails",
+      "so_that": "achieve the intended outcome",
+      "acceptance_criteria": [
+        "Given a valid context, when the user performs '- Description: The system SHALL provide email/notification capability: Pre-event instruction emails', then the operation succeeds.",
+        "Given an alternate context, when the user performs '- Description: The system SHALL provide email/notification capability: Pre-event instruction emails', then the system handles the edge case gracefully.",
+        "Given invalid inputs, when the user performs '- Description: The system SHALL provide email/notification capability: Pre-event instruction emails', then the system returns a clear validation error.",
+        "Given normal load, when the user performs '- Description: The system SHALL provide email/notification capability: Pre-event instruction emails', then the response time meets performance targets."
+      ]
+    },
+    {
+      "id": "US-068",
+      "epic": "Core Functionality",
+      "title": "- Description: The system SHALL provide email/notification capability: Follow-up communication templates",
+      "as_a": "user",
+      "i_want": "- Description: The system SHALL provide email/notification capability: Follow-up communication templates",
+      "so_that": "achieve the intended outcome",
+      "acceptance_criteria": [
+        "Given a valid context, when the user performs '- Description: The system SHALL provide email/notification capability: Follow-up communication templates', then the operation succeeds.",
+        "Given an alternate context, when the user performs '- Description: The system SHALL provide email/notification capability: Follow-up communication templates', then the system handles the edge case gracefully.",
+        "Given invalid inputs, when the user performs '- Description: The system SHALL provide email/notification capability: Follow-up communication templates', then the system returns a clear validation error.",
+        "Given normal load, when the user performs '- Description: The system SHALL provide email/notification capability: Follow-up communication templates', then the response time meets performance targets."
+      ]
+    },
+    {
+      "id": "US-069",
+      "epic": "Core Functionality",
+      "title": "- Description: The system SHALL provide reporting capability: Daily activity summaries powered by AI",
+      "as_a": "user",
+      "i_want": "- Description: The system SHALL provide reporting capability: Daily activity summaries powered by AI",
+      "so_that": "achieve the intended outcome",
+      "acceptance_criteria": [
+        "Given a valid context, when the user performs '- Description: The system SHALL provide reporting capability: Daily activity summaries powered by AI', then the operation succeeds.",
+        "Given an alternate context, when the user performs '- Description: The system SHALL provide reporting capability: Daily activity summaries powered by AI', then the system handles the edge case gracefully.",
+        "Given invalid inputs, when the user performs '- Description: The system SHALL provide reporting capability: Daily activity summaries powered by AI', then the system returns a clear validation error.",
+        "Given normal load, when the user performs '- Description: The system SHALL provide reporting capability: Daily activity summaries powered by AI', then the response time meets performance targets."
+      ]
+    },
+    {
+      "id": "US-070",
+      "epic": "Core Functionality",
+      "title": "- Description: The system SHALL provide reporting capability: Event participation tracking",
+      "as_a": "user",
+      "i_want": "- Description: The system SHALL provide reporting capability: Event participation tracking",
+      "so_that": "achieve the intended outcome",
+      "acceptance_criteria": [
+        "Given a valid context, when the user performs '- Description: The system SHALL provide reporting capability: Event participation tracking', then the operation succeeds.",
+        "Given an alternate context, when the user performs '- Description: The system SHALL provide reporting capability: Event participation tracking', then the system handles the edge case gracefully.",
+        "Given invalid inputs, when the user performs '- Description: The system SHALL provide reporting capability: Event participation tracking', then the system returns a clear validation error.",
+        "Given normal load, when the user performs '- Description: The system SHALL provide reporting capability: Event participation tracking', then the response time meets performance targets."
+      ]
+    },
+    {
+      "id": "US-071",
+      "epic": "Core Functionality",
+      "title": "- Description: The system SHALL provide reporting capability: Social media integration (hashtag aggregation)",
+      "as_a": "user",
+      "i_want": "- Description: The system SHALL provide reporting capability: Social media integration (hashtag aggregation)",
+      "so_that": "achieve the intended outcome",
+      "acceptance_criteria": [
+        "Given a valid context, when the user performs '- Description: The system SHALL provide reporting capability: Social media integration (hashtag aggregation)', then the operation succeeds.",
+        "Given an alternate context, when the user performs '- Description: The system SHALL provide reporting capability: Social media integration (hashtag aggregation)', then the system handles the edge case gracefully.",
+        "Given invalid inputs, when the user performs '- Description: The system SHALL provide reporting capability: Social media integration (hashtag aggregation)', then the system returns a clear validation error.",
+        "Given normal load, when the user performs '- Description: The system SHALL provide reporting capability: Social media integration (hashtag aggregation)', then the response time meets performance targets."
+      ]
+    },
+    {
+      "id": "US-072",
+      "epic": "Core Functionality",
+      "title": "- Description: The system SHALL provide reporting capability: Screenshot/media archiving from events",
+      "as_a": "user",
+      "i_want": "- Description: The system SHALL provide reporting capability: Screenshot/media archiving from events",
+      "so_that": "achieve the intended outcome",
+      "acceptance_criteria": [
+        "Given a valid context, when the user performs '- Description: The system SHALL provide reporting capability: Screenshot/media archiving from events', then the operation succeeds.",
+        "Given an alternate context, when the user performs '- Description: The system SHALL provide reporting capability: Screenshot/media archiving from events', then the system handles the edge case gracefully.",
+        "Given invalid inputs, when the user performs '- Description: The system SHALL provide reporting capability: Screenshot/media archiving from events', then the system returns a clear validation error.",
+        "Given normal load, when the user performs '- Description: The system SHALL provide reporting capability: Screenshot/media archiving from events', then the response time meets performance targets."
+      ]
+    },
+    {
+      "id": "US-073",
+      "epic": "Core Functionality",
+      "title": "- Description: The system SHALL maintain conference data: Year and title",
+      "as_a": "user",
+      "i_want": "- Description: The system SHALL maintain conference data: Year and title",
+      "so_that": "achieve the intended outcome",
+      "acceptance_criteria": [
+        "Given a valid context, when the user performs '- Description: The system SHALL maintain conference data: Year and title', then the operation succeeds.",
+        "Given an alternate context, when the user performs '- Description: The system SHALL maintain conference data: Year and title', then the system handles the edge case gracefully.",
+        "Given invalid inputs, when the user performs '- Description: The system SHALL maintain conference data: Year and title', then the system returns a clear validation error.",
+        "Given normal load, when the user performs '- Description: The system SHALL maintain conference data: Year and title', then the response time meets performance targets."
+      ]
+    },
+    {
+      "id": "US-074",
+      "epic": "Core Functionality",
+      "title": "- Description: The system SHALL maintain conference data: Theme and description",
+      "as_a": "user",
+      "i_want": "- Description: The system SHALL maintain conference data: Theme and description",
+      "so_that": "achieve the intended outcome",
+      "acceptance_criteria": [
+        "Given a valid context, when the user performs '- Description: The system SHALL maintain conference data: Theme and description', then the operation succeeds.",
+        "Given an alternate context, when the user performs '- Description: The system SHALL maintain conference data: Theme and description', then the system handles the edge case gracefully.",
+        "Given invalid inputs, when the user performs '- Description: The system SHALL maintain conference data: Theme and description', then the system returns a clear validation error.",
+        "Given normal load, when the user performs '- Description: The system SHALL maintain conference data: Theme and description', then the response time meets performance targets."
+      ]
+    },
+    {
+      "id": "US-075",
+      "epic": "Core Functionality",
+      "title": "- Description: The system SHALL maintain conference data: Venue and dates (start/end)",
+      "as_a": "user",
+      "i_want": "- Description: The system SHALL maintain conference data: Venue and dates (start/end)",
+      "so_that": "achieve the intended outcome",
+      "acceptance_criteria": [
+        "Given a valid context, when the user performs '- Description: The system SHALL maintain conference data: Venue and dates (start/end)', then the operation succeeds.",
+        "Given an alternate context, when the user performs '- Description: The system SHALL maintain conference data: Venue and dates (start/end)', then the system handles the edge case gracefully.",
+        "Given invalid inputs, when the user performs '- Description: The system SHALL maintain conference data: Venue and dates (start/end)', then the system returns a clear validation error.",
+        "Given normal load, when the user performs '- Description: The system SHALL maintain conference data: Venue and dates (start/end)', then the response time meets performance targets."
+      ]
+    },
+    {
+      "id": "US-076",
+      "epic": "Core Functionality",
+      "title": "- Description: The system SHALL maintain conference data: Pre-event activities",
+      "as_a": "user",
+      "i_want": "- Description: The system SHALL maintain conference data: Pre-event activities",
+      "so_that": "achieve the intended outcome",
+      "acceptance_criteria": [
+        "Given a valid context, when the user performs '- Description: The system SHALL maintain conference data: Pre-event activities', then the operation succeeds.",
+        "Given an alternate context, when the user performs '- Description: The system SHALL maintain conference data: Pre-event activities', then the system handles the edge case gracefully.",
+        "Given invalid inputs, when the user performs '- Description: The system SHALL maintain conference data: Pre-event activities', then the system returns a clear validation error.",
+        "Given normal load, when the user performs '- Description: The system SHALL maintain conference data: Pre-event activities', then the response time meets performance targets."
+      ]
+    },
+    {
+      "id": "US-077",
+      "epic": "Core Functionality",
+      "title": "- Description: The system SHALL maintain conference data: During-event activities",
+      "as_a": "user",
+      "i_want": "- Description: The system SHALL maintain conference data: During-event activities",
+      "so_that": "achieve the intended outcome",
+      "acceptance_criteria": [
+        "Given a valid context, when the user performs '- Description: The system SHALL maintain conference data: During-event activities', then the operation succeeds.",
+        "Given an alternate context, when the user performs '- Description: The system SHALL maintain conference data: During-event activities', then the system handles the edge case gracefully.",
+        "Given invalid inputs, when the user performs '- Description: The system SHALL maintain conference data: During-event activities', then the system returns a clear validation error.",
+        "Given normal load, when the user performs '- Description: The system SHALL maintain conference data: During-event activities', then the response time meets performance targets."
+      ]
+    },
+    {
+      "id": "US-078",
+      "epic": "Core Functionality",
+      "title": "- Description: The system SHALL maintain conference data: Post-event activities",
+      "as_a": "user",
+      "i_want": "- Description: The system SHALL maintain conference data: Post-event activities",
+      "so_that": "achieve the intended outcome",
+      "acceptance_criteria": [
+        "Given a valid context, when the user performs '- Description: The system SHALL maintain conference data: Post-event activities', then the operation succeeds.",
+        "Given an alternate context, when the user performs '- Description: The system SHALL maintain conference data: Post-event activities', then the system handles the edge case gracefully.",
+        "Given invalid inputs, when the user performs '- Description: The system SHALL maintain conference data: Post-event activities', then the system returns a clear validation error.",
+        "Given normal load, when the user performs '- Description: The system SHALL maintain conference data: Post-event activities', then the response time meets performance targets."
+      ]
+    },
+    {
+      "id": "US-079",
+      "epic": "Core Functionality",
+      "title": "- Performance / Security / Compliance: The system SHALL support event type: Field trips",
+      "as_a": "user",
+      "i_want": "- Performance / Security / Compliance: The system SHALL support event type: Field trips",
+      "so_that": "achieve the intended outcome",
+      "acceptance_criteria": [
+        "Given a valid context, when the user performs '- Performance / Security / Compliance: The system SHALL support event type: Field trips', then the operation succeeds.",
+        "Given an alternate context, when the user performs '- Performance / Security / Compliance: The system SHALL support event type: Field trips', then the system handles the edge case gracefully.",
+        "Given invalid inputs, when the user performs '- Performance / Security / Compliance: The system SHALL support event type: Field trips', then the system returns a clear validation error.",
+        "Given normal load, when the user performs '- Performance / Security / Compliance: The system SHALL support event type: Field trips', then the response time meets performance targets."
+      ]
+    },
+    {
+      "id": "US-080",
+      "epic": "Core Functionality",
+      "title": "- Success Metrics: The system SHALL support event type: Company visits",
+      "as_a": "user",
+      "i_want": "- Success Metrics: The system SHALL support event type: Company visits",
+      "so_that": "achieve the intended outcome",
+      "acceptance_criteria": [
+        "Given a valid context, when the user performs '- Success Metrics: The system SHALL support event type: Company visits', then the operation succeeds.",
+        "Given an alternate context, when the user performs '- Success Metrics: The system SHALL support event type: Company visits', then the system handles the edge case gracefully.",
+        "Given invalid inputs, when the user performs '- Success Metrics: The system SHALL support event type: Company visits', then the system returns a clear validation error.",
+        "Given normal load, when the user performs '- Success Metrics: The system SHALL support event type: Company visits', then the response time meets performance targets."
+      ]
+    }
+  ],
+  "epics": [
+    "Core Functionality"
+  ]
+}

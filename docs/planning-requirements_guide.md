@@ -2,7 +2,7 @@
 phase_key: Planning
 formal_phase_title: Planning & Requirement Analysis
 version: 1.0
-generated_at: 2025-09-16T15:24:48.401214Z
+generated_at: 2025-09-18T16:17:04.712984Z
 standards_refs:
   - ISO/IEC/IEEE 12207
   - ISO/IEC/IEEE 29148
@@ -21,9 +21,9 @@ Follow ISO/IEC/IEEE 12207 planning principles. Clarify goals, constraints, stake
 - [ ] Project goals and success criteria captured
 - [ ] Stakeholders and users identified
 - [ ] Risks, assumptions, and constraints documented
-- [ ] Project Charter drafted (docs/ProjectCharter.md)
+- [x] Project Charter drafted (docs/ProjectCharter.md)
 
 > Note: Checklist items referencing docs/ will be auto-checked when those files exist.
 
 ## Changelog
-- 2025-09-16T15:24:48.401214Z: Generated/updated by OPNXT phase guides.
+- 2025-09-18T16:17:04.712984Z: Generated/updated by OPNXT phase guides.

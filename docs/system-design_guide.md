@@ -2,7 +2,7 @@
 phase_key: Design
 formal_phase_title: System & Software Design
 version: 1.0
-generated_at: 2025-09-16T15:24:48.405902Z
+generated_at: 2025-09-18T16:17:04.713991Z
 standards_refs:
   - ISO/IEC/IEEE 12207
   - ISO/IEC/IEEE 29148
@@ -21,9 +21,9 @@ Apply IEEE 1016 for software design descriptions: architecture views, interfaces
 - [ ] Architecture views and interfaces described (IEEE 1016)
 - [ ] Data model and key entities defined
 - [ ] Design rationale and trade-offs captured
-- [ ] SDD produced (docs/SDD.md)
+- [x] SDD produced (docs/SDD.md)
 
 > Note: Checklist items referencing docs/ will be auto-checked when those files exist.
 
 ## Changelog
-- 2025-09-16T15:24:48.405902Z: Generated/updated by OPNXT phase guides.
+- 2025-09-18T16:17:04.713991Z: Generated/updated by OPNXT phase guides.

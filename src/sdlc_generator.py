@@ -17,7 +17,9 @@ try:
     # Optional dependency for PDF export
     from weasyprint import HTML  # type: ignore
     _HAS_WEASYPRINT = True
-except Exception:
+except BaseException:
+    # WeasyPrint may raise SystemExit on missing native deps (Windows/Mac).
+    # Catch BaseException so the app can run without PDF support.
     _HAS_WEASYPRINT = False
 
 
@@ -62,7 +64,11 @@ def generate_all_docs(data: Dict[str, Any], templates_root: Path | None = None, 
     Returns:
         Mapping of filename -> rendered Markdown content
     """
-    templates_root = templates_root or Path("templates") / "sdlc"
+    if templates_root is None:
+        # Resolve templates relative to project root to avoid dependency on CWD
+        here = Path(__file__).resolve()
+        project_root = here.parent.parent  # repo root (.. from src/)
+        templates_root = project_root / "templates" / "sdlc"
     env = _build_env(templates_root)
 
     rendered: Dict[str, str] = {}
@@ -72,6 +78,7 @@ def generate_all_docs(data: Dict[str, Any], templates_root: Path | None = None, 
         "answers": data.get("answers", {}),
         "summaries": data.get("summaries", {}),
         "phases": data.get("phases", []),
+        "request": data.get("request", ""),
         "generated_at": datetime.utcnow().isoformat() + "Z",
     }
 

@@ -1,0 +1,8 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Bridge CSS variables to Tailwind layers if needed */
+:root {
+  /* ensure variables are loaded from tokens.css; this file just exists for Tailwind layering */
+}

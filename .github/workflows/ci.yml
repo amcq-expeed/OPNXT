@@ -23,6 +23,21 @@ jobs:
           python -m pip install --upgrade pip
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
 
-      - name: Run tests
+      - name: Run tests (coverage gate ≥80% for src/orchestrator)
         run: |
-          pytest -q
+          pytest -q --cov=src/orchestrator --cov-report=term-missing --cov-report=xml --cov-fail-under=80
+
+      - name: Generate traceability map
+        run: |
+          python - << 'PY'
+          from src.orchestrator.tools.traceability import generate_traceability_map
+          p = generate_traceability_map()
+          print(p)
+          PY
+
+      - name: Upload traceability map artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: traceability-map
+          path: reports/traceability-map.json
+          if-no-files-found: warn

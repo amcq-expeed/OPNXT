@@ -1,0 +1,59 @@
+:root {
+  /* Palette aligned to Tailwind slate/blue with WCAG-AA contrast */
+  --color-bg: #0b1020; /* dark background fallback for high contrast */
+  --color-surface: #ffffff;
+  --color-surface-2: #f3f4f6; /* slate-100 */
+  --color-text: #0f172a; /* slate-900 */
+  --color-muted: #475569; /* slate-600 */
+  --color-border: #e5e7eb; /* slate-200 */
+  --color-primary: #2563eb; /* blue-600 */
+  --color-primary-700: #1d4ed8; /* blue-700 */
+  --color-success: #16a34a; /* green-600 */
+  --color-danger: #dc2626; /* red-600 */
+  --color-warning: #d97706; /* amber-600 */
+
+  /* Brand tokens */
+  --brand-600: #2563eb;
+  --brand-700: #1d4ed8;
+
+  /* Alias tokens used by theme.css and components */
+  --bg: #cbd5e1; /* light app background (slate-300) for unmistakable contrast */
+  --surface-1: var(--color-surface);
+  --surface-2: var(--color-surface-2);
+  --text: var(--color-text);
+  --muted: #6b7280; /* slate-500 */
+  --border: var(--color-border);
+  --primary: var(--brand-600);
+  --primary-700: var(--brand-700);
+  --success: var(--color-success);
+  --danger: var(--color-danger);
+
+  /* Radii & elevation */
+  --radius-xs: 6px;
+  --radius-sm: 8px;
+  --radius: 12px;
+  --radius-lg: 16px;
+  --shadow-sm: 0 1px 2px rgba(0,0,0,0.06);
+  --shadow-md: 0 6px 16px rgba(0,0,0,0.10);
+  --shadow-lg: 0 12px 24px rgba(0,0,0,0.14);
+
+  /* Spacing scale */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+
+  /* Sizing */
+  --header-height: 56px;
+  --sidebar-width: 240px;
+  --sidebar-width-collapsed: 64px;
+
+  /* Z-index */
+  --z-header: 40;
+  --z-sidebar: 30;
+  --z-toast: 60;
+}

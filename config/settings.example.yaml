@@ -10,5 +10,5 @@ xai:
   model: "${XAI_MODEL:grok-2-latest}"
 
 app:
-  name: "OPNXT SDLC Assistant"
+  name: "OPNXT SDLC and PMO Assistant"
   debug: true

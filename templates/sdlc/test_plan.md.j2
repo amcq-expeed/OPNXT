@@ -23,8 +23,8 @@ Define the objectives, resources, and processes for testing the product.
 - TBD
 
 ## 5. Approach
-- Strategy (unit/integration/e2e): {{ (answers.get('Testing', [])[0] if answers.get('Testing')|length > 0 else 'TBD') }}
-- Environments / Test Data: {{ (answers.get('Testing', [])[1] if answers.get('Testing')|length > 1 else 'TBD') }}
+- Strategy (unit/integration/e2e): {{ (answers.get('Testing', [])[0] if (answers.get('Testing', [])|length) > 0 else 'TBD') }}
+- Environments / Test Data: {{ (answers.get('Testing', [])[1] if (answers.get('Testing', [])|length) > 1 else 'TBD') }}
 
 ## 6. Pass/Fail Criteria
 - Acceptance Criteria derived per feature in SRS.
@@ -39,10 +39,10 @@ Define the objectives, resources, and processes for testing the product.
 - TBD
 
 ## 10. Responsibilities
-- Team roles: {{ (answers.get('Implementation', [])[0] if answers.get('Implementation')|length > 0 else 'TBD') }}
+- Team roles: {{ (answers.get('Implementation', [])[0] if (answers.get('Implementation', [])|length) > 0 else 'TBD') }}
 
 ## 11. Schedule
-- Aligned with project timeline: {{ (answers.get('Planning', [])[2] if answers.get('Planning')|length > 2 else 'TBD') }}
+- Aligned with project timeline: {{ (answers.get('Planning', [])[2] if (answers.get('Planning', [])|length) > 2 else 'TBD') }}
 
 ## 12. Risks and Contingencies
 - TBD
