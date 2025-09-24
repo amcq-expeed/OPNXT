@@ -77,9 +77,11 @@ def _llm_enrich(description: str) -> Tuple[Dict, Dict]:
 
     def _normalize_req(s: str) -> str | None:
         # Remove leading 'The system SHALL' duplication variants first
-        s = re.sub(r"^(?i)(?:the\s+system\s+shall\s+)+", "", s, flags=re.IGNORECASE)
+        s = re.sub(r"^(?:the\s+system\s+shall\s+)+", "", s, flags=re.IGNORECASE)
         # Then remove leading list markers, bullets, and numbering
         s = re.sub(r"^\s*(?:[-*•\u2022\u2023\u25E6\u2043–—]|\d+[\.)])\s*", "", s)
+        # Extra guard for numeric patterns like '1) ' or '1. ' that may slip through
+        s = re.sub(r"^\s*\d+[\)\.:\-]?\s*", "", s)
         s = s.strip()
         # Capitalize first letter
         if s and not s[0].isupper():
@@ -88,7 +90,7 @@ def _llm_enrich(description: str) -> Tuple[Dict, Dict]:
         if not s.endswith(('.', '!', '?')):
             s = s + '.'
         # Drop lines that are still too short (likely headings)
-        if len(s.split()) < 3:
+        if len(s.split()) < 2:
             return None
         # Prepend canonical SHALL form
         return f"The system SHALL {s}"

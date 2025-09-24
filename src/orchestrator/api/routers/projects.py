@@ -424,13 +424,27 @@ def analyze_uploads(
             raw = b""
         text = parse_text_from_bytes(f.filename or "upload.txt", raw or b"")
         reqs = extract_shall_statements(text)
+        # Ensure canonical SHALL prefix for all requirements returned to the client
+        canon: list[str] = []
+        for r in (reqs or []):
+            t = str(r or "").strip()
+            t = re.sub(r"^(?:the\s+system\s+shall\s+)+", "", t, flags=re.IGNORECASE)
+            t = re.sub(r"^\s*(?:[-*•\u2022\u2023\u25E6\u2043–—]|\d+[\.)])\s*", "", t)
+            t = t.strip().rstrip(':').strip()
+            if t:
+                if not t[0].isupper():
+                    t = t[0].upper() + t[1:]
+                if not t.endswith(('.', '!', '?')):
+                    t = t + '.'
+                if len(t.split()) >= 2:
+                    canon.append(f"The system SHALL {t}")
         # Version the parsed text as an uploaded artifact (optional for visibility)
         try:
             safe_name = (f.filename or "upload.txt").strip().replace("/", "_").replace("\\", "_")
             store.save_document(project_id, f"Uploads-{safe_name}.txt", text or "", meta={"uploaded": True, "source": "upload", "original_name": f.filename or ""})
         except Exception:
             pass
-        items.append(UploadAnalyzeItem(filename=f.filename or "upload", text_length=len(text or ""), requirements=reqs))
+        items.append(UploadAnalyzeItem(filename=f.filename or "upload", text_length=len(text or ""), requirements=canon or reqs))
 
     return UploadAnalyzeResponse(project_id=project_id, items=items)
 
@@ -456,7 +470,8 @@ def apply_upload_requirements(
             s = s[0].upper() + s[1:]
         if s and not s.endswith(('.', '!', '?')):
             s = s + '.'
-        if len(s.split()) < 3:
+        # Accept short, meaningful bullets like "Reset password." by allowing >=2 words
+        if len(s.split()) < 2:
             return None
         return f"The system SHALL {s}"
 
@@ -478,6 +493,24 @@ def apply_upload_requirements(
     key = payload.category or "Requirements"
     existing = list(answers.get(key, [])) if isinstance(answers.get(key), list) else []
     merged = list(existing) + [x for x in normalized if x not in existing]
+
+    # Final safety: ensure canonical SHALL form for all items
+    def _ensure_shall(s: str) -> str:
+        t = str(s or "").strip()
+        # Drop any leading canonical prefix and reapply to avoid duplicates
+        t = re.sub(r"^(?:the\s+system\s+shall\s+)+", "", t, flags=re.IGNORECASE)
+        # Remove leading bullets/numbering if any snuck in
+        t = re.sub(r"^\s*(?:[-*•\u2022\u2023\u25E6\u2043–—]|\d+[\.)])\s*", "", t)
+        t = t.strip().rstrip(':').strip()
+        if t and not t[0].isupper():
+            t = t[0].upper() + t[1:]
+        if t and not t.endswith(('.', '!', '?')):
+            t = t + '.'
+        if len(t.split()) < 2:
+            return t  # too short; return as-is (will be ignored by generators later)
+        return f"The system SHALL {t}"
+
+    merged = [_ensure_shall(x) for x in merged]
     answers[key] = merged
     data["answers"] = answers
     saved = store.put(project_id, data)

@@ -1,5 +1,0 @@
-Epic,Feature,User Story,Acceptance Criteria
-Event Management,Create Event,As an administrator, I want to create a new event so that I can manage event details.,Given I am on the event creation page, When I fill in the event details and submit, Then the event should be created and displayed in the event list.
-Event Management,Read Event,As an administrator, I want to view existing events so that I can manage them effectively.,Given I am on the event list page, When I view the list of events, Then I should see all created events with their details.
-Event Management,Update Event,As an administrator, I want to update an existing event so that I can change its details.,Given I am on the event details page, When I modify the event details and submit, Then the event should be updated in the database.
-Event Management,Delete Event,As an administrator, I want to delete an event so that I can remove it from the system.,Given I am on the event list page, When I select an event and choose to delete it, Then the event should be removed from the database.

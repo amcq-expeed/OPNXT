@@ -1,11 +1,11 @@
 # Project Charter
 
 ## Project Overview
-- Title: Perf Project
-- Generated: 2025-09-24T15:52:49.419682Z
+- Title: ZipDoc
+- Generated: 2025-09-24T19:42:58.774783Z
 
 ## Purpose and Justification
-Measure timings
+The project aims to develop a system for generating ZIP files as part of a testing framework, ensuring that the generated files meet specific criteria for validity and usability.
 
 ## Objectives
 - Define the main goal, stakeholders, and timeline.
@@ -17,7 +17,7 @@ Measure timings
 - MVP timeline TBD
 
 ## Success Criteria
-- FR-002 - Authentication (JWT) [present]
+- The system SHALL Provide a user interface for initiating ZIP file generation.
 
 ## Risks and Assumptions
 - TBD

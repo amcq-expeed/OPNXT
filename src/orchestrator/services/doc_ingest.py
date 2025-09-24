@@ -89,8 +89,16 @@ def extract_shall_statements(text: str) -> List[str]:
                         t = t + "."
                     t = "The system SHALL " + t[0].upper() + t[1:]
                 else:
-                    # Not clearly a requirement line; skip
-                    continue
+                    # Fallback: treat short bullet-like phrases as requirements if they have >=2 words
+                    words = re.split(r"\s+", t.strip())
+                    if len([w for w in words if w]) >= 2:
+                        # Capitalize first letter and ensure punctuation
+                        if not re.search(r"[.!?]$", t):
+                            t = t + "."
+                        t = "The system SHALL " + t[0].upper() + t[1:]
+                    else:
+                        # Not clearly a requirement line; skip
+                        continue
             else:
                 # Ensure canonical casing and punctuation
                 if not re.search(r"[.!?]$", t):

@@ -18,6 +18,8 @@ def _is_placeholder_key(k: Optional[str]) -> bool:
     if not k:
         return True
     val = k.strip()
+    if not val:
+        return True
     return val in {"__REDACTED__", "__REPLACE_WITH_YOUR_KEY__", "changeme", "change-me-in-dev", "your_api_key_here", "placeholder"}
 
 

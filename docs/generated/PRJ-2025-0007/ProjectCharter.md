@@ -1,11 +1,11 @@
 # Project Charter
 
 ## Project Overview
-- Title: Docs Project
-- Generated: 2025-09-24T19:42:11.212345Z
+- Title: CtxProj
+- Generated: 2025-09-24T19:42:52.746106Z
 
 ## Purpose and Justification
-The project aims to create documentation for testing procedures to ensure clarity and consistency in testing practices.
+Plan summary
 
 ## Objectives
 - Define the main goal, stakeholders, and timeline.
@@ -17,7 +17,7 @@ The project aims to create documentation for testing procedures to ensure clarit
 - MVP timeline TBD
 
 ## Success Criteria
-- The system SHALL Include a version control mechanism for test documentation.
+- The system SHALL Provide a reporting feature to summarize test results.
 
 ## Risks and Assumptions
 - TBD

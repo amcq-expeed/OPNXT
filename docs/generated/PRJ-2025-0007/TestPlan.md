@@ -1,7 +1,7 @@
 # Test Plan
 
 - Standard: IEEE 829 / ISO/IEC/IEEE 29119 (adapted)
-- Generated: 2025-09-24T19:42:58.800948Z
+- Generated: 2025-09-24T19:42:52.768403Z
 
 ## 1. Introduction
 ### 1.1 Purpose
@@ -12,11 +12,9 @@ Target unit/integration/e2e with coverage >= 80%; add API and UI tests for criti
 
 ## 2. Test Items
 - Features under test:
-- The system SHALL Generate ZIP files containing specified test data.
-- The system SHALL Validate the integrity of the generated ZIP files.
-- The system SHALL Provide a user interface for initiating ZIP file generation.
-- The system SHALL Log the results of each ZIP generation attempt.
-- The system SHALL Allow users to specify the contents of the ZIP file.
+- The system SHALL Support multiple user roles for testing purposes.
+- The system SHALL Log all user interactions during the context test.
+- The system SHALL Provide a reporting feature to summarize test results.
 - FR-001 - User Registration [present]
 - FR-002 - Authentication (JWT) [present]
 - FR-003 - Project Creation API [present]
