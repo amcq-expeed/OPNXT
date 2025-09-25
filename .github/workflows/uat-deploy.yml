@@ -27,7 +27,8 @@ jobs:
         run: |
           $required = @('UAT_HOST','UAT_USERNAME','UAT_PASSWORD','UAT_BACKEND_ENV','UAT_FRONTEND_ENV')
           foreach ($name in $required) {
-            if (-not $env:$name) {
+            $value = [System.Environment]::GetEnvironmentVariable($name)
+            if ([string]::IsNullOrWhiteSpace($value)) {
               throw "Missing required secret: $name"
             }
           }
