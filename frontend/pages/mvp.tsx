@@ -167,7 +167,21 @@ export default function MVPPage() {
           )}
         </div>
       </div>
-      {/* Documents button intentionally hidden per UX rule */}
+      {/* Reopen Documents button: only visible when docs exist and drawer is closed */}
+      {projectId && docCount > 0 && !drawerOpen && (
+        <button
+          type="button"
+          className="btn btn-primary"
+          style={{ position: 'fixed', right: 16, bottom: 16, zIndex: 61 }}
+          aria-label="Open Documents"
+          title="Open Documents"
+          onClick={() => { refreshDocs(); setDrawerOpen(true); }}
+        >
+          Documents
+        </button>
+      )}
+
+      {/* Documents button intentionally hidden per UX rule (initially). We reintroduce a minimal opener above only after docs exist. */}
       {/* Slideout Drawer for Documents */}
       <div className={`drawer ${drawerOpen ? 'open' : ''}`} aria-hidden={!drawerOpen}>
         <div className="drawer__backdrop" onClick={() => setDrawerOpen(false)} />
