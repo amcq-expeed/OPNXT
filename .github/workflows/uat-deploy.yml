@@ -1,0 +1,97 @@
+name: Deploy to UAT
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - uat
+
+jobs:
+  deploy-uat:
+    name: Deploy to UAT
+    runs-on: windows-latest
+    env:
+      UAT_HOST: ${{ secrets.UAT_HOST }}
+      UAT_USERNAME: ${{ secrets.UAT_USERNAME }}
+      UAT_PASSWORD: ${{ secrets.UAT_PASSWORD }}
+      UAT_BACKEND_ENV: ${{ secrets.UAT_BACKEND_ENV }}
+      UAT_FRONTEND_ENV: ${{ secrets.UAT_FRONTEND_ENV }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Validate deployment secrets
+        shell: pwsh
+        run: |
+          $required = @('UAT_HOST','UAT_USERNAME','UAT_PASSWORD','UAT_BACKEND_ENV','UAT_FRONTEND_ENV')
+          foreach ($name in $required) {
+            if (-not $env:$name) {
+              throw "Missing required secret: $name"
+            }
+          }
+
+      - name: Deploy to UAT host
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          $packagePath = Join-Path $env:RUNNER_TEMP 'opnxt-uat.zip'
+          if (Test-Path $packagePath) { Remove-Item -Path $packagePath -Force }
+
+          Set-Location $env:GITHUB_WORKSPACE
+          $items = Get-ChildItem -Force | Where-Object { $_.Name -ne '.git' }
+          if (-not $items) { throw 'Nothing to package for deployment.' }
+          Compress-Archive -Path $items.FullName -DestinationPath $packagePath -Force
+
+          $backendEnvLocal = Join-Path $env:RUNNER_TEMP 'backend.env'
+          Set-Content -Path $backendEnvLocal -Value $env:UAT_BACKEND_ENV -NoNewline
+          $frontendEnvLocal = Join-Path $env:RUNNER_TEMP 'frontend.env'
+          Set-Content -Path $frontendEnvLocal -Value $env:UAT_FRONTEND_ENV -NoNewline
+
+          $securePassword = ConvertTo-SecureString $env:UAT_PASSWORD -AsPlainText -Force
+          $credential = [System.Management.Automation.PSCredential]::new($env:UAT_USERNAME, $securePassword)
+
+          $sessionParams = @{ ComputerName = $env:UAT_HOST; Credential = $credential }
+          $session = New-PSSession @sessionParams
+
+          try {
+            $remoteZip = 'C:\Temp\opnxt-uat.zip'
+            $remoteBackendEnv = 'C:\Temp\backend.env'
+            $remoteFrontendEnv = 'C:\Temp\frontend.env'
+            $remoteExtract = 'C:\Temp\opnxt-package'
+
+            Copy-Item -Path $packagePath -Destination $remoteZip -ToSession $session -Force
+            Copy-Item -Path $backendEnvLocal -Destination $remoteBackendEnv -ToSession $session -Force
+            Copy-Item -Path $frontendEnvLocal -Destination $remoteFrontendEnv -ToSession $session -Force
+
+            Invoke-Command -Session $session -ScriptBlock {
+              param($ZipPath, $ExtractPath, $BackendEnvPath, $FrontendEnvPath)
+              $ErrorActionPreference = 'Stop'
+
+              if (Test-Path $ExtractPath) {
+                Remove-Item -Path $ExtractPath -Recurse -Force
+              }
+              Expand-Archive -Path $ZipPath -DestinationPath $ExtractPath -Force
+
+              $sourceRoot = $ExtractPath
+              $scriptPath = Join-Path $sourceRoot 'scripts\deploy-uat.ps1'
+              if (-not (Test-Path $scriptPath)) {
+                throw "deploy-uat.ps1 not found at $scriptPath"
+              }
+
+              & $scriptPath -SourceRoot $sourceRoot -TargetRoot 'C:\opnxt' -BackendEnvPath $BackendEnvPath -FrontendEnvPath $FrontendEnvPath -BackendServiceName 'opnxt-backend' -FrontendServiceName 'opnxt-frontend' -SiteName 'opnxt'
+
+              Remove-Item -Path $ZipPath -Force
+              Remove-Item -Path $BackendEnvPath -Force
+              Remove-Item -Path $FrontendEnvPath -Force
+              Remove-Item -Path $ExtractPath -Recurse -Force
+            } -ArgumentList $remoteZip, $remoteExtract, $remoteBackendEnv, $remoteFrontendEnv
+          }
+          finally {
+            if ($session) { Remove-PSSession $session }
+            Remove-Item -Path $backendEnvLocal -ErrorAction SilentlyContinue
+            Remove-Item -Path $frontendEnvLocal -ErrorAction SilentlyContinue
+            Remove-Item -Path $packagePath -ErrorAction SilentlyContinue
+          }
