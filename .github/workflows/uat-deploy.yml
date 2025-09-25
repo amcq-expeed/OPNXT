@@ -24,6 +24,15 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Debug secret lengths
+        shell: pwsh
+        run: |
+          $required = @('UAT_HOST','UAT_USERNAME','UAT_PASSWORD','UAT_BACKEND_ENV','UAT_FRONTEND_ENV')
+          foreach ($name in $required) {
+            $value = [System.Environment]::GetEnvironmentVariable($name)
+            Write-Host "$name length: $($value.Length)"
+          }
+
       - name: Validate deployment secrets
         shell: pwsh
         run: |
