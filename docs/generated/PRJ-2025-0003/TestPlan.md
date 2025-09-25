@@ -1,7 +1,7 @@
 # Test Plan
 
 - Standard: IEEE 829 / ISO/IEC/IEEE 29119 (adapted)
-- Generated: 2025-09-24T19:42:11.271527Z
+- Generated: 2025-09-25T12:07:57.628805Z
 
 ## 1. Introduction
 ### 1.1 Purpose
@@ -12,11 +12,11 @@ Target unit/integration/e2e with coverage >= 80%; add API and UI tests for criti
 
 ## 2. Test Items
 - Features under test:
-- The system SHALL Provide a structured format for documenting test cases.
-- The system SHALL Allow users to categorize tests by functionality.
-- The system SHALL Include a version control mechanism for test documentation.
-- The system SHALL Support collaboration features for multiple users to edit documentation.
-- The system SHALL Enable export of documentation in various formats (e.g., PDF, Markdown).
+- The system SHALL Provide a user-friendly interface for generating test documentation.
+- The system SHALL Allow users to input test parameters and expected outcomes.
+- The system SHALL Generate documentation in multiple formats (e.g., PDF, HTML).
+- The system SHALL Include version control for documentation updates.
+- The system SHALL Allow users to export documentation to external storage.
 - FR-001 - User Registration [present]
 - FR-002 - Authentication (JWT) [present]
 - FR-003 - Project Creation API [present]

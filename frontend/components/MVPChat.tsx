@@ -96,7 +96,7 @@ export default function MVPChat({ projectId, onDocumentsGenerated, onOpenDocumen
     return extractShallFromText(texts);
   }, [messages]);
 
-  // --- Readiness heuristic for enabling Generate Docs ---
+  // --- Readiness heuristic for enabling Generate Docs (scored, conversational-first) ---
   const readiness = useMemo(() => computeReadiness(messages, extractedShalls), [messages, extractedShalls]);
 
   const targetBacklogCount = useMemo(() => {
@@ -224,12 +224,28 @@ export default function MVPChat({ projectId, onDocumentsGenerated, onOpenDocumen
           <button type="submit" className="btn btn-primary" disabled={sending || !draft.trim()}>{sending ? 'Sending…' : 'Send'}</button>
         </form>
 
+        {/* Readiness meter */}
+        <div className="card" style={{ marginTop: 10, padding: 8 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <strong>Readiness to Generate</strong>
+            <span className="muted">{Math.round(readiness.score || 0)}%</span>
+          </div>
+          <div aria-label="Readiness progress" style={{ height: 8, background: 'var(--border)', borderRadius: 4, overflow: 'hidden', marginTop: 6 }}>
+            <div style={{ width: `${Math.max(0, Math.min(100, Math.round(readiness.score || 0)))}%`, height: '100%', background: 'var(--primary)', transition: 'width 0.3s ease' }} />
+          </div>
+          {!readiness.ready && (
+            <div className="muted" style={{ marginTop: 6, fontSize: 12 }}>
+              {readiness.reason} {Array.isArray(readiness.missing) && readiness.missing.length ? `Hint: add ${readiness.missing.slice(0,3).join(', ')}.` : ''}
+            </div>
+          )}
+        </div>
+
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 10, justifyContent: 'flex-start' }}>
           <button className="btn btn-primary" onClick={onGenerateDocs} disabled={!readiness.ready || generating} aria-disabled={!readiness.ready}>
             {generating ? 'Generating…' : 'Generate Docs'}
           </button>
           {!readiness.ready && messages.length > 0 && (
-            <span className="muted" title={readiness.reason}>Capture at least 3 clear requirements or continue chatting to enable generation.</span>
+            <span className="muted" title={readiness.reason}>Keep chatting to improve readiness.</span>
           )}
           {notice && <span className="notice">{notice}</span>}
           {error && <span className="error">{error}</span>}
@@ -295,13 +311,41 @@ function extractShallFromText(text: string): string[] {
   return uniq;
 }
 
-function computeReadiness(messages: ChatMessage[], shalls: string[]): { ready: boolean; reason: string } {
+function computeReadiness(messages: ChatMessage[], shalls: string[]): { ready: boolean; reason: string; score: number; missing: string[] } {
   const userCount = messages.filter(m => m.role === 'user').length;
   const totalChars = messages.reduce((n, m) => n + (m.content?.length || 0), 0);
   const allText = messages.map(m => m.content).join('\n');
-  const mentions = /(stakeholders|scope|objective|nfr|non-functional|security|performance|users|personas|constraints|api|ui|design|testing)/i.test(allText);
-  if (shalls.length >= 3) return { ready: true, reason: '>= 3 SHALL requirements detected.' };
-  if (userCount >= 3 && totalChars >= 400) return { ready: true, reason: 'Sufficient conversation length and detail.' };
-  if (mentions && userCount >= 2 && totalChars >= 250) return { ready: true, reason: 'Coverage of key topics detected.' };
-  return { ready: false, reason: 'Keep chatting to capture clear requirements and context.' };
+  const hasStakeholders = /(stakeholder|user(?:s)?|persona|customer|admin|operator)/i.test(allText);
+  const hasScope = /(scope|objective|goal|outcome|success|kpi|metric)/i.test(allText);
+  const hasNFR = /(nfr|non[- ]?functional|performance|latency|throughput|availability|reliability|security|compliance|gdpr|hipaa)/i.test(allText);
+  const hasConstraints = /(constraint|assumption|risk|limitation|budget|timeline|deadline)/i.test(allText);
+  const hasInterface = /(\bui\b|ux|screen|page|api|endpoint|integration|webhook)/i.test(allText);
+  const hasTesting = /(test|qa|acceptance\s*criteria|traceability)/i.test(allText);
+  const hasData = /(data\s*model|schema|database|storage|retention|index)/i.test(allText);
+  // Q&A loop detection
+  let qaLoop = false;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i];
+    if (m.role === 'assistant' && /\?/.test(m.content || '')) {
+      qaLoop = messages.slice(i + 1).some(x => x.role === 'user' && (x.content || '').trim().length >= 20);
+      break;
+    }
+  }
+  let score = 0; const missing: string[] = [];
+  if (shalls.length >= 5) score += 25; else if (shalls.length >= 3) score += 20; else if (shalls.length >= 1) score += 10; else missing.push('clear requirements (SHALL)');
+  if (hasStakeholders) score += 15; else missing.push('stakeholders/users');
+  if (hasScope) score += 15; else missing.push('scope/objectives');
+  if (hasNFR) score += 10; else missing.push('NFRs (performance/security)');
+  if (hasConstraints) score += 10; else missing.push('constraints/risks');
+  if (hasInterface) score += 10; else missing.push('UI/API/integrations');
+  if (hasTesting) score += 5; else missing.push('testing/acceptance');
+  if (hasData) score += 5; else missing.push('data model/retention');
+  if (userCount >= 2) score += 10;
+  if (userCount >= 3) score += 10;
+  if (totalChars >= 400) score += 10;
+  if (qaLoop) score += 10;
+  if (score > 100) score = 100;
+  const ready = score >= 60;
+  const reason = ready ? `Ready (score ${score}).` : `Readiness ${score}%. Keep chatting to cover gaps.`;
+  return { ready, reason, score, missing };
 }

@@ -1,7 +1,7 @@
 # Test Plan
 
 - Standard: IEEE 829 / ISO/IEC/IEEE 29119 (adapted)
-- Generated: 2025-09-24T19:42:52.768403Z
+- Generated: 2025-09-25T12:08:23.519728Z
 
 ## 1. Introduction
 ### 1.1 Purpose
@@ -14,7 +14,7 @@ Target unit/integration/e2e with coverage >= 80%; add API and UI tests for criti
 - Features under test:
 - The system SHALL Support multiple user roles for testing purposes.
 - The system SHALL Log all user interactions during the context test.
-- The system SHALL Provide a reporting feature to summarize test results.
+- The system SHALL Provide real-time feedback to users participating in the test.
 - FR-001 - User Registration [present]
 - FR-002 - Authentication (JWT) [present]
 - FR-003 - Project Creation API [present]

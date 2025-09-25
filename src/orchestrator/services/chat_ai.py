@@ -38,6 +38,52 @@ def _attachment_block(attachments: Optional[Dict[str, str]]) -> str:
     return "\n\n".join(parts)
 
 
+def _diagnose_gaps(text: str) -> List[str]:
+    """Very simple keyword heuristics to identify missing coverage areas."""
+    t = (text or "").lower()
+    gaps: List[str] = []
+    if not any(k in t for k in ("stakeholder", "user", "persona", "customer", "admin", "operator")):
+        gaps.append("stakeholders/users")
+    if not any(k in t for k in ("scope", "objective", "goal", "outcome", "success", "kpi", "metric")):
+        gaps.append("scope/objectives")
+    if not any(k in t for k in ("nfr", "non-functional", "performance", "latency", "throughput", "availability", "reliability", "security", "compliance", "gdpr", "hipaa")):
+        gaps.append("non-functional requirements (e.g., performance/security)")
+    if not any(k in t for k in ("constraint", "assumption", "risk", "limitation", "budget", "timeline", "deadline")):
+        gaps.append("constraints/assumptions/risks")
+    if not any(k in t for k in (" ui ", " ux ", "screen", "page", "api", "endpoint", "integration", "webhook")):
+        gaps.append("interfaces (UI/API/integrations)")
+    if not any(k in t for k in ("test", "qa", "acceptance criteria", "traceability")):
+        gaps.append("testing/acceptance criteria")
+    if not any(k in t for k in ("data model", "schema", "database", "storage", "retention", "index")):
+        gaps.append("data model/retention")
+    return gaps
+
+
+def _suggest_questions(text: str, max_q: int = 3) -> List[str]:
+    """Return up to max_q targeted questions based on detected gaps."""
+    gaps = _diagnose_gaps(text)
+    templates = {
+        "stakeholders/users": "Who are the primary users or stakeholders, and what are their goals?",
+        "scope/objectives": "What is the main objective and what is explicitly in or out of scope?",
+        "non-functional requirements (e.g., performance/security)": "Are there key NFRs (e.g., performance targets, availability, security/compliance)?",
+        "constraints/assumptions/risks": "Any constraints, assumptions, or known risks (e.g., budget, timeline, regulations)?",
+        "interfaces (UI/API/integrations)": "What interfaces are expected (screens, APIs, integrations, webhooks)?",
+        "testing/acceptance criteria": "What acceptance criteria or test scenarios would confirm success?",
+        "data model/retention": "What data is involved, and are there storage, schema, or retention needs?",
+    }
+    out: List[str] = []
+    for g in gaps:
+        q = templates.get(g)
+        if q:
+            out.append(q)
+        if len(out) >= max_q:
+            break
+    # If everything seems covered, ask an open-ended refinement question
+    if not out:
+        out.append("Is there anything about stakeholders, constraints, or success metrics we haven't discussed yet?")
+    return out
+
+
 def reply_with_chat_ai(project_name: str, user_message: str, history: List[Dict[str, str]] | None = None, attachments: Optional[Dict[str, str]] = None) -> str:
     """Return assistant reply using LLM if configured; otherwise a helpful deterministic fallback.
 
@@ -50,8 +96,9 @@ def reply_with_chat_ai(project_name: str, user_message: str, history: List[Dict[
     try:
         llm = _get_llm()
         sys = (
-            "You are OPNXT's SDLC refinement assistant. Help the user clarify, correct, and improve requirements and design before stories are created. "
-            "Ground responses in attached documents if present. When you propose requirement changes, produce canonical SHALL statements. Be concise."
+            "You are OPNXT's SDLC refinement assistant. Your goal is to conduct a short, focused conversation to clarify and improve the user's idea before any documents are generated. "
+            "Ground responses in attached documents if present. Each reply should: (1) briefly reflect your understanding; (2) ask 2-3 targeted questions focusing on missing areas (stakeholders, scope/objectives, NFRs, constraints, interfaces, data, testing); "
+            "(3) optionally propose a few canonical SHALL statements only as suggestions to check understanding. Keep responses concise (<= 8 sentences). Do not suggest generating documents; wait until the user explicitly asks or enough detail has been captured."
         )
         msgs = [{"role": "system", "content": sys}]
         if attachments:
@@ -69,12 +116,19 @@ def reply_with_chat_ai(project_name: str, user_message: str, history: List[Dict[
         res = llm.invoke(msgs)
         return res.content if hasattr(res, "content") else str(res)
     except Exception:
-        # Fallback: deterministic helpful reply
-        tips: List[str] = []
+        # Fallback: deterministic, conversational-first reply
         text = (user_message or "").strip()
-        if len(text) < 10:
-            tips.append("Please provide more detail so I can refine the requirement into SHALL form.")
-        # Turn bullet-like lines into SHALL statements
+        lines: List[str] = []
+        if text:
+            # Simple reflection of intent (first sentence)
+            first_line = text.splitlines()[0].strip()
+            lines.append(f"I understand you want to: {first_line[:180]}")
+        # Targeted questions
+        qs = _suggest_questions(text)
+        lines.append("To refine this, a few quick questions:")
+        for i, q in enumerate(qs, 1):
+            lines.append(f"{i}) {q}")
+        # Candidate SHALLs only if the user included bullet/imperative content
         shall_lines: List[str] = []
         for ln in text.splitlines():
             s = ln.strip().lstrip("-•*").strip()
@@ -86,9 +140,11 @@ def reply_with_chat_ai(project_name: str, user_message: str, history: List[Dict[
                 s = "The system SHALL " + s[0].upper() + s[1:]
             shall_lines.append(s)
         if shall_lines:
-            tips.insert(0, "Converted to canonical SHALL requirements:")
-            for i, s in enumerate(shall_lines, 1):
-                tips.append(f"{i}. {s}")
+            lines.append("")
+            # Maintain legacy phrasing expected by tests
+            lines.append("Converted to canonical SHALL requirements:")
+            for i, s in enumerate(shall_lines[:5], 1):
+                lines.append(f"- {s}")
         if attachments:
-            tips.append("I'll consider the existing docs when refining. After you confirm, regenerate documents to apply changes.")
-        return "\n".join(tips) or "I can help refine your idea into clear requirements. Describe the outcome you need, key users, and constraints."
+            lines.append("I'll also consider any attached docs for continuity.")
+        return "\n".join(lines)

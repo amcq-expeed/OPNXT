@@ -162,7 +162,13 @@ def _public_mode_enabled() -> bool:
     2) Otherwise, default to True in non-production environments to simplify local dev.
        We consider production if any of the common env vars indicate it.
     """
+    # Respect explicit setting first (including in tests)
     val = os.getenv("OPNXT_PUBLIC_MODE")
+    if val is not None:
+        return val.lower() in ("1", "true", "yes")
+    # If running under pytest and not explicitly set, force public mode off so tests validate auth behavior
+    if os.getenv("PYTEST_CURRENT_TEST"):
+        return False
     if val is not None:
         return val.lower() in ("1", "true", "yes")
     # No explicit setting: infer from environment

@@ -185,9 +185,17 @@ export default function ChatPanel({ projectId, prefill, onPrefillConsumed, onReg
       setNotice('Assistant replied.');
       // scroll to bottom after sending
       requestAnimationFrame(() => bottomRef.current?.scrollIntoView({ behavior: 'smooth' }));
-      // If auto mode is enabled, immediately apply & generate
+      // If auto mode is enabled, only apply & generate when conversation is READY
       if (autoGenerate && onRegenerateRequested) {
-        try { await applyAllAndGenerate(); } catch {}
+        try {
+          const shalls = extractShallFromText(msgs.map(m => m.content).join('\n'));
+          const ready = computeReadinessFromMessages(msgs as any, shalls).ready;
+          if (ready) {
+            await applyAllAndGenerate();
+          } else {
+            setSyncNotice('Auto-generate is ON, but more detail is needed before generating. Keep chatting to refine requirements.');
+          }
+        } catch {}
       }
     } catch (e: any) {
       setError(e?.message || String(e));
@@ -287,6 +295,82 @@ export default function ChatPanel({ projectId, prefill, onPrefillConsumed, onReg
     return uniq;
   }
 
+  function computeReadinessFromMessages(
+    msgs: ChatMessage[],
+    shalls: string[]
+  ): { ready: boolean; reason: string; score: number; missing: string[] } {
+    const userMsgs = (msgs || []).filter(m => m.role === 'user');
+    const userCount = userMsgs.length;
+    const totalChars = (msgs || []).reduce((n, m) => n + (m.content?.length || 0), 0);
+    const allText = (msgs || []).map(m => m.content).join('\n');
+
+    // Coverage heuristics
+    const hasStakeholders = /(stakeholder|user(?:s)?|persona|customer|admin|operator)/i.test(allText);
+    const hasScope = /(scope|objective|goal|outcome|success|kpi|metric)/i.test(allText);
+    const hasNFR = /(nfr|non[- ]?functional|performance|latency|throughput|availability|reliability|security|compliance|gdpr|hipaa)/i.test(allText);
+    const hasConstraints = /(constraint|assumption|risk|limitation|budget|timeline|deadline)/i.test(allText);
+    const hasInterface = /(\bui\b|ux|screen|page|api|endpoint|integration|webhook)/i.test(allText);
+    const hasTesting = /(test|qa|acceptance\s*criteria|traceability)/i.test(allText);
+    const hasData = /(data\s*model|schema|database|storage|retention|index)/i.test(allText);
+
+    // Q&A loop: assistant asked a question and user responded afterward
+    let qaLoop = false;
+    for (let i = msgs.length - 1; i >= 0; i--) {
+      const m = msgs[i];
+      if (m.role === 'assistant' && /\?/.test(m.content || '')) {
+        qaLoop = msgs.slice(i + 1).some(x => x.role === 'user' && (x.content || '').trim().length >= 20);
+        break;
+      }
+    }
+
+    // Scoring
+    let score = 0;
+    const missing: string[] = [];
+    // Clarity via SHALLs
+    if (shalls.length >= 5) score += 25; else if (shalls.length >= 3) score += 20; else if (shalls.length >= 1) score += 10; else missing.push('clear requirements (SHALL)');
+    // Coverage
+    if (hasStakeholders) score += 15; else missing.push('stakeholders/users');
+    if (hasScope) score += 15; else missing.push('scope/objectives');
+    if (hasNFR) score += 10; else missing.push('NFRs (performance/security)');
+    if (hasConstraints) score += 10; else missing.push('constraints/risks');
+    if (hasInterface) score += 10; else missing.push('UI/API/integrations');
+    if (hasTesting) score += 5; else missing.push('testing/acceptance');
+    if (hasData) score += 5; else missing.push('data model/retention');
+    // Conversation depth & detail
+    if (userCount >= 2) score += 10;
+    if (userCount >= 3) score += 10;
+    if (totalChars >= 400) score += 10;
+    // Q&A loop
+    if (qaLoop) score += 10;
+
+    if (score > 100) score = 100;
+    // Encourage an actual back-and-forth: if no Q&A loop yet, cap readiness
+    if (!qaLoop && score > 55) score = 55;
+    const ready = score >= 60;
+    const reason = ready ? `Ready (score ${score}).` : `Readiness ${score}%. Keep chatting to cover gaps.`;
+    return { ready, reason, score, missing };
+  }
+
+  function quickPromptsFromMissing(missing: string[]): { key: string; label: string; prompt: string }[] {
+    const map: Record<string, { label: string; prompt: string }> = {
+      'stakeholders/users': { label: 'Stakeholders', prompt: 'Stakeholders: Who are the primary users or stakeholders and what are their goals?' },
+      'scope/objectives': { label: 'Scope', prompt: 'Scope & Objectives: What is in scope for the first release and what outcomes define success?' },
+      'NFRs (performance/security)': { label: 'NFRs', prompt: 'NFRs: Any performance targets (latency/throughput), availability, or security/compliance needs?' },
+      'constraints/risks': { label: 'Constraints', prompt: 'Constraints & Risks: Any budget, timeline, technical constraints, assumptions, or known risks?' },
+      'UI/API/integrations': { label: 'Interfaces', prompt: 'Interfaces: Which screens, APIs, integrations, or webhooks are expected?' },
+      'testing/acceptance': { label: 'Testing', prompt: 'Testing: What acceptance criteria or test scenarios would confirm success?' },
+      'data model/retention': { label: 'Data', prompt: 'Data: What data is involved, any schema/storage considerations, or retention policies?' },
+      'clear requirements (SHALL)': { label: 'Requirements', prompt: 'Requirements: Can you provide 2–3 specific requirements? Example: "The system SHALL allow users to reset passwords via email."' },
+    };
+    const dedup: string[] = [];
+    const out: { key: string; label: string; prompt: string }[] = [];
+    for (const k of missing) {
+      if (map[k] && !dedup.includes(k)) { dedup.push(k); out.push({ key: k, ...map[k] }); }
+      if (out.length >= 4) break; // show up to 4 chips
+    }
+    return out;
+  }
+
   function onExtract() {
     const msgs = current?.messages || [];
     const texts = msgs.map(m => m.content);
@@ -331,6 +415,12 @@ export default function ChatPanel({ projectId, prefill, onPrefillConsumed, onReg
       setSyncing(false);
     }
   }
+
+  const readyInfo = useMemo(() => {
+    const msgs = current?.messages || [];
+    const shalls = extractShallFromText(msgs.map(m => m.content).join('\n'));
+    return computeReadinessFromMessages(msgs as any, shalls);
+  }, [current?.messages?.length]);
 
   return (
     <div aria-label="Project Chat" role="region">
@@ -394,15 +484,46 @@ export default function ChatPanel({ projectId, prefill, onPrefillConsumed, onReg
 
       {/* Review/Approve: Extract and apply to Stored Context */}
       <div style={{ borderTop: '1px solid var(--border)', marginTop: 12, paddingTop: 12 }}>
+        {/* Readiness meter */}
+        <div className="card" style={{ marginBottom: 8, padding: 8 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <strong>Readiness to Generate</strong>
+            <span className="muted">{Math.round(readyInfo.score || 0)}%</span>
+          </div>
+          <div aria-label="Readiness progress" style={{ height: 8, background: 'var(--border)', borderRadius: 4, overflow: 'hidden', marginTop: 6 }}>
+            <div style={{ width: `${Math.max(0, Math.min(100, Math.round(readyInfo.score || 0)))}%`, height: '100%', background: 'var(--primary)', transition: 'width 0.3s ease' }} />
+          </div>
+          {!readyInfo.ready && (
+            <div className="muted" style={{ marginTop: 6, fontSize: 12 }}>
+              {readyInfo.reason} {Array.isArray(readyInfo.missing) && readyInfo.missing.length ? `Hint: add ${readyInfo.missing.slice(0,3).join(', ')}.` : ''}
+            </div>
+          )}
+          {/* Quick prompts */}
+          {Array.isArray(readyInfo.missing) && readyInfo.missing.length > 0 && (
+            <div style={{ marginTop: 8, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+              {quickPromptsFromMissing(readyInfo.missing).map(p => (
+                <button
+                  key={p.key}
+                  type="button"
+                  className="badge"
+                  title={p.prompt}
+                  onClick={() => { setDraft(prev => (prev && prev.trim()) ? (prev.trim() + "\n" + p.prompt) : p.prompt); requestAnimationFrame(() => inputRef.current?.focus()); }}
+                >
+                  + {p.label}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
         <div className="sticky-actions" style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8, flexWrap: 'wrap' }}>
           <strong>Review & Apply</strong>
           {onRegenerateRequested && (
-            <button className="btn btn-primary" onClick={applyAllAndGenerate} disabled={generating || syncing} aria-busy={generating || undefined}>
+            <button className="btn btn-primary" onClick={applyAllAndGenerate} disabled={generating || syncing || !readyInfo.ready} aria-busy={generating || undefined} title={readyInfo.ready ? undefined : readyInfo.reason}>
               {generating ? 'Applying & Generating…' : 'Apply & Generate'}
             </button>
           )}
           <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-            <input type="checkbox" checked={autoGenerate} onChange={e => setAutoGenerate(e.target.checked)} /> Auto-apply & generate
+            <input type="checkbox" checked={autoGenerate} onChange={e => setAutoGenerate(e.target.checked)} /> Auto-apply & generate (when ready)
           </label>
           <details>
             <summary style={{ cursor: 'pointer' }}>More</summary>

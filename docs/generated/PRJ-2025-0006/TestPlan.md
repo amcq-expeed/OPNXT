@@ -1,7 +1,7 @@
 # Test Plan
 
 - Standard: IEEE 829 / ISO/IEC/IEEE 29119 (adapted)
-- Generated: 2025-09-24T19:42:25.698515Z
+- Generated: 2025-09-25T12:08:14.554705Z
 
 ## 1. Introduction
 ### 1.1 Purpose
@@ -13,10 +13,10 @@ Target unit/integration/e2e with coverage >= 80%; add API and UI tests for criti
 ## 2. Test Items
 - Features under test:
 - The system SHALL Provide user authentication.
-- The system SHALL Allow users to create and manage profiles.
-- The system SHALL Enable data storage and retrieval.
-- The system SHALL Support user notifications.
+- The system SHALL Allow users to create and manage their profiles.
+- The system SHALL Support data storage and retrieval.
 - The system SHALL Ensure data security and privacy.
+- The system SHALL Be accessible via web and mobile platforms.
 - FR-001 - User Registration [present]
 - FR-002 - Authentication (JWT) [present]
 - FR-003 - Project Creation API [present]
