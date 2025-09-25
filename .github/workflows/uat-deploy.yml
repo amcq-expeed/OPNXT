@@ -10,6 +10,8 @@ jobs:
   deploy-uat:
     name: Deploy to UAT
     runs-on: windows-latest
+    environment:
+      name: UAT
     env:
       UAT_HOST: ${{ secrets.UAT_HOST }}
       UAT_USERNAME: ${{ secrets.UAT_USERNAME }}
