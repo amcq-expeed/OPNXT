@@ -54,21 +54,32 @@ function Start-ServiceIfExists {
     }
 }
 
-$importedWebModule = $false
-if (-not [string]::IsNullOrWhiteSpace($SiteName)) {
-    $webModule = Get-Module -ListAvailable -Name WebAdministration | Select-Object -First 1
-    if ($null -ne $webModule) {
-        Import-Module WebAdministration -ErrorAction Stop
-        $importedWebModule = $true
-        $site = Get-Website -Name $SiteName -ErrorAction SilentlyContinue
-        if ($null -ne $site -and $site.state -ne 'Stopped') {
-            Write-Host "Stopping IIS site $SiteName" -ForegroundColor Yellow
-            Stop-Website -Name $SiteName
-        }
-    } else {
-        Write-Host "WebAdministration module not available; skipping IIS site stop/start" -ForegroundColor DarkGray
-    }
-}
+ $iisAccessible = $false
+ if (-not [string]::IsNullOrWhiteSpace($SiteName)) {
+     $webModule = Get-Module -ListAvailable -Name WebAdministration | Select-Object -First 1
+     if ($null -ne $webModule) {
+         try {
+            Import-Module WebAdministration -ErrorAction Stop
+            $site = $null
+            try {
+                $site = Get-Website -Name $SiteName -ErrorAction Stop
+                $iisAccessible = $true
+            } catch [System.UnauthorizedAccessException] {
+                Write-Warning ("Unable to manage IIS site {0} due to insufficient permissions. Continuing without recycling the site." -f $SiteName)
+            } catch {
+                Write-Warning ("Unable to read IIS site {0}: {1}" -f $SiteName, $_.Exception.Message)
+            }
+            if ($iisAccessible -and $null -ne $site -and $site.state -ne 'Stopped') {
+                Write-Host ("Stopping IIS site {0}" -f $SiteName) -ForegroundColor Yellow
+                Stop-Website -Name $SiteName
+            }
+         } catch {
+             Write-Warning "Failed to import WebAdministration module: $($_.Exception.Message)"
+             $importedWebModule = $false
+         }
+{{ ... }}
+     }
+ }
 
 Stop-ServiceIfExists -Name $FrontendServiceName
 Stop-ServiceIfExists -Name $BackendServiceName
@@ -159,12 +170,16 @@ finally {
 Start-ServiceIfExists -Name $BackendServiceName
 Start-ServiceIfExists -Name $FrontendServiceName
 
-if ($importedWebModule -and -not [string]::IsNullOrWhiteSpace($SiteName)) {
-    $site = Get-Website -Name $SiteName -ErrorAction SilentlyContinue
-    if ($null -ne $site) {
-        Write-Host "Starting IIS site $SiteName" -ForegroundColor Green
-        Start-Website -Name $SiteName
-    }
-}
+ if ($importedWebModule -and $iisAccessible -and -not [string]::IsNullOrWhiteSpace($SiteName)) {
+     try {
+         $site = Get-Website -Name $SiteName -ErrorAction Stop
+         Write-Host ("Starting IIS site {0}" -f $SiteName) -ForegroundColor Green
+         Start-Website -Name $SiteName
+     } catch [System.UnauthorizedAccessException] {
+         Write-Warning ("Insufficient permissions to start IIS site {0}. Please recycle manually." -f $SiteName)
+     } catch {
+         Write-Warning ("Failed to start IIS site {0}: {1}" -f $SiteName, $_.Exception.Message)
+     }
+ }
 
 Write-Host 'Deployment completed successfully.' -ForegroundColor Green
