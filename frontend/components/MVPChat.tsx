@@ -27,8 +27,19 @@ export default function MVPChat({ projectId, onDocumentsGenerated, onOpenDocumen
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [generating, setGenerating] = useState<boolean>(false);
+  const [assistantTyping, setAssistantTyping] = useState<boolean>(false);
+  const [generationStages, setGenerationStages] = useState<string[]>([]);
+  const [toast, setToast] = useState<{ type: 'error' | 'info'; message: string; actionLabel?: string; action?: () => void } | null>(null);
+  const [generationProgress, setGenerationProgress] = useState<number>(0);
 
   const bottomRef = useRef<HTMLDivElement | null>(null);
+
+  const pushGenerationStage = (label: string, progress?: number) => {
+    setGenerationStages(prev => [...prev, label]);
+    if (typeof progress === 'number') {
+      setGenerationProgress(Math.max(0, Math.min(1, progress)));
+    }
+  };
 
   useEffect(() => {
     // Auto-scroll when messages change
@@ -73,6 +84,7 @@ export default function MVPChat({ projectId, onDocumentsGenerated, onOpenDocumen
     if (!text) return;
     try {
       setSending(true);
+      setAssistantTyping(true);
       setError(null);
       const sid = await ensureSession();
       // Optimistically append user message
@@ -87,6 +99,7 @@ export default function MVPChat({ projectId, onDocumentsGenerated, onOpenDocumen
       setError(e?.message || String(e));
     } finally {
       setSending(false);
+      setAssistantTyping(false);
     }
   }
 
@@ -141,6 +154,11 @@ export default function MVPChat({ projectId, onDocumentsGenerated, onOpenDocumen
     try {
       setGenerating(true);
       setError(null);
+      setNotice('Applying requirements to Stored Context…');
+      setGenerationStages([]);
+      setGenerationProgress(0);
+      pushGenerationStage('Applying requirements to Stored Context…', 0.25);
+      setToast(null);
       // 1) Persist ONLY the current session's requirements (overwrite to avoid stale context)
       const ctx = await getProjectContext(projectId).catch(() => ({ data: {} } as any));
       const data: any = (ctx && (ctx as any).data) ? { ...(ctx as any).data } : {};
@@ -150,6 +168,8 @@ export default function MVPChat({ projectId, onDocumentsGenerated, onOpenDocumen
 
       // 2) Build prompt directly from the live conversation + detected requirements
       const prompt = buildPromptFromConversation(extractedShalls, messages);
+      setNotice('Generating documents via AI…');
+      pushGenerationStage('Generating documents via AI…', 0.65);
       try {
         await aiGenerateDocuments(projectId, {
           input_text: prompt,
@@ -158,6 +178,8 @@ export default function MVPChat({ projectId, onDocumentsGenerated, onOpenDocumen
         });
       } catch (e) {
         // Fallback to deterministic generator
+        setNotice('AI unavailable, falling back to deterministic generator…');
+        pushGenerationStage('AI unavailable, falling back to deterministic generator…', 0.8);
         const paste = [
           'Requirements (SHALL):',
           extractedShalls.map(s => '- ' + s).join('\n'),
@@ -172,12 +194,29 @@ export default function MVPChat({ projectId, onDocumentsGenerated, onOpenDocumen
           summaries: {}
         });
       }
-      setNotice('Documents generated.');
+      setNotice('Generation complete.');
+      pushGenerationStage('Generation complete.', 1);
       try { onDocumentsGenerated && onDocumentsGenerated(); } catch {}
     } catch (e: any) {
       setError(e?.message || String(e));
+      const msg = e?.message || 'Generation failed. Please try again.';
+      pushGenerationStage(`Generation failed: ${msg}`);
+      setGenerationProgress(0);
+      setToast({
+        type: 'error',
+        message: msg,
+        actionLabel: 'Retry',
+        action: () => {
+          setToast(null);
+          onGenerateDocs();
+        },
+      });
     } finally {
       setGenerating(false);
+      setTimeout(() => {
+        setGenerationStages([]);
+        setGenerationProgress(0);
+      }, 4000);
     }
   }
 
@@ -204,6 +243,16 @@ export default function MVPChat({ projectId, onDocumentsGenerated, onOpenDocumen
                 </div>
               </li>
             ))}
+            {assistantTyping && (
+              <li className="msg-row" style={{ justifyContent: 'flex-start' }}>
+                <div className="msg msg-assistant" aria-live="polite" aria-label="assistant typing">
+                  <div className="typing-indicator" role="status">
+                    <span className="typing-dots"><span /><span /><span /></span>
+                    <span>Assistant is typing…</span>
+                  </div>
+                </div>
+              </li>
+            )}
             <div ref={bottomRef} />
           </ul>
         </div>
@@ -221,7 +270,7 @@ export default function MVPChat({ projectId, onDocumentsGenerated, onOpenDocumen
             onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); onSend(); } }}
             style={{ flex: 1, resize: 'none' }}
           />
-          <button type="submit" className="btn btn-primary" disabled={sending || !draft.trim()}>{sending ? 'Sending…' : 'Send'}</button>
+          <button type="submit" className="btn btn-primary" disabled={sending || !draft.trim()} aria-busy={sending}>{'Send'}</button>
         </form>
 
         {/* Readiness meter */}
@@ -241,14 +290,20 @@ export default function MVPChat({ projectId, onDocumentsGenerated, onOpenDocumen
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 10, justifyContent: 'flex-start' }}>
-          <button className="btn btn-primary" onClick={onGenerateDocs} disabled={!readiness.ready || generating} aria-disabled={!readiness.ready}>
+          <button className="btn btn-primary" onClick={onGenerateDocs} disabled={!readiness.ready || generating} aria-disabled={!readiness.ready} aria-busy={generating}>
             {generating ? 'Generating…' : 'Generate Docs'}
           </button>
+          {generating && (
+            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }} aria-live="polite">
+              <progress aria-label="Generating documents" />
+              <span className="muted">Working on generation…</span>
+            </div>
+          )}
           {!readiness.ready && messages.length > 0 && (
             <span className="muted" title={readiness.reason}>Keep chatting to improve readiness.</span>
           )}
-          {notice && <span className="notice">{notice}</span>}
-          {error && <span className="error">{error}</span>}
+          {notice && <span className="notice" aria-live="polite">{notice}</span>}
+          {error && <span className="error" role="alert">{error}</span>}
         </div>
       </div>
 
