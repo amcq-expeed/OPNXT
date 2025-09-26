@@ -387,41 +387,45 @@ try {
     $pythonExe = Resolve-PythonExecutable -PreferredPath $PythonExecutable
     $nodeExe = Resolve-NodeExecutable -PreferredPath $NodeExecutable
     $npmExe = $null
-    $npmCommand = Get-Command npm -ErrorAction SilentlyContinue
-    if ($npmCommand -and $npmCommand.Source) {
-        $candidateNpm = (Resolve-Path $npmCommand.Source).ProviderPath
-        if ($candidateNpm.ToLower().EndsWith('npm.ps1')) {
-            $cmdFallback = Join-Path (Split-Path $candidateNpm) 'npm.cmd'
-            if (Test-Path $cmdFallback) {
-                $npmExe = (Resolve-Path $cmdFallback).ProviderPath
-                Write-Host "npm command shim is PowerShell script; switching to npm.cmd at $npmExe" -ForegroundColor DarkGray
-            }
-        } else {
-            $npmExe = $candidateNpm
-            Write-Host "npm resolved to $npmExe" -ForegroundColor DarkGray
-        }
-    }
-
-    if (-not $npmExe) {
-        $npmFallback = Join-Path (Split-Path $nodeExe) 'npm.cmd'
-        if (Test-Path $npmFallback) {
-            $npmExe = (Resolve-Path $npmFallback).ProviderPath
-            Write-Host "npm resolved via node directory: $npmExe" -ForegroundColor DarkGray
-        } else {
-            $npxFallback = Join-Path (Split-Path $nodeExe) 'npm.ps1'
-            if (Test-Path $npxFallback) {
-                $npmExe = (Resolve-Path $npxFallback).ProviderPath
-                Write-Warning "Falling back to npm.ps1 shim at $npmExe; prefer npm.cmd for compatibility."
-            } else {
-                throw 'Unable to locate npm command. Ensure npm is installed with Node.js or add it to PATH.'
-            }
-        }
-    }
+    $npmCmdCandidate = $null
 
     $nodeDir = Split-Path $nodeExe -Parent
     if ($nodeDir -and (Test-Path $nodeDir)) {
         Write-Host "Ensuring Node directory on PATH for child processes: $nodeDir" -ForegroundColor DarkGray
         $env:Path = "$nodeDir;${env:Path}"
+
+        $npmCmdCandidate = Join-Path $nodeDir 'npm.cmd'
+        if (Test-Path $npmCmdCandidate) {
+            $npmExe = (Resolve-Path $npmCmdCandidate).ProviderPath
+            Write-Host "npm resolved via node directory: $npmExe" -ForegroundColor DarkGray
+        }
+    }
+
+    if (-not $npmExe) {
+        $npmCommand = Get-Command npm -ErrorAction SilentlyContinue
+        if ($npmCommand -and $npmCommand.Source) {
+            $candidateNpm = (Resolve-Path $npmCommand.Source).ProviderPath
+            if ($candidateNpm.ToLower().EndsWith('npm.cmd')) {
+                $npmExe = $candidateNpm
+                Write-Host "npm resolved to $npmExe" -ForegroundColor DarkGray
+            } elseif ($candidateNpm.ToLower().EndsWith('npm.ps1')) {
+                $cmdFallback = Join-Path (Split-Path $candidateNpm) 'npm.cmd'
+                if (Test-Path $cmdFallback) {
+                    $npmExe = (Resolve-Path $cmdFallback).ProviderPath
+                    Write-Host "npm command shim is PowerShell script; switching to npm.cmd at $npmExe" -ForegroundColor DarkGray
+                } else {
+                    $npmExe = $candidateNpm
+                    Write-Warning "Using npm PowerShell shim at $npmExe; consider installing npm.cmd for best compatibility."
+                }
+            } else {
+                $npmExe = $candidateNpm
+                Write-Host "npm resolved to $npmExe" -ForegroundColor DarkGray
+            }
+        }
+    }
+
+    if (-not $npmExe) {
+        throw 'Unable to locate npm command. Ensure npm is installed with Node.js or add it to PATH.'
     }
 
     Write-Host "Python resolved to $pythonExe" -ForegroundColor DarkGray
