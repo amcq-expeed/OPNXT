@@ -80,7 +80,10 @@ function Resolve-PythonExecutable {
     $commandPreference = @('python', 'python3')
     foreach ($name in $commandPreference) {
         $cmd = Get-Command $name -ErrorAction SilentlyContinue
-        if ($cmd) { return $cmd.Source }
+        if ($cmd) {
+            Write-Host "Found python via Get-Command '$name': $($cmd.Source)" -ForegroundColor DarkGray
+            return $cmd.Source
+        }
     }
 
     try {
@@ -88,27 +91,41 @@ function Resolve-PythonExecutable {
         if ($whereResults) {
             foreach ($line in $whereResults -split "`n") {
                 $trimmed = $line.Trim()
-                if ($trimmed -and (Test-Path $trimmed)) { return $trimmed }
+                if ($trimmed -and (Test-Path $trimmed)) {
+                    Write-Host "Found python via where.exe: $trimmed" -ForegroundColor DarkGray
+                    return $trimmed
+                }
             }
         }
     } catch {
         Write-Host "where.exe did not resolve python: $($_.Exception.Message)" -ForegroundColor DarkGray
     }
 
-    $pathValue = [System.Environment]::GetEnvironmentVariable('Path')
-    if ($pathValue) {
+    $pathScopes = @('Process','User','Machine')
+    foreach ($scope in $pathScopes) {
+        try {
+            $pathValue = [System.Environment]::GetEnvironmentVariable('Path', $scope)
+        } catch { $pathValue = $null }
+        if (-not $pathValue) { continue }
         $pathEntries = $pathValue.Split(';') | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
-        foreach ($entry in $pathEntries) {
+        foreach ($entryRaw in $pathEntries) {
+            $entry = $entryRaw.Trim().Trim('"')
+            if ([string]::IsNullOrWhiteSpace($entry)) { continue }
             $candidate = Join-Path $entry 'python.exe'
-            if (Test-Path $candidate) { return $candidate }
+            if (Test-Path $candidate) {
+                $resolved = (Resolve-Path $candidate).ProviderPath
+                Write-Host "Found python via PATH ($scope): $resolved" -ForegroundColor DarkGray
+                return $resolved
+            }
         }
     }
 
     if ($env:PYTHONHOME) {
         $candidate = Join-Path $env:PYTHONHOME 'python.exe'
         if (Test-Path $candidate) {
-            Write-Host "Using python from PYTHONHOME: $candidate" -ForegroundColor DarkGray
-            return $candidate
+            $resolvedHome = (Resolve-Path $candidate).ProviderPath
+            Write-Host "Using python from PYTHONHOME: $resolvedHome" -ForegroundColor DarkGray
+            return $resolvedHome
         }
     }
 
@@ -116,7 +133,10 @@ function Resolve-PythonExecutable {
     if ($pyLauncher) {
         try {
             $launcherPath = & $pyLauncher.Source -3 -c "import sys, pathlib; print(pathlib.Path(sys.executable).resolve())" 2>$null
-            if ($launcherPath -and (Test-Path $launcherPath)) { return $launcherPath }
+            if ($launcherPath -and (Test-Path $launcherPath)) {
+                Write-Host "Using python via launcher 'py': $launcherPath" -ForegroundColor DarkGray
+                return $launcherPath
+            }
         } catch {
             Write-Host "Python launcher detected but unable to resolve interpreter: $($_.Exception.Message)" -ForegroundColor DarkGray
         }
@@ -132,7 +152,11 @@ function Resolve-PythonExecutable {
     ) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
 
     foreach ($path in $knownPaths) {
-        if (Test-Path $path) { return $path }
+        if (Test-Path $path) {
+            $resolvedKnown = (Resolve-Path $path).ProviderPath
+            Write-Host "Found python via known path list: $resolvedKnown" -ForegroundColor DarkGray
+            return $resolvedKnown
+        }
     }
 
     try {
@@ -150,10 +174,14 @@ function Resolve-PythonExecutable {
     }
 
     try {
-        $userPython = Get-ChildItem -Path 'C:\Users' -Filter python.exe -ErrorAction Stop -Recurse -Depth 4 |
+        $userPython = Get-ChildItem -Path 'C:\Users' -Filter python.exe -ErrorAction Stop -Recurse |
             Sort-Object FullName -Descending |
             Select-Object -First 1
-        if ($userPython -and (Test-Path $userPython.FullName)) { return $userPython.FullName }
+        if ($userPython -and (Test-Path $userPython.FullName)) {
+            $resolvedUser = (Resolve-Path $userPython.FullName).ProviderPath
+            Write-Host "Found python under C:\Users: $resolvedUser" -ForegroundColor DarkGray
+            return $resolvedUser
+        }
     } catch {
         Write-Host "Unable to discover python.exe under C:\Users: $($_.Exception.Message)" -ForegroundColor DarkGray
     }
@@ -162,7 +190,11 @@ function Resolve-PythonExecutable {
         $toolCache = Get-ChildItem -Path 'C:\hostedtoolcache\windows\Python' -Recurse -Filter python.exe -ErrorAction Stop |
             Sort-Object FullName -Descending |
             Select-Object -First 1
-        if ($toolCache -and (Test-Path $toolCache.FullName)) { return $toolCache.FullName }
+        if ($toolCache -and (Test-Path $toolCache.FullName)) {
+            $resolvedCache = (Resolve-Path $toolCache.FullName).ProviderPath
+            Write-Host "Found python via hostedtoolcache: $resolvedCache" -ForegroundColor DarkGray
+            return $resolvedCache
+        }
     } catch {
         Write-Host "No python.exe discovered in hostedtoolcache: $($_.Exception.Message)" -ForegroundColor DarkGray
     }
@@ -193,13 +225,14 @@ if (-not [string]::IsNullOrWhiteSpace($SiteName)) {
             }
          } catch {
              Write-Warning "Failed to import WebAdministration module: $($_.Exception.Message)"
+             $iisAccessible = $false
              $importedWebModule = $false
          }
 {{ ... }}
      }
  }
 
-Stop-ServiceIfExists -Name $FrontendServiceName
+{{ ... }}
 Stop-ServiceIfExists -Name $BackendServiceName
 
 if (-not (Test-Path $TargetRoot)) {
