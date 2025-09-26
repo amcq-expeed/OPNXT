@@ -48,6 +48,7 @@ function Start-ServiceIfExists {
             Write-Host "Starting service $Name" -ForegroundColor Green
             Start-Service -Name $Name -ErrorAction Stop
             $svc.WaitForStatus('Running', '00:00:30')
+        }
     } else {
         Write-Host "Service $Name not found, skipping start" -ForegroundColor DarkGray
     }
@@ -58,6 +59,14 @@ function Resolve-PythonExecutable {
     foreach ($name in $commandPreference) {
         $cmd = Get-Command $name -ErrorAction SilentlyContinue
         if ($cmd) { return $cmd.Source }
+    }
+
+    if ($env:PYTHONHOME) {
+        $candidate = Join-Path $env:PYTHONHOME 'python.exe'
+        if (Test-Path $candidate) {
+            Write-Host "Using python from PYTHONHOME: $candidate" -ForegroundColor DarkGray
+            return $candidate
+        }
     }
 
     $pyLauncher = Get-Command 'py' -ErrorAction SilentlyContinue
