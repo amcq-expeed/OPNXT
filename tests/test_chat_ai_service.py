@@ -12,6 +12,6 @@ def test_reply_with_chat_ai_fallback(monkeypatch):
         history=[{"role": "user", "content": "hi"}],
         attachments=None,
     )
-    assert "Converted to canonical SHALL requirements:" in text
-    assert "The system SHALL Login." in text
-    assert "The system SHALL Track sessions." in text
+    assert "Converted to canonical SHALL requirements:" not in text
+    assert "The system SHALL" not in text
+    assert "To refine this" in text

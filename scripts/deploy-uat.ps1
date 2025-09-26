@@ -449,6 +449,25 @@ try {
     if (Test-Path $frontendPath) {
         Push-Location $frontendPath
         try {
+            $artifactDirs = @('.next', '.turbo')
+            foreach ($artifact in $artifactDirs) {
+                $artifactPath = Join-Path $frontendPath $artifact
+                if (Test-Path $artifactPath) {
+                    Write-Host "Removing stale frontend artifact at $artifactPath" -ForegroundColor DarkGray
+                    try {
+                        Remove-Item -Path $artifactPath -Recurse -Force -ErrorAction Stop
+                    } catch {
+                        Write-Warning "Failed to remove $artifactPath: $($_.Exception.Message). Attempting to reset attributes and retry."
+                        try {
+                            Get-ChildItem -Path $artifactPath -Recurse -Force | ForEach-Object { $_.Attributes = 'Normal' }
+                            Remove-Item -Path $artifactPath -Recurse -Force -ErrorAction Stop
+                        } catch {
+                            Write-Error "Unable to delete $artifactPath. Resolve file locks before re-running deployment."
+                            throw
+                        }
+                    }
+                }
+            }
             Write-Host "Installing frontend dependencies" -ForegroundColor Cyan
             & $npmExe 'ci'
             Write-Host "Building Next.js frontend" -ForegroundColor Cyan

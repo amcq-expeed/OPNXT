@@ -97,8 +97,8 @@ def reply_with_chat_ai(project_name: str, user_message: str, history: List[Dict[
         llm = _get_llm()
         sys = (
             "You are OPNXT's SDLC refinement assistant. Your goal is to conduct a short, focused conversation to clarify and improve the user's idea before any documents are generated. "
-            "Ground responses in attached documents if present. Each reply should: (1) briefly reflect your understanding; (2) ask 2-3 targeted questions focusing on missing areas (stakeholders, scope/objectives, NFRs, constraints, interfaces, data, testing); "
-            "(3) optionally propose a few canonical SHALL statements only as suggestions to check understanding. Keep responses concise (<= 8 sentences). Do not suggest generating documents; wait until the user explicitly asks or enough detail has been captured."
+            "Ground responses in attached documents if present. Each reply should: (1) briefly reflect your understanding; (2) ask 2-3 targeted questions focusing on missing areas (stakeholders, scope/objectives, NFRs, constraints, interfaces, data, testing). "
+            "Do not expose canonical SHALL phrasing directly to the user; capture requirements implicitly so the system can use them later. Keep responses concise (<= 8 sentences). Do not suggest generating documents; wait until the user explicitly asks or enough detail has been captured."
         )
         msgs = [{"role": "system", "content": sys}]
         if attachments:
@@ -129,22 +129,6 @@ def reply_with_chat_ai(project_name: str, user_message: str, history: List[Dict[
         for i, q in enumerate(qs, 1):
             lines.append(f"{i}) {q}")
         # Candidate SHALLs only if the user included bullet/imperative content
-        shall_lines: List[str] = []
-        for ln in text.splitlines():
-            s = ln.strip().lstrip("-•*").strip()
-            if not s:
-                continue
-            if not s.lower().startswith("the system shall"):
-                if not s.endswith('.'):
-                    s += '.'
-                s = "The system SHALL " + s[0].upper() + s[1:]
-            shall_lines.append(s)
-        if shall_lines:
-            lines.append("")
-            # Maintain legacy phrasing expected by tests
-            lines.append("Converted to canonical SHALL requirements:")
-            for i, s in enumerate(shall_lines[:5], 1):
-                lines.append(f"- {s}")
         if attachments:
             lines.append("I'll also consider any attached docs for continuity.")
         return "\n".join(lines)
