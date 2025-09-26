@@ -24,6 +24,28 @@ if (-not $SourceRoot) {
     $SourceRoot = Resolve-Path $SourceRoot
 }
 
+function Restart-IISAppPool {
+    param([string]$PoolName)
+    if ([string]::IsNullOrWhiteSpace($PoolName)) { return }
+    try {
+        Import-Module WebAdministration -ErrorAction Stop
+    } catch {
+        Write-Host "WebAdministration module not available; skipping app pool restart for $PoolName" -ForegroundColor DarkGray
+        return
+    }
+    $poolPath = "IIS:\AppPools\$PoolName"
+    if (-not (Test-Path $poolPath)) {
+        Write-Host "IIS App Pool $PoolName not found" -ForegroundColor DarkGray
+        return
+    }
+    try {
+        Write-Host "Recycling IIS App Pool $PoolName" -ForegroundColor Yellow
+        Restart-WebAppPool -Name $PoolName -ErrorAction Stop
+    } catch {
+        Write-Warning "Failed to recycle app pool $PoolName: $($_.Exception.Message)"
+    }
+}
+
 Write-Host "Deploying OPNXT from $SourceRoot to $TargetRoot" -ForegroundColor Cyan
 
 function Stop-ServiceIfExists {
@@ -445,53 +467,47 @@ try {
         & (Join-Path $venvPath 'Scripts\pip.exe') install -r $apiReq
     }
 
-    $frontendPath = Join-Path $TargetRoot 'frontend'
-    if (Test-Path $frontendPath) {
-        Push-Location $frontendPath
-        try {
-            $artifactDirs = @('.next', '.turbo')
-            foreach ($artifact in $artifactDirs) {
-                $artifactPath = Join-Path $frontendPath $artifact
-                if (Test-Path $artifactPath) {
-                    Write-Host "Removing stale frontend artifact at ${artifactPath}" -ForegroundColor DarkGray
-                    try {
-                        Remove-Item -Path $artifactPath -Recurse -Force -ErrorAction Stop
-                    } catch {
-                        Write-Warning "Failed to remove ${artifactPath}: $($_.Exception.Message). Attempting to reset attributes and retry."
-                        try {
-                            Get-ChildItem -Path $artifactPath -Recurse -Force | ForEach-Object { $_.Attributes = 'Normal' }
-                            Remove-Item -Path $artifactPath -Recurse -Force -ErrorAction Stop
-                        } catch {
-                            Write-Error "Unable to delete ${artifactPath}. Resolve file locks before re-running deployment."
-                            throw
-                        }
-                    }
-                }
-            }
-            Write-Host "Installing frontend dependencies" -ForegroundColor Cyan
-            & $npmExe 'ci'
-            Write-Host "Building Next.js frontend" -ForegroundColor Cyan
-            & $npmExe 'run' 'build'
-        }
-        finally {
-            Pop-Location
-        }
-    } else {
-        Write-Warning "Frontend directory not found at $frontendPath"
+    $frontendSource = Join-Path $SourceRoot 'frontend'
+    $frontendTarget = Join-Path $TargetRoot 'frontend'
+
+    if (-not (Test-Path $frontendSource)) {
+        throw "Frontend source directory not found at $frontendSource"
     }
-}
-finally {
+
+    Write-Host "Installing frontend dependencies" -ForegroundColor Cyan
+    Push-Location $frontendSource
+    try {
+        & $npmExe 'ci'
+        Write-Host "Building static Next.js bundle" -ForegroundColor Cyan
+        & $npmExe 'run' 'build'
+    }
+    finally {
+        Pop-Location
+    }
+
+    $exportDir = Join-Path $frontendSource 'out'
+    if (-not (Test-Path $exportDir)) {
+        throw "Next.js export directory not found at $exportDir"
+    }
+
+    if (Test-Path $frontendTarget) {
+        Write-Host "Clearing existing frontend output at $frontendTarget" -ForegroundColor DarkGray
+        Remove-Item -Path $frontendTarget -Recurse -Force
+    }
+
+    Write-Host "Publishing exported frontend bundle to $frontendTarget" -ForegroundColor Cyan
+    New-Item -ItemType Directory -Path $frontendTarget -Force | Out-Null
+    Copy-Item -Path (Join-Path $exportDir '*') -Destination $frontendTarget -Recurse -Force
+} finally {
     Pop-Location
 }
 
-Start-ServiceIfExists -Name $BackendServiceName
-Start-ServiceIfExists -Name $FrontendServiceName
+Stop-ServiceIfExists -Name $FrontendServiceName
+Restart-IISAppPool -PoolName $SiteName
 
- if ($importedWebModule -and $iisAccessible -and -not [string]::IsNullOrWhiteSpace($SiteName)) {
-     try {
-         $site = Get-Website -Name $SiteName -ErrorAction Stop
-         Write-Host ("Starting IIS site {0}" -f $SiteName) -ForegroundColor Green
-         Start-Website -Name $SiteName
+if ($importedWebModule -and $iisAccessible -and -not [string]::IsNullOrWhiteSpace($SiteName)) {
+    try {
+{{ ... }}
      } catch [System.UnauthorizedAccessException] {
          Write-Warning ("Insufficient permissions to start IIS site {0}. Please recycle manually." -f $SiteName)
      } catch {
