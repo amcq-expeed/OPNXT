@@ -450,7 +450,7 @@ try {
         Push-Location $frontendPath
         try {
             Write-Host "Installing frontend dependencies" -ForegroundColor Cyan
-            & $npmExe 'ci' '--omit=dev'
+            & $npmExe 'ci'
             Write-Host "Building Next.js frontend" -ForegroundColor Cyan
             & $npmExe 'run' 'build'
         }
