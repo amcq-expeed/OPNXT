@@ -453,16 +453,16 @@ try {
             foreach ($artifact in $artifactDirs) {
                 $artifactPath = Join-Path $frontendPath $artifact
                 if (Test-Path $artifactPath) {
-                    Write-Host "Removing stale frontend artifact at $artifactPath" -ForegroundColor DarkGray
+                    Write-Host "Removing stale frontend artifact at ${artifactPath}" -ForegroundColor DarkGray
                     try {
                         Remove-Item -Path $artifactPath -Recurse -Force -ErrorAction Stop
                     } catch {
-                        Write-Warning "Failed to remove $artifactPath: $($_.Exception.Message). Attempting to reset attributes and retry."
+                        Write-Warning "Failed to remove ${artifactPath}: $($_.Exception.Message). Attempting to reset attributes and retry."
                         try {
                             Get-ChildItem -Path $artifactPath -Recurse -Force | ForEach-Object { $_.Attributes = 'Normal' }
                             Remove-Item -Path $artifactPath -Recurse -Force -ErrorAction Stop
                         } catch {
-                            Write-Error "Unable to delete $artifactPath. Resolve file locks before re-running deployment."
+                            Write-Error "Unable to delete ${artifactPath}. Resolve file locks before re-running deployment."
                             throw
                         }
                     }
