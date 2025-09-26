@@ -467,37 +467,18 @@ try {
         & (Join-Path $venvPath 'Scripts\pip.exe') install -r $apiReq
     }
 
-    $frontendSource = Join-Path $SourceRoot 'frontend'
     $frontendTarget = Join-Path $TargetRoot 'frontend'
 
-    if (-not (Test-Path $frontendSource)) {
-        throw "Frontend source directory not found at $frontendSource"
-    }
-
     Write-Host "Installing frontend dependencies" -ForegroundColor Cyan
-    Push-Location $frontendSource
+    Push-Location $frontendTarget
     try {
         & $npmExe 'ci'
-        Write-Host "Building static Next.js bundle" -ForegroundColor Cyan
+        Write-Host "Building Next.js frontend" -ForegroundColor Cyan
         & $npmExe 'run' 'build'
     }
     finally {
         Pop-Location
     }
-
-    $exportDir = Join-Path $frontendSource 'out'
-    if (-not (Test-Path $exportDir)) {
-        throw "Next.js export directory not found at $exportDir"
-    }
-
-    if (Test-Path $frontendTarget) {
-        Write-Host "Clearing existing frontend output at $frontendTarget" -ForegroundColor DarkGray
-        Remove-Item -Path $frontendTarget -Recurse -Force
-    }
-
-    Write-Host "Publishing exported frontend bundle to $frontendTarget" -ForegroundColor Cyan
-    New-Item -ItemType Directory -Path $frontendTarget -Force | Out-Null
-    Copy-Item -Path (Join-Path $exportDir '*') -Destination $frontendTarget -Recurse -Force
 } finally {
     Pop-Location
 }
