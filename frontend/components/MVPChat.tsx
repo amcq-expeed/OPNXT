@@ -220,21 +220,35 @@ export default function MVPChat({ projectId, onDocumentsGenerated, onOpenDocumen
     }
   }
 
+  const readinessScore = Math.round(readiness.score || 0);
+  const readinessPercent = Math.max(0, Math.min(100, readinessScore));
+  const subtitle = messages.length === 0
+    ? 'Share what you’re building, who it serves, and any constraints.'
+    : 'Keep iterating with the assistant. Generate docs when the readiness meter feels right.';
+  const handleToastDismiss = () => setToast(null);
+  const handleToastAction = () => {
+    if (!toast || !toast.action) return;
+    const action = toast.action;
+    setToast(null);
+    action();
+  };
+
   return (
-    <div style={{ maxWidth: 860, margin: '0 auto' }}>
-      {/* Header: Chat title + Documents badge (only when documents exist) */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-        <div className="section-title" style={{ marginBottom: 0 }}>Chat</div>
-        <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-          <button type="button" className="btn" onClick={onNewChat} aria-label="Start new chat">New Chat</button>
-        </div>
-      </div>
-      {/* Chat viewport: hidden until there are messages for a clean landing view */}
-      {messages.length > 0 && (
-        <div className="chat-box" style={{ height: '65vh', paddingBottom: 8 }}>
-          <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
+    <div className="mvp-chat">
+      <p className="mvp-chat__subtitle">{subtitle}</p>
+
+      <div className="mvp-chat__history" role="log" aria-live="polite" aria-label="Conversation">
+        {messages.length === 0 ? (
+          <div className="mvp-chat__empty">
+            <p>Describe your initiative, the teams or stakeholders involved, critical features, and any constraints like timelines or compliance. Mention integrations, data needs, or non-functional requirements so the assistant can shape stronger documentation.</p>
+          </div>
+        ) : (
+          <ul className="mvp-chat__messages">
             {messages.map(m => (
-              <li key={m.message_id} className="msg-row" style={{ justifyContent: m.role === 'user' ? 'flex-end' : 'flex-start' }}>
+              <li
+                key={m.message_id}
+                className={`msg-row ${m.role === 'user' ? 'msg-row--user' : 'msg-row--assistant'}`}
+              >
                 <div className={`msg ${m.role === 'user' ? 'msg-user' : 'msg-assistant'}`} aria-label={`${m.role} message`}>
                   {m.content}
                   <div className="msg-meta" style={{ textAlign: m.role === 'user' ? 'right' : 'left' }}>
@@ -244,7 +258,7 @@ export default function MVPChat({ projectId, onDocumentsGenerated, onOpenDocumen
               </li>
             ))}
             {assistantTyping && (
-              <li className="msg-row" style={{ justifyContent: 'flex-start' }}>
+              <li className="msg-row msg-row--assistant">
                 <div className="msg msg-assistant" aria-live="polite" aria-label="assistant typing">
                   <div className="typing-indicator" role="status">
                     <span className="typing-dots"><span /><span /><span /></span>
@@ -253,61 +267,77 @@ export default function MVPChat({ projectId, onDocumentsGenerated, onOpenDocumen
                 </div>
               </li>
             )}
-            <div ref={bottomRef} />
           </ul>
-        </div>
-      )}
+        )}
+        <div ref={bottomRef} />
+      </div>
 
-      {/* Composer + Actions (sticky bottom) */}
-      <div className="sticky-bottom">
-        <form onSubmit={onSend} style={{ display: 'flex', gap: 8, alignItems: 'flex-end', marginTop: 8 }}>
+      <div className="mvp-chat__composer">
+        <form className="mvp-chat__form" onSubmit={onSend}>
           <textarea
-            className="textarea chat-input"
+            className="textarea chat-input mvp-chat__textarea"
             aria-label="Your message"
             placeholder="Describe your idea or requirement… (Enter to send, Shift+Enter for newline)"
             value={draft}
             onChange={e => setDraft(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); onSend(); } }}
-            style={{ flex: 1, resize: 'none' }}
           />
-          <button type="submit" className="btn btn-primary" disabled={sending || !draft.trim()} aria-busy={sending}>{'Send'}</button>
+          <button type="submit" className="btn btn-primary mvp-chat__send" disabled={sending || !draft.trim()} aria-busy={sending}>{sending ? 'Sending…' : 'Send'}</button>
         </form>
 
-        {/* Readiness meter */}
-        <div className="card" style={{ marginTop: 10, padding: 8 }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <strong>Readiness to Generate</strong>
-            <span className="muted">{Math.round(readiness.score || 0)}%</span>
-          </div>
-          <div aria-label="Readiness progress" style={{ height: 8, background: 'var(--border)', borderRadius: 4, overflow: 'hidden', marginTop: 6 }}>
-            <div style={{ width: `${Math.max(0, Math.min(100, Math.round(readiness.score || 0)))}%`, height: '100%', background: 'var(--primary)', transition: 'width 0.3s ease' }} />
-          </div>
-          {!readiness.ready && (
-            <div className="muted" style={{ marginTop: 6, fontSize: 12 }}>
-              {readiness.reason} {Array.isArray(readiness.missing) && readiness.missing.length ? `Hint: add ${readiness.missing.slice(0,3).join(', ')}.` : ''}
+        <div className="mvp-chat__meta">
+          <div className="mvp-chat__readiness" role="group" aria-label="Readiness to generate documents">
+            <div className="mvp-chat__readiness-header">
+              <strong>Readiness to Generate</strong>
+              <span className="mvp-chat__readiness-score">{readinessScore}%</span>
             </div>
-          )}
-        </div>
+            <div
+              className="mvp-chat__readiness-bar"
+              role="progressbar"
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-valuenow={readinessPercent}
+            >
+              <span style={{ width: `${readinessPercent}%` }} />
+            </div>
+            {!readiness.ready && (
+              <p className="mvp-chat__hint">
+                {readiness.reason} {Array.isArray(readiness.missing) && readiness.missing.length ? `Try adding ${readiness.missing.slice(0, 3).join(', ')}.` : ''}
+              </p>
+            )}
+          </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 10, justifyContent: 'flex-start' }}>
-          <button className="btn btn-primary" onClick={onGenerateDocs} disabled={!readiness.ready || generating} aria-disabled={!readiness.ready} aria-busy={generating}>
-            {generating ? 'Generating…' : 'Generate Docs'}
-          </button>
-          {generating && (
-            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }} aria-live="polite">
-              <progress aria-label="Generating documents" />
-              <span className="muted">Working on generation…</span>
-            </div>
-          )}
-          {!readiness.ready && messages.length > 0 && (
-            <span className="muted" title={readiness.reason}>Keep chatting to improve readiness.</span>
-          )}
-          {notice && <span className="notice" aria-live="polite">{notice}</span>}
-          {error && <span className="error" role="alert">{error}</span>}
+          <div className="mvp-chat__actions">
+            <button className="btn btn-primary" onClick={onGenerateDocs} disabled={!readiness.ready || generating} aria-disabled={!readiness.ready} aria-busy={generating}>
+              {generating ? 'Generating…' : 'Generate Docs'}
+            </button>
+            {generating && (
+              <div className="mvp-chat__status" aria-live="polite">
+                <progress aria-label="Generating documents" />
+                <span className="muted">Working on generation…</span>
+              </div>
+            )}
+            {!readiness.ready && messages.length > 0 && (
+              <span className="mvp-chat__hint" title={readiness.reason}>Keep chatting to improve readiness.</span>
+            )}
+            <button type="button" className="btn mvp-chat__ghost" onClick={onNewChat} aria-label="Start new chat">New Chat</button>
+            {notice && <span className="notice" aria-live="polite">{notice}</span>}
+            {error && <span className="error" role="alert">{error}</span>}
+          </div>
         </div>
       </div>
 
-      
+      {toast && (
+        <div className="toast-stack" role="status" aria-live="polite">
+          <div className={`toast toast-${toast.type}`}>
+            <span className="grow">{toast.message}</span>
+            {toast.actionLabel && toast.action && (
+              <button type="button" onClick={handleToastAction}>{toast.actionLabel}</button>
+            )}
+            <button type="button" className="toast-dismiss" onClick={handleToastDismiss}>Dismiss</button>
+          </div>
+        </div>
+      )}
 
       {/* Detected Requirements panel intentionally hidden for MVP-clean UI */}
     </div>

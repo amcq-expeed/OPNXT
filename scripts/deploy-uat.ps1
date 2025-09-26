@@ -48,17 +48,60 @@ function Start-ServiceIfExists {
             Write-Host "Starting service $Name" -ForegroundColor Green
             Start-Service -Name $Name -ErrorAction Stop
             $svc.WaitForStatus('Running', '00:00:30')
-        }
     } else {
         Write-Host "Service $Name not found, skipping start" -ForegroundColor DarkGray
     }
 }
 
- $iisAccessible = $false
- if (-not [string]::IsNullOrWhiteSpace($SiteName)) {
-     $webModule = Get-Module -ListAvailable -Name WebAdministration | Select-Object -First 1
-     if ($null -ne $webModule) {
-         try {
+function Resolve-PythonExecutable {
+    $commandPreference = @('python', 'python3')
+    foreach ($name in $commandPreference) {
+        $cmd = Get-Command $name -ErrorAction SilentlyContinue
+        if ($cmd) { return $cmd.Source }
+    }
+
+    $pyLauncher = Get-Command 'py' -ErrorAction SilentlyContinue
+    if ($pyLauncher) {
+        try {
+            $launcherPath = & $pyLauncher.Source -3 -c "import sys, pathlib; print(pathlib.Path(sys.executable).resolve())" 2>$null
+            if ($launcherPath -and (Test-Path $launcherPath)) { return $launcherPath }
+        } catch {
+            Write-Host "Python launcher detected but unable to resolve interpreter: $($_.Exception.Message)" -ForegroundColor DarkGray
+        }
+    }
+
+    $knownPaths = @(
+        "$env:ProgramFiles\Python312\python.exe",
+        "$env:ProgramFiles\Python311\python.exe",
+        "$env:ProgramFiles\Python310\python.exe",
+        "$env:LocalAppData\Programs\Python\Python312\python.exe",
+        "$env:LocalAppData\Programs\Python\Python311\python.exe",
+        "$env:LocalAppData\Programs\Python\Python310\python.exe"
+    ) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
+
+    foreach ($path in $knownPaths) {
+        if (Test-Path $path) { return $path }
+    }
+
+    try {
+        $toolCache = Get-ChildItem -Path 'C:\hostedtoolcache\windows\Python' -Recurse -Filter python.exe -ErrorAction Stop |
+            Sort-Object FullName -Descending |
+            Select-Object -First 1
+        if ($toolCache -and (Test-Path $toolCache.FullName)) { return $toolCache.FullName }
+    } catch {
+        Write-Host "No python.exe discovered in hostedtoolcache: $($_.Exception.Message)" -ForegroundColor DarkGray
+    }
+
+    throw 'Unable to locate python executable. Ensure Python 3 is installed and available on PATH for the deployment account.'
+}
+
+Stop-ServiceIfExists -Name $FrontendServiceName
+Stop-ServiceIfExists -Name $BackendServiceName
+
+if (-not [string]::IsNullOrWhiteSpace($SiteName)) {
+    $webModule = Get-Module -ListAvailable -Name WebAdministration | Select-Object -First 1
+    if ($null -ne $webModule) {
+        try {
             Import-Module WebAdministration -ErrorAction Stop
             $site = $null
             try {
@@ -128,7 +171,7 @@ if ($FrontendEnvPath -and (Test-Path $FrontendEnvPath)) {
 
 Push-Location $TargetRoot
 try {
-    $pythonExe = Get-Command python -ErrorAction Stop | Select-Object -ExpandProperty Source
+    $pythonExe = Resolve-PythonExecutable
     $nodeExe = Get-Command node -ErrorAction Stop | Select-Object -ExpandProperty Source
     Write-Host "Python resolved to $pythonExe" -ForegroundColor DarkGray
     Write-Host "Node resolved to $nodeExe" -ForegroundColor DarkGray
@@ -139,7 +182,7 @@ try {
         Remove-Item -Path $venvPath -Recurse -Force
     }
     Write-Host "Creating Python virtual environment" -ForegroundColor Cyan
-    python -m venv $venvPath
+    & $pythonExe -m venv $venvPath
     & (Join-Path $venvPath 'Scripts\python.exe') -m pip install --upgrade pip
     & (Join-Path $venvPath 'Scripts\pip.exe') install -r (Join-Path $TargetRoot 'requirements.txt')
     $apiReq = Join-Path $TargetRoot 'requirements.api.txt'

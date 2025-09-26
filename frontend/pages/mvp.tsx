@@ -155,7 +155,7 @@ export default function MVPPage() {
         {!logoSrc && (
           <span style={{ fontWeight: 800, color: '#fff' }}>OPNXT</span>
         )}
-        <div className="card" style={{ width: '100%', maxWidth: 860 }}>
+        <div className="mvp-chat-shell">
           {loading && <div className="badge" role="status">Preparing session…</div>}
           {error && <p className="error">{error}</p>}
           {!loading && !error && projectId && (
