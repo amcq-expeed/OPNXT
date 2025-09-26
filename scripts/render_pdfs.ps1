@@ -4,7 +4,8 @@ param(
   [string]$CssPath = "templates/pandoc/style.css"
 )
 
-function Ensure-Tool($name) {
+function Test-ToolCommand {
+  param([Parameter(Mandatory=$true)][string]$Name)
   $found = Get-Command $name -ErrorAction SilentlyContinue
   if (-not $found) {
     Write-Host "[!] Missing required tool: $name" -ForegroundColor Yellow
@@ -14,8 +15,8 @@ function Ensure-Tool($name) {
   }
 }
 
-Ensure-Tool pandoc
-Ensure-Tool wkhtmltopdf
+Test-ToolCommand -Name pandoc
+Test-ToolCommand -Name wkhtmltopdf
 
 New-Item -ItemType Directory -Path $OutDir -Force | Out-Null
 
@@ -29,10 +30,10 @@ foreach ($f in $files) {
   $base = [System.IO.Path]::GetFileNameWithoutExtension($f.Name)
   $out = Join-Path $OutDir ($base + ".pdf")
   Write-Host ("Rendering {0} -> {1}" -f $f.FullName, $out)
-  $args = @("-s", $f.FullName, "-t", "html5", "--pdf-engine=wkhtmltopdf", "-o", $out)
-  if (Test-Path $CssPath) { $args = $args + @("-c", $CssPath) }
+  $pandocArgs = @("-s", $f.FullName, "-t", "html5", "--pdf-engine=wkhtmltopdf", "-o", $out)
+  if (Test-Path $CssPath) { $pandocArgs = $pandocArgs + @("-c", $CssPath) }
   $metaTitle = @("--metadata", ("title={0}" -f $base))
-  pandoc @args @metaTitle
+  pandoc @pandocArgs @metaTitle
 }
 
 Write-Host "Done. PDFs in $OutDir" -ForegroundColor Green
