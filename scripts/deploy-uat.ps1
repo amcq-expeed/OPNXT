@@ -11,7 +11,8 @@ param(
     [string]$BackendServiceName = "opnxt-backend",
     [string]$FrontendServiceName = "opnxt-frontend",
     [string]$SiteName = "opnxt",
-    [string]$PythonExecutable
+    [string]$PythonExecutable,
+    [string]$NodeExecutable
 )
 
 Set-StrictMode -Version Latest
@@ -202,6 +203,110 @@ function Resolve-PythonExecutable {
     throw 'Unable to locate python executable. Ensure Python 3 is installed and available on PATH for the deployment account.'
 }
 
+function Resolve-NodeExecutable {
+    param([string]$PreferredPath)
+
+    if ($PreferredPath) {
+        if (Test-Path $PreferredPath) {
+            Write-Host "Using node from provided path: $PreferredPath" -ForegroundColor DarkGray
+            return (Resolve-Path $PreferredPath).ProviderPath
+        } else {
+            throw "Provided NodeExecutable path '$PreferredPath' does not exist."
+        }
+    }
+
+    if ($env:NODE_EXECUTABLE) {
+        $candidate = $env:NODE_EXECUTABLE
+        if (Test-Path $candidate) {
+            Write-Host "Using node from NODE_EXECUTABLE: $candidate" -ForegroundColor DarkGray
+            return (Resolve-Path $candidate).ProviderPath
+        } else {
+            Write-Warning "NODE_EXECUTABLE environment variable set to '$candidate' but file not found."
+        }
+    }
+
+    $commandPreference = @('node', 'node.exe')
+    foreach ($name in $commandPreference) {
+        $cmd = Get-Command $name -ErrorAction SilentlyContinue
+        if ($cmd) {
+            Write-Host "Found node via Get-Command '$name': $($cmd.Source)" -ForegroundColor DarkGray
+            return $cmd.Source
+        }
+    }
+
+    try {
+        $whereResults = & where.exe node 2>$null
+        if ($whereResults) {
+            foreach ($line in $whereResults -split "`n") {
+                $trimmed = $line.Trim()
+                if ($trimmed -and (Test-Path $trimmed)) {
+                    Write-Host "Found node via where.exe: $trimmed" -ForegroundColor DarkGray
+                    return (Resolve-Path $trimmed).ProviderPath
+                }
+            }
+        }
+    } catch {
+        Write-Host "where.exe did not resolve node: $($_.Exception.Message)" -ForegroundColor DarkGray
+    }
+
+    $pathScopes = @('Process','User','Machine')
+    foreach ($scope in $pathScopes) {
+        try {
+            $pathValue = [System.Environment]::GetEnvironmentVariable('Path', $scope)
+        } catch { $pathValue = $null }
+        if (-not $pathValue) { continue }
+        $pathEntries = $pathValue.Split(';') | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
+        foreach ($entryRaw in $pathEntries) {
+            $entry = $entryRaw.Trim().Trim('"')
+            if ([string]::IsNullOrWhiteSpace($entry)) { continue }
+            $candidate = Join-Path $entry 'node.exe'
+            if (Test-Path $candidate) {
+                $resolved = (Resolve-Path $candidate).ProviderPath
+                Write-Host "Found node via PATH ($scope): $resolved" -ForegroundColor DarkGray
+                return $resolved
+            }
+        }
+    }
+
+    $programFiles = @()
+    if ($env:ProgramFiles) { $programFiles += $env:ProgramFiles }
+    if (${env:ProgramFiles(x86)}) { $programFiles += ${env:ProgramFiles(x86)} }
+    if ($env:LOCALAPPDATA) { $programFiles += (Join-Path $env:LOCALAPPDATA 'Programs') }
+
+    foreach ($root in $programFiles | Sort-Object -Unique) {
+        $nodeDir = Join-Path $root 'nodejs'
+        $candidate = Join-Path $nodeDir 'node.exe'
+        if (Test-Path $candidate) {
+            $resolvedKnown = (Resolve-Path $candidate).ProviderPath
+            Write-Host "Found node in nodejs directory: $resolvedKnown" -ForegroundColor DarkGray
+            return $resolvedKnown
+        }
+    }
+
+    if ($env:USERPROFILE) {
+        $nvmRoot = Join-Path $env:USERPROFILE 'AppData\Roaming\nvm'
+    }
+    if ($nvmRoot -and (Test-Path $nvmRoot)) {
+        try {
+            $latest = Get-ChildItem -Path $nvmRoot -Directory -ErrorAction Stop |
+                Sort-Object Name -Descending |
+                Select-Object -First 1
+            if ($latest) {
+                $candidate = Join-Path $latest.FullName 'node.exe'
+                if (Test-Path $candidate) {
+                    $resolvedNvm = (Resolve-Path $candidate).ProviderPath
+                    Write-Host "Found node via NVM install: $resolvedNvm" -ForegroundColor DarkGray
+                    return $resolvedNvm
+                }
+            }
+        } catch {
+            Write-Host "Unable to enumerate NVM installs: $($_.Exception.Message)" -ForegroundColor DarkGray
+        }
+    }
+
+    throw 'Unable to locate node executable. Install Node.js (LTS) and ensure node.exe is on PATH or supply -NodeExecutable.'
+}
+
 Stop-ServiceIfExists -Name $FrontendServiceName
 Stop-ServiceIfExists -Name $BackendServiceName
 
@@ -280,7 +385,20 @@ if ($FrontendEnvPath -and (Test-Path $FrontendEnvPath)) {
 Push-Location $TargetRoot
 try {
     $pythonExe = Resolve-PythonExecutable -PreferredPath $PythonExecutable
-    $nodeExe = Get-Command node -ErrorAction Stop | Select-Object -ExpandProperty Source
+    $nodeExe = Resolve-NodeExecutable -PreferredPath $NodeExecutable
+    $npmCommand = Get-Command npm -ErrorAction SilentlyContinue
+    if ($npmCommand) {
+        $npmExe = $npmCommand.Source
+        Write-Host "npm resolved to $npmExe" -ForegroundColor DarkGray
+    } else {
+        $npmFallback = Join-Path (Split-Path $nodeExe) 'npm.cmd'
+        if (Test-Path $npmFallback) {
+            $npmExe = (Resolve-Path $npmFallback).ProviderPath
+            Write-Host "npm resolved via node directory: $npmExe" -ForegroundColor DarkGray
+        } else {
+            throw 'Unable to locate npm command. Ensure npm is installed with Node.js or add it to PATH.'
+        }
+    }
     Write-Host "Python resolved to $pythonExe" -ForegroundColor DarkGray
     Write-Host "Node resolved to $nodeExe" -ForegroundColor DarkGray
 
@@ -303,9 +421,9 @@ try {
         Push-Location $frontendPath
         try {
             Write-Host "Installing frontend dependencies" -ForegroundColor Cyan
-            npm ci --omit=dev
+            & $npmExe 'ci' '--omit=dev'
             Write-Host "Building Next.js frontend" -ForegroundColor Cyan
-            npm run build
+            & $npmExe 'run' 'build'
         }
         finally {
             Pop-Location
