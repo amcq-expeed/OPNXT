@@ -386,25 +386,50 @@ Push-Location $TargetRoot
 try {
     $pythonExe = Resolve-PythonExecutable -PreferredPath $PythonExecutable
     $nodeExe = Resolve-NodeExecutable -PreferredPath $NodeExecutable
+    $npmExe = $null
     $npmCommand = Get-Command npm -ErrorAction SilentlyContinue
-    if ($npmCommand) {
-        $npmExe = $npmCommand.Source
-        Write-Host "npm resolved to $npmExe" -ForegroundColor DarkGray
-    } else {
+    if ($npmCommand -and $npmCommand.Source) {
+        $candidateNpm = (Resolve-Path $npmCommand.Source).ProviderPath
+        if ($candidateNpm.ToLower().EndsWith('npm.ps1')) {
+            $cmdFallback = Join-Path (Split-Path $candidateNpm) 'npm.cmd'
+            if (Test-Path $cmdFallback) {
+                $npmExe = (Resolve-Path $cmdFallback).ProviderPath
+                Write-Host "npm command shim is PowerShell script; switching to npm.cmd at $npmExe" -ForegroundColor DarkGray
+            }
+        } else {
+            $npmExe = $candidateNpm
+            Write-Host "npm resolved to $npmExe" -ForegroundColor DarkGray
+        }
+    }
+
+    if (-not $npmExe) {
         $npmFallback = Join-Path (Split-Path $nodeExe) 'npm.cmd'
         if (Test-Path $npmFallback) {
             $npmExe = (Resolve-Path $npmFallback).ProviderPath
             Write-Host "npm resolved via node directory: $npmExe" -ForegroundColor DarkGray
         } else {
-            throw 'Unable to locate npm command. Ensure npm is installed with Node.js or add it to PATH.'
+            $npxFallback = Join-Path (Split-Path $nodeExe) 'npm.ps1'
+            if (Test-Path $npxFallback) {
+                $npmExe = (Resolve-Path $npxFallback).ProviderPath
+                Write-Warning "Falling back to npm.ps1 shim at $npmExe; prefer npm.cmd for compatibility."
+            } else {
+                throw 'Unable to locate npm command. Ensure npm is installed with Node.js or add it to PATH.'
+            }
         }
     }
+
+    $nodeDir = Split-Path $nodeExe -Parent
+    if ($nodeDir -and (Test-Path $nodeDir)) {
+        Write-Host "Ensuring Node directory on PATH for child processes: $nodeDir" -ForegroundColor DarkGray
+        $env:Path = "$nodeDir;${env:Path}"
+    }
+
     Write-Host "Python resolved to $pythonExe" -ForegroundColor DarkGray
     Write-Host "Node resolved to $nodeExe" -ForegroundColor DarkGray
 
     $venvPath = Join-Path $TargetRoot '.venv'
     if (Test-Path $venvPath) {
-        Write-Host "Removing existing Python virtual environment" -ForegroundColor DarkGray
+{{ ... }}
         Remove-Item -Path $venvPath -Recurse -Force
     }
     Write-Host "Creating Python virtual environment" -ForegroundColor Cyan
