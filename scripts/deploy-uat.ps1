@@ -10,7 +10,8 @@ param(
     [string]$FrontendEnvPath,
     [string]$BackendServiceName = "opnxt-backend",
     [string]$FrontendServiceName = "opnxt-frontend",
-    [string]$SiteName = "opnxt"
+    [string]$SiteName = "opnxt",
+    [string]$PythonExecutable
 )
 
 Set-StrictMode -Version Latest
@@ -55,10 +56,52 @@ function Start-ServiceIfExists {
 }
 
 function Resolve-PythonExecutable {
+    param([string]$PreferredPath)
+
+    if ($PreferredPath) {
+        if (Test-Path $PreferredPath) {
+            Write-Host "Using python from provided path: $PreferredPath" -ForegroundColor DarkGray
+            return (Resolve-Path $PreferredPath).ProviderPath
+        } else {
+            throw "Provided PythonExecutable path '$PreferredPath' does not exist."
+        }
+    }
+
+    if ($env:PYTHON_EXECUTABLE) {
+        $candidate = $env:PYTHON_EXECUTABLE
+        if (Test-Path $candidate) {
+            Write-Host "Using python from PYTHON_EXECUTABLE: $candidate" -ForegroundColor DarkGray
+            return (Resolve-Path $candidate).ProviderPath
+        } else {
+            Write-Warning "PYTHON_EXECUTABLE environment variable set to '$candidate' but file not found."
+        }
+    }
+
     $commandPreference = @('python', 'python3')
     foreach ($name in $commandPreference) {
         $cmd = Get-Command $name -ErrorAction SilentlyContinue
         if ($cmd) { return $cmd.Source }
+    }
+
+    try {
+        $whereResults = & where.exe python 2>$null
+        if ($whereResults) {
+            foreach ($line in $whereResults -split "`n") {
+                $trimmed = $line.Trim()
+                if ($trimmed -and (Test-Path $trimmed)) { return $trimmed }
+            }
+        }
+    } catch {
+        Write-Host "where.exe did not resolve python: $($_.Exception.Message)" -ForegroundColor DarkGray
+    }
+
+    $pathValue = [System.Environment]::GetEnvironmentVariable('Path')
+    if ($pathValue) {
+        $pathEntries = $pathValue.Split(';') | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
+        foreach ($entry in $pathEntries) {
+            $candidate = Join-Path $entry 'python.exe'
+            if (Test-Path $candidate) { return $candidate }
+        }
     }
 
     if ($env:PYTHONHOME) {
@@ -90,6 +133,29 @@ function Resolve-PythonExecutable {
 
     foreach ($path in $knownPaths) {
         if (Test-Path $path) { return $path }
+    }
+
+    try {
+        $regInstalls = Get-ChildItem 'HKLM:\SOFTWARE\Python\PythonCore' -ErrorAction Stop | ForEach-Object {
+            $ip = Join-Path $_.PSPath 'InstallPath'
+            try { (Get-ItemProperty $ip -Name '(default)' -ErrorAction Stop).'(default)' } catch { $null }
+        } | Where-Object { $_ }
+
+        foreach ($installPath in $regInstalls) {
+            $exe = Join-Path $installPath 'python.exe'
+            if (Test-Path $exe) { return $exe }
+        }
+    } catch {
+        Write-Host "No python install found via registry lookup: $($_.Exception.Message)" -ForegroundColor DarkGray
+    }
+
+    try {
+        $userPython = Get-ChildItem -Path 'C:\Users' -Filter python.exe -ErrorAction Stop -Recurse -Depth 4 |
+            Sort-Object FullName -Descending |
+            Select-Object -First 1
+        if ($userPython -and (Test-Path $userPython.FullName)) { return $userPython.FullName }
+    } catch {
+        Write-Host "Unable to discover python.exe under C:\Users: $($_.Exception.Message)" -ForegroundColor DarkGray
     }
 
     try {
@@ -180,7 +246,7 @@ if ($FrontendEnvPath -and (Test-Path $FrontendEnvPath)) {
 
 Push-Location $TargetRoot
 try {
-    $pythonExe = Resolve-PythonExecutable
+    $pythonExe = Resolve-PythonExecutable -PreferredPath $PythonExecutable
     $nodeExe = Get-Command node -ErrorAction Stop | Select-Object -ExpandProperty Source
     Write-Host "Python resolved to $pythonExe" -ForegroundColor DarkGray
     Write-Host "Node resolved to $nodeExe" -ForegroundColor DarkGray
