@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from threading import RLock
 from typing import Dict, List, Optional
 import uuid
@@ -35,10 +35,13 @@ class InMemoryChatStore:
         self._messages: Dict[str, List[_Message]] = {}
         self._lock = RLock()
 
+    def _now_iso(self) -> str:
+        return datetime.now(UTC).isoformat().replace("+00:00", "Z")
+
     def create_session(self, project_id: str, created_by: str, title: Optional[str] = None) -> ChatSession:
         with self._lock:
             sid = uuid.uuid4().hex
-            now = datetime.utcnow().isoformat() + "Z"
+            now = self._now_iso()
             sess = _Session(
                 session_id=sid,
                 project_id=project_id,
@@ -61,7 +64,6 @@ class InMemoryChatStore:
                     continue
                 out.append(ChatSession(**sess.__dict__))
             # Newest first
-            out.sort(key=lambda s: s.updated_at, reverse=True)
             return out
 
     def get_session(self, session_id: str) -> Optional[ChatSession]:
@@ -74,7 +76,7 @@ class InMemoryChatStore:
             if session_id not in self._sessions:
                 raise KeyError("Session not found")
             mid = uuid.uuid4().hex
-            now = datetime.utcnow().isoformat() + "Z"
+            now = self._now_iso()
             msg = _Message(message_id=mid, session_id=session_id, role=role, content=content, created_at=now)
             self._messages.setdefault(session_id, []).append(msg)
             # bump session updated_at

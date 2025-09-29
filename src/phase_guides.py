@@ -27,7 +27,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Dict, List, Tuple
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 
 
 # Short app phase -> formal title and slug
@@ -159,7 +159,7 @@ def _detect_doc_presence(docs_dir: Path, filename: str) -> bool:
 
 def _render_markdown(guide: Guide, checks: Dict[str, bool]) -> str:
     # YAML frontmatter for provenance and audit
-    generated_at = datetime.utcnow().isoformat() + "Z"
+    generated_at = datetime.now(UTC).isoformat().replace("+00:00", "Z")
     frontmatter = [
         "---",
         f"phase_key: {guide.phase_key}",
@@ -266,7 +266,7 @@ def generate_guides_index(out_dir: Path | str = "docs") -> Path:
         ts = "N/A"
         if fpath.exists():
             try:
-                ts = datetime.utcfromtimestamp(fpath.stat().st_mtime).isoformat() + "Z"
+                ts = datetime.fromtimestamp(fpath.stat().st_mtime, tz=UTC).isoformat().replace("+00:00", "Z")
             except Exception:
                 pass
         rows.append(f"- [{title}]({fname}) — last updated: {ts}")

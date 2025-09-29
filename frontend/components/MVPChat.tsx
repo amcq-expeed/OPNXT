@@ -357,12 +357,6 @@ export default function MVPChat({ projectId, onDocumentsGenerated, onOpenDocumen
             <button className="btn btn-primary" onClick={() => onGenerateDocs()} disabled={!readiness.ready || generating} aria-disabled={!readiness.ready || generating} aria-busy={generating}>
               {generating ? 'Generating…' : 'Generate Docs'}
             </button>
-            {generating && (
-              <div className="mvp-chat__status" aria-live="polite">
-                <progress aria-label="Generating documents" />
-                <span className="muted">Working on generation…</span>
-              </div>
-            )}
             {!readiness.ready && messages.length > 0 && (
               <>
                 <span className="mvp-chat__hint" title={readiness.reason}>Gather more validation details to unlock full docs. You can still capture a Lean Snapshot now.</span>

@@ -1,56 +1,46 @@
----
 # Project Charter
 
-**Project Name:** Agentic SDLC Automation Project  
+**Project Name:** MVP Session 9/29/2025 12:47:28 PM  
 **Version:** 1.0  
 **Date:** 2025-09-29  
-**Author:** [Your Name]  
-**Approval:** [Approval Status]
+**Author:** AI Documentation Generator  
+**Approval:** Pending  
 
 ## Purpose  
-The purpose of this project is to automate key aspects of the software development lifecycle (SDLC) through the Agentic SDLC Automation Project, enhancing efficiency and oversight in software development processes.
-
-## Objectives  
-- Automate JIRA monitoring and requirements analysis.  
-- Generate standardized stories and tasks.  
-- Create and execute automated tests.  
-- Manage user acceptance testing (UAT) and coordinate releases.
+The purpose of this project is to develop a simple HTML page that displays the message "Hello World!". This project aims to provide a straightforward solution for users looking to create a basic web page without additional complexities.
 
 ## Scope  
-The project encompasses the development of a system that integrates with existing JIRA infrastructure, employing AI agents to perform tasks with human oversight. The system will include functionalities for monitoring, analysis, story generation, testing, and release management.
+The project scope includes the design and implementation of a single HTML page that meets the following criteria:  
+- Displays the message "Hello World!"  
+- No additional styling, links, or interactivity  
+- Accessible to anyone with the link  
+
+## Objectives  
+- To create a functional HTML page that meets the specified requirements.  
+- To ensure the page is compatible with common web browsers.  
 
 ## Stakeholders  
-- Development Teams (Engineers, Architects, Technical Leads)  
-- Product Managers  
-- Project Managers  
-- QA Engineers  
-- Business Requestors  
-- System Administrators
+- Project Owner: [User]  
+- Development Team: [To be determined]  
+- End Users: Anyone who accesses the page  
 
 ## Constraints  
-- Must integrate with existing JIRA instances.  
-- Must adhere to organizational security policies.  
-- Must maintain audit trails for all automated actions.  
-- Must provide override capabilities for human users.  
-- Must operate within existing infrastructure constraints.
+- The page must not include any styling or links.  
+- The project must be completed within a specified timeframe.  
 
-## Success Metrics  
-- Reduction in manual effort for SDLC tasks by 50%.  
-- Increase in the accuracy of requirements analysis by 30%.  
-- Successful execution of automated tests with a pass rate of 95% or higher.  
-- Timely completion of UAT and release management processes.
+## Success Criteria  
+- The HTML page successfully displays the message "Hello World!".  
+- The page is accessible to all users with the link.  
+- The project is completed on time and within budget.  
 
 ## Assumptions  
-- JIRA API availability and stability.  
-- Access to appropriate permissions for JIRA operations.  
-- Standardized story templates are defined and available.  
-- Testing frameworks are accessible via API.
+- Users will have basic internet access to view the HTML page.  
 
 ## Open Questions  
-- What specific security policies must be adhered to?  
-- Are there any existing tools or frameworks that must be integrated?
+- What specific web server or platform will be used for hosting?  
+- Are there any additional functionalities required for the page?  
 
----
+---  
 
 **Assumptions & Open Questions**  
-- Assumptions and open questions are included to clarify project scope and constraints.
+- Assumptions and open questions are noted for further clarification as the project progresses.

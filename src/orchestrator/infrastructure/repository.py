@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import os
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Dict, List, Optional, Protocol
 from pathlib import Path
 import json
@@ -29,7 +29,7 @@ class InMemoryProjectRepository:
 
     def _generate_project_id(self) -> str:
         self._counter += 1
-        year = datetime.utcnow().year
+        year = datetime.now(UTC).year
         return f"PRJ-{year}-{self._counter:04d}"
 
     def list(self) -> List[Project]:
@@ -40,7 +40,7 @@ class InMemoryProjectRepository:
 
     def create(self, payload: ProjectCreate) -> Project:
         pid = self._generate_project_id()
-        now = datetime.utcnow()
+        now = datetime.now(UTC)
         project = Project(
             project_id=pid,
             name=payload.name,
@@ -63,7 +63,7 @@ class InMemoryProjectRepository:
         if not proj:
             return None
         proj.current_phase = new_phase
-        proj.updated_at = datetime.utcnow()
+        proj.updated_at = datetime.now(UTC)
         self._projects[project_id] = proj
         return proj
 
@@ -149,7 +149,7 @@ class FileProjectRepository:
 
     def _generate_project_id(self) -> str:
         self._counter += 1
-        year = datetime.utcnow().year
+        year = datetime.now(UTC).year
         return f"PRJ-{year}-{self._counter:04d}"
 
     def list(self) -> List[Project]:
@@ -163,7 +163,7 @@ class FileProjectRepository:
     def create(self, payload: ProjectCreate) -> Project:
         with self._lock:
             pid = self._generate_project_id()
-            now = datetime.utcnow()
+            now = datetime.now(UTC)
             project = Project(
                 project_id=pid,
                 name=payload.name,
@@ -188,7 +188,7 @@ class FileProjectRepository:
             if not proj:
                 return None
             proj.current_phase = new_phase
-            proj.updated_at = datetime.utcnow()
+            proj.updated_at = datetime.now(UTC)
             self._projects[project_id] = proj
             self._save()
             return proj

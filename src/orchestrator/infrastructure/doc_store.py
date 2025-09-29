@@ -3,8 +3,8 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 import hashlib
-from datetime import datetime
-from typing import Dict, List, Optional, Any, Protocol
+from datetime import UTC, datetime
+from typing import Any, Dict, List, Optional, Protocol
 from threading import RLock
 
 
@@ -21,6 +21,23 @@ class DocumentStore(Protocol):
     def save_document(self, project_id: str, filename: str, content: str, meta: Optional[Dict[str, Any]] = None) -> int: ...
     def list_documents(self, project_id: str) -> Dict[str, List[Dict[str, Any]]]: ...
     def get_document(self, project_id: str, filename: str, version: Optional[int] = None) -> Optional[DocVersion]: ...
+
+
+def _utc_now() -> datetime:
+    return datetime.now(UTC)
+
+
+def _ensure_utc(value: Any) -> datetime:
+    if isinstance(value, datetime):
+        if value.tzinfo is None:
+            return value.replace(tzinfo=UTC)
+        return value.astimezone(UTC)
+    return _utc_now()
+
+
+def _isoformat_utc(value: Any) -> str:
+    dt = _ensure_utc(value)
+    return dt.isoformat().replace("+00:00", "Z")
 
 
 class InMemoryDocumentStore:
@@ -42,7 +59,7 @@ class InMemoryDocumentStore:
             dv = DocVersion(
                 version=version,
                 filename=filename,
-                created_at=datetime.utcnow(),
+                created_at=_utc_now(),
                 meta=dict(meta or {}),
                 content=content,
             )
@@ -56,7 +73,7 @@ class InMemoryDocumentStore:
                 out[fname] = [
                     {
                         "version": v.version,
-                        "created_at": v.created_at.isoformat() + "Z",
+                        "created_at": _isoformat_utc(v.created_at),
                         "meta": v.meta,
                     }
                     for v in versions
@@ -142,7 +159,7 @@ class MongoDocumentStore:
             "project_id": project_id,
             "filename": filename,
             "version": version,
-            "created_at": datetime.utcnow(),
+            "created_at": _utc_now(),
             "meta": dict(meta or {}),
             "blob_id": file_id,
         }
@@ -158,7 +175,7 @@ class MongoDocumentStore:
             out.setdefault(fname, []).append(
                 {
                     "version": int(doc.get("version", 0)),
-                    "created_at": (doc.get("created_at") or datetime.utcnow()).isoformat() + "Z",
+                    "created_at": _isoformat_utc(doc.get("created_at")),
                     "meta": doc.get("meta") or {},
                 }
             )
@@ -190,7 +207,7 @@ class MongoDocumentStore:
         return DocVersion(
             version=int(doc.get("version", 0)),
             filename=str(doc.get("filename")),
-            created_at=doc.get("created_at") or datetime.utcnow(),
+            created_at=_ensure_utc(doc.get("created_at")),
             meta=doc.get("meta") or {},
             content=content,
         )

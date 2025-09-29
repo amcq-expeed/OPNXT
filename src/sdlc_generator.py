@@ -6,9 +6,9 @@ Optionally renders PDFs if WeasyPrint is available.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Dict, Any, List
-from datetime import datetime
+from typing import Any, Dict, List
 import json
 
 from jinja2 import Environment, FileSystemLoader, select_autoescape
@@ -38,6 +38,10 @@ ARTIFACTS: List[Artifact] = [
 ]
 
 
+def _now_iso() -> str:
+    return datetime.now(UTC).isoformat().replace("+00:00", "Z")
+
+
 def _build_env(templates_dir: Path) -> Environment:
     env = Environment(
         loader=FileSystemLoader(str(templates_dir)),
@@ -45,7 +49,7 @@ def _build_env(templates_dir: Path) -> Environment:
         trim_blocks=True,
         lstrip_blocks=True,
     )
-    env.globals.update(now=lambda: datetime.utcnow().isoformat() + "Z")
+    env.globals.update(now=_now_iso)
     return env
 
 
@@ -79,7 +83,7 @@ def generate_all_docs(data: Dict[str, Any], templates_root: Path | None = None, 
         "summaries": data.get("summaries", {}),
         "phases": data.get("phases", []),
         "request": data.get("request", ""),
-        "generated_at": datetime.utcnow().isoformat() + "Z",
+        "generated_at": _now_iso(),
     }
 
     for art in ARTIFACTS:
@@ -105,7 +109,7 @@ def write_json_bundle(data: Dict[str, Any], rendered: Dict[str, str], out_path: 
     """
     bundle = {
         "meta": {
-            "generated_at": datetime.utcnow().isoformat() + "Z",
+            "generated_at": _now_iso(),
             "generator": "OPNXT sdlc_generator.py",
             "artifacts_count": len(rendered),
         },

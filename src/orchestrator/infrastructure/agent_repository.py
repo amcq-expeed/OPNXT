@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Dict, List, Optional
 
 from ..domain.agent_models import Agent, AgentCreate, AgentUpdate
@@ -18,7 +18,7 @@ class InMemoryAgentRepository:
 
     def _generate_agent_id(self) -> str:
         self._counter += 1
-        year = datetime.utcnow().year
+        year = datetime.now(UTC).year
         return f"AGT-{year}-{self._counter:04d}"
 
     def list(self) -> List[Agent]:
@@ -29,7 +29,7 @@ class InMemoryAgentRepository:
 
     def create(self, payload: AgentCreate) -> Agent:
         aid = self._generate_agent_id()
-        now = datetime.utcnow()
+        now = datetime.now(UTC)
         agent = Agent(
             agent_id=aid,
             name=payload.name,
@@ -50,7 +50,7 @@ class InMemoryAgentRepository:
         data = agent.model_dump()
         upd = patch.model_dump(exclude_unset=True)
         data.update({k: v for k, v in upd.items() if v is not None})
-        data["updated_at"] = datetime.utcnow()
+        data["updated_at"] = datetime.now(UTC)
         self._agents[agent_id] = Agent(**data)
         return self._agents[agent_id]
 
