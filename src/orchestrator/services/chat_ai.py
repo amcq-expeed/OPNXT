@@ -2,6 +2,9 @@ from __future__ import annotations
 
 from typing import List, Dict, Optional
 import os
+import re
+
+from .model_router import ModelRouter
 
 # Optional import: langchain-openai
 try:
@@ -10,21 +13,103 @@ except Exception:  # pragma: no cover - optional import
     ChatOpenAI = None  # type: ignore
 
 
-def _has_api_key() -> bool:
-    return bool(os.getenv("OPENAI_API_KEY") or os.getenv("XAI_API_KEY"))
+DEFAULT_BASE_URLS = {
+    "openai": "https://api.openai.com/v1",
+    "gemini": "https://generativelanguage.googleapis.com/v1beta",
+    "xai": "https://api.x.ai/v1",
+}
 
 
-def _get_llm():
-    if not ChatOpenAI or not _has_api_key():
-        raise RuntimeError("LLM not configured")
-    api_key = os.getenv("XAI_API_KEY") or os.getenv("OPENAI_API_KEY")
-    base_url = (
-        os.getenv("XAI_BASE_URL")
-        or os.getenv("OPENAI_BASE_URL")
-        or "https://api.openai.com/v1"
+def _determine_purpose(user_message: str) -> str:
+    if user_message.strip().lower() == "approve":
+        return "governance_artifact"
+    return "conversation"
+
+
+def detect_user_intent(user_message: str, history: Optional[List[Dict[str, str]]] = None) -> str:
+    """Classify incoming request intent.
+
+    Returns one of ``{"troubleshooting", "documentation", "idea"}`` using simple
+    keyword heuristics anchored in leadership requirements. Defaults to ``"idea"``
+    when no signal is present so the discovery/charter paths still engage.
+    """
+
+    history = history or []
+    text_parts: List[str] = []
+    if user_message:
+        text_parts.append(str(user_message))
+    for turn in history[-6:]:
+        if not isinstance(turn, dict):
+            continue
+        content = turn.get("content")
+        if isinstance(content, str):
+            text_parts.append(content)
+    haystack = " ".join(text_parts).lower()
+
+    troubleshooting_terms = (
+        "password",
+        "reset",
+        "forgot",
+        "can't log",
+        "cannot log",
+        "error",
+        "stack trace",
+        "bug",
+        "issue",
+        "not working",
+        "troubleshoot",
+        "support ticket",
+        "service desk",
+        "outage",
+        "incident",
     )
-    model = os.getenv("OPNXT_LLM_MODEL") or os.getenv("OPENAI_MODEL") or os.getenv("XAI_MODEL") or "gpt-4o-mini"
-    return ChatOpenAI(api_key=api_key, base_url=base_url, model=model, temperature=0.2)
+    for term in troubleshooting_terms:
+        if term in haystack:
+            return "troubleshooting"
+
+    documentation_terms = (
+        "project charter",
+        "charter",
+        "brd",
+        "srs",
+        "sdd",
+        "test plan",
+        "documentation",
+        "requirements",
+        "specification",
+        "scope document",
+        "business case",
+    )
+    for term in documentation_terms:
+        if term in haystack:
+            return "documentation"
+
+    question_match = re.search(r"how do i .*?\?", haystack)
+    if question_match:
+        return "troubleshooting"
+
+    return "idea"
+
+
+def _get_llm(purpose: str):
+    router = ModelRouter()
+    selection = router.select_provider(purpose)
+
+    if selection.name == "search":
+        raise RuntimeError("Search provider cannot handle conversational responses")
+
+    if not ChatOpenAI:
+        raise RuntimeError("LLM client not available")
+
+    api_key = os.getenv(selection.api_key_env)
+    if not api_key:
+        raise RuntimeError("LLM not configured")
+
+    base_url = DEFAULT_BASE_URLS.get(selection.name)
+    if selection.base_url_env:
+        base_url = os.getenv(selection.base_url_env, base_url)
+
+    return ChatOpenAI(api_key=api_key, base_url=base_url, model=selection.model, temperature=0.2)
 
 
 def _attachment_block(attachments: Optional[Dict[str, str]]) -> str:
@@ -92,9 +177,40 @@ def reply_with_chat_ai(project_name: str, user_message: str, history: List[Dict[
     """
     history = history or []
 
-    # Try LLM
+    intent = detect_user_intent(user_message, history)
+    if intent == "troubleshooting":
+        try:
+            llm = _get_llm("conversation")
+            sys = (
+                "You are the OPNXT Support Guide. Provide clear, concise troubleshooting steps. "
+                "Acknowledge the issue, outline 2-3 actionable recommendations, and note any risks or escalation paths. "
+                "If you need more detail, ask one focused follow-up question. Keep responses under 6 sentences."
+            )
+            msgs = [{"role": "system", "content": sys}]
+            for m in history[-4:]:
+                r = m.get("role") or "user"
+                c = m.get("content") or ""
+                if r not in ("system", "user", "assistant"):
+                    r = "user"
+                msgs.append({"role": r, "content": c})
+            msgs.append({"role": "user", "content": user_message})
+            res = llm.invoke(msgs)
+            return res.content if hasattr(res, "content") else str(res)
+        except Exception:
+            text = (user_message or "").strip()
+            lines = ["Let’s tackle this issue step-by-step."]
+            if text:
+                lines.append(f"I’m hearing: {text.splitlines()[0][:180]}")
+            lines.append("Try these next actions:")
+            lines.append("1) Reproduce the issue and capture any exact error messages or codes.")
+            lines.append("2) Check recent changes (deploys, password updates, configuration tweaks).")
+            lines.append("3) If the problem persists, open a support ticket with logs/screenshots for escalation.")
+            return "\n".join(lines)
+
+    purpose = _determine_purpose(user_message)
+
     try:
-        llm = _get_llm()
+        llm = _get_llm(purpose)
         sys = (
             "You are OPNXT's SDLC refinement assistant. Your goal is to conduct a short, focused conversation to clarify and improve the user's idea before any documents are generated. "
             "Ground responses in attached documents if present. Each reply should: (1) briefly reflect your understanding; (2) ask 2-3 targeted questions focusing on missing areas (stakeholders, scope/objectives, NFRs, constraints, interfaces, data, testing). "
@@ -105,7 +221,6 @@ def reply_with_chat_ai(project_name: str, user_message: str, history: List[Dict[
             att = _attachment_block(attachments)
             if att:
                 msgs.append({"role": "system", "content": "ATTACHED DOCUMENTS AS CONTEXT:\n" + att})
-        # include prior turns
         for m in history:
             r = m.get("role") or "user"
             c = m.get("content") or ""
@@ -116,19 +231,15 @@ def reply_with_chat_ai(project_name: str, user_message: str, history: List[Dict[
         res = llm.invoke(msgs)
         return res.content if hasattr(res, "content") else str(res)
     except Exception:
-        # Fallback: deterministic, conversational-first reply
         text = (user_message or "").strip()
         lines: List[str] = []
         if text:
-            # Simple reflection of intent (first sentence)
             first_line = text.splitlines()[0].strip()
             lines.append(f"I understand you want to: {first_line[:180]}")
-        # Targeted questions
         qs = _suggest_questions(text)
         lines.append("To refine this, a few quick questions:")
         for i, q in enumerate(qs, 1):
             lines.append(f"{i}) {q}")
-        # Candidate SHALLs only if the user included bullet/imperative content
         if attachments:
             lines.append("I'll also consider any attached docs for continuity.")
         return "\n".join(lines)

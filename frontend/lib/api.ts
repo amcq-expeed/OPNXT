@@ -52,6 +52,7 @@ export interface EnrichResponse {
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 const PUBLIC_MODE = (process.env.NEXT_PUBLIC_PUBLIC_MODE === '1' || process.env.NEXT_PUBLIC_PUBLIC_MODE === 'true');
+const MVP_SERVICE_TOKEN = process.env.NEXT_PUBLIC_MVP_SERVICE_TOKEN || '';
 
 // --- Auth models ---
 export interface User {
@@ -103,7 +104,11 @@ function isMvpRoute(): boolean {
 async function apiFetch(input: string, init: RequestInit = {}): Promise<Response> {
   const headers: Record<string, string> = { ...(init.headers as any) };
   const omitAuth = PUBLIC_MODE || isMvpRoute();
-  if (!omitAuth && accessToken) headers['Authorization'] = `Bearer ${accessToken}`;
+  if (!omitAuth && accessToken) {
+    headers['Authorization'] = `Bearer ${accessToken}`;
+  } else if (omitAuth && MVP_SERVICE_TOKEN) {
+    headers['Authorization'] = `Bearer ${MVP_SERVICE_TOKEN}`;
+  }
   let res = await fetch(input, { ...init, headers });
   if (!res.ok) {
     const err = new ApiError(`HTTP ${res.status}`);
@@ -286,6 +291,16 @@ export async function deleteAgent(agent_id: string): Promise<void> {
 // --- Context & Impact ---
 export interface ProjectContext { data: Record<string, any>; }
 
+export interface LeanSnapshotRequest {
+  markdown_content: string;
+  metadata?: Record<string, any>;
+}
+
+export interface LeanSnapshotResponse {
+  message: string;
+  count: number;
+}
+
 export interface ImpactItem { kind: string; name: string; confidence: number; }
 export interface ImpactResponse { project_id: string; impacts: ImpactItem[]; }
 
@@ -299,6 +314,15 @@ export async function putProjectContext(project_id: string, ctx: ProjectContext)
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(ctx),
+  });
+  return res.json();
+}
+
+export async function saveLeanSnapshot(project_id: string, snapshot: LeanSnapshotRequest): Promise<LeanSnapshotResponse> {
+  const res = await apiFetch(`${API_BASE}/projects/${project_id}/context/lean-snapshot`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(snapshot),
   });
   return res.json();
 }

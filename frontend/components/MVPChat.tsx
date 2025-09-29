@@ -4,11 +4,10 @@ import {
   createChatSession,
   listChatMessages,
   postChatMessage,
-  getProjectContext,
   putProjectContext,
   aiGenerateDocuments,
   generateDocuments,
-  ProjectContext,
+  saveLeanSnapshot,
 } from '../lib/api';
 
 interface MVPChatProps {
@@ -149,7 +148,7 @@ export default function MVPChat({ projectId, onDocumentsGenerated, onOpenDocumen
     ].join('\n\n');
   }
 
-  async function onGenerateDocs() {
+  async function onGenerateDocs(forceSnapshot = false) {
     if (!projectId) return;
     try {
       setGenerating(true);
@@ -160,43 +159,88 @@ export default function MVPChat({ projectId, onDocumentsGenerated, onOpenDocumen
       pushGenerationStage('Applying requirements to Stored Context…', 0.25);
       setToast(null);
       // 1) Persist ONLY the current session's requirements (overwrite to avoid stale context)
-      const ctx = await getProjectContext(projectId).catch(() => ({ data: {} } as any));
-      const data: any = (ctx && (ctx as any).data) ? { ...(ctx as any).data } : {};
-      // Reset summaries and keep only current Requirements to prevent stale context
       const payload = { data: { summaries: {}, answers: { Requirements: extractedShalls } } } as any;
       await putProjectContext(projectId, payload);
 
       // 2) Build prompt directly from the live conversation + detected requirements
       const prompt = buildPromptFromConversation(extractedShalls, messages);
-      setNotice('Generating documents via AI…');
-      pushGenerationStage('Generating documents via AI…', 0.65);
-      try {
-        await aiGenerateDocuments(projectId, {
-          input_text: prompt,
-          include_backlog: true,
-          doc_types: ['ProjectCharter', 'SRS', 'SDD', 'TestPlan']
-        });
-      } catch (e) {
-        // Fallback to deterministic generator
-        setNotice('AI unavailable, falling back to deterministic generator…');
-        pushGenerationStage('AI unavailable, falling back to deterministic generator…', 0.8);
-        const paste = [
-          'Requirements (SHALL):',
-          extractedShalls.map(s => '- ' + s).join('\n'),
-          '',
-          'Conversation Transcript:',
-          messages.map(m => `${m.role}: ${m.content}`).join('\n')
-        ].join('\n');
-        await generateDocuments(projectId, {
-          traceability_overlay: true,
-          paste_requirements: paste,
-          answers: { Requirements: extractedShalls } as any,
-          summaries: {}
-        });
+      const runSnapshot = forceSnapshot || !readiness.ready;
+      if (runSnapshot) {
+        setNotice('Summarizing discovery findings…');
+        pushGenerationStage('Preparing Lean Idea Validation Snapshot…', 0.65);
+        const priorMessageCount = messages.length;
+        const snapshot = buildLeanSnapshot(messages, extractedShalls, readiness);
+        const now = new Date().toISOString();
+        // Append snapshot as assistant message for immediate feedback
+        setMessages(prev => prev.concat([{
+          message_id: 'snapshot-' + Math.random().toString(36).slice(2),
+          session_id: sessionId || 'snapshot',
+          role: 'assistant',
+          content: snapshot,
+          created_at: now,
+        } as any]));
+
+        try {
+          pushGenerationStage('Saving snapshot to project context…', 0.85);
+          await saveLeanSnapshot(projectId, {
+            markdown_content: snapshot,
+            metadata: {
+              source: 'mvp_chat',
+              generated_at: now,
+              message_count_before_snapshot: priorMessageCount,
+              extracted_shalls: extractedShalls.length,
+              readiness: {
+                ready: readiness.ready,
+                score: readiness.score,
+                reason: readiness.reason,
+                missing: readiness.missing,
+              },
+            },
+          });
+          setNotice('Lean Idea Validation Snapshot saved. Capture more detail when you want the full SDLC bundle.');
+          pushGenerationStage('Snapshot saved.', 1);
+        } catch (err: any) {
+          if (process.env.NODE_ENV !== 'production') {
+            console.error('Failed to persist Lean Snapshot', err);
+          }
+          setNotice('Snapshot ready locally. Saving to project context failed.');
+          pushGenerationStage('Snapshot ready (not saved).', 1);
+          setToast({
+            type: 'error',
+            message: 'Snapshot stored in chat, but persisting to project context failed. Try again later or copy the snapshot manually.',
+          });
+        }
+      } else {
+        setNotice('Generating documents via AI…');
+        pushGenerationStage('Generating documents via AI…', 0.65);
+        try {
+          await aiGenerateDocuments(projectId, {
+            input_text: prompt,
+            include_backlog: true,
+            doc_types: ['ProjectCharter', 'SRS', 'SDD', 'TestPlan']
+          });
+        } catch (e) {
+          // Fallback to deterministic generator
+          setNotice('AI unavailable, falling back to deterministic generator…');
+          pushGenerationStage('AI unavailable, falling back to deterministic generator…', 0.8);
+          const paste = [
+            'Requirements (SHALL):',
+            extractedShalls.map(s => '- ' + s).join('\n'),
+            '',
+            'Conversation Transcript:',
+            messages.map(m => `${m.role}: ${m.content}`).join('\n')
+          ].join('\n');
+          await generateDocuments(projectId, {
+            traceability_overlay: true,
+            paste_requirements: paste,
+            answers: { Requirements: extractedShalls } as any,
+            summaries: {}
+          });
+        }
+        setNotice('Generation complete.');
+        pushGenerationStage('Generation complete.', 1);
+        try { onDocumentsGenerated && onDocumentsGenerated(); } catch {}
       }
-      setNotice('Generation complete.');
-      pushGenerationStage('Generation complete.', 1);
-      try { onDocumentsGenerated && onDocumentsGenerated(); } catch {}
     } catch (e: any) {
       setError(e?.message || String(e));
       const msg = e?.message || 'Generation failed. Please try again.';
@@ -224,7 +268,9 @@ export default function MVPChat({ projectId, onDocumentsGenerated, onOpenDocumen
   const readinessPercent = Math.max(0, Math.min(100, readinessScore));
   const subtitle = messages.length === 0
     ? 'Share what you’re building, who it serves, and any constraints.'
-    : 'Keep iterating with the assistant. Generate docs when the readiness meter feels right.';
+    : readiness.ready
+      ? 'Charter-ready. Review your notes, then generate the full PMO package when you’re confident.'
+      : 'Discovery mode. Capture problem, audience, evidence, and blockers. Save a Lean Snapshot anytime for next steps.';
   const handleToastDismiss = () => setToast(null);
   const handleToastAction = () => {
     if (!toast || !toast.action) return;
@@ -308,7 +354,7 @@ export default function MVPChat({ projectId, onDocumentsGenerated, onOpenDocumen
           </div>
 
           <div className="mvp-chat__actions">
-            <button className="btn btn-primary" onClick={onGenerateDocs} disabled={!readiness.ready || generating} aria-disabled={!readiness.ready} aria-busy={generating}>
+            <button className="btn btn-primary" onClick={() => onGenerateDocs()} disabled={!readiness.ready || generating} aria-disabled={!readiness.ready || generating} aria-busy={generating}>
               {generating ? 'Generating…' : 'Generate Docs'}
             </button>
             {generating && (
@@ -318,7 +364,12 @@ export default function MVPChat({ projectId, onDocumentsGenerated, onOpenDocumen
               </div>
             )}
             {!readiness.ready && messages.length > 0 && (
-              <span className="mvp-chat__hint" title={readiness.reason}>Keep chatting to improve readiness.</span>
+              <>
+                <span className="mvp-chat__hint" title={readiness.reason}>Gather more validation details to unlock full docs. You can still capture a Lean Snapshot now.</span>
+                <button type="button" className="btn btn-secondary" onClick={() => onGenerateDocs(true)} disabled={generating}>
+                  {generating ? 'Working…' : 'Create Lean Snapshot'}
+                </button>
+              </>
             )}
             <button type="button" className="btn mvp-chat__ghost" onClick={onNewChat} aria-label="Start new chat">New Chat</button>
             {notice && <span className="notice" aria-live="polite">{notice}</span>}
@@ -342,6 +393,167 @@ export default function MVPChat({ projectId, onDocumentsGenerated, onOpenDocumen
       {/* Detected Requirements panel intentionally hidden for MVP-clean UI */}
     </div>
   );
+}
+
+function buildLeanSnapshot(
+  messages: ChatMessage[],
+  shalls: string[],
+  readiness: { ready: boolean; reason: string; score: number; missing: string[] }
+): string {
+  const userMessages = messages.filter(m => m.role === 'user');
+  const latestUser = userMessages.length ? userMessages[userMessages.length - 1].content.trim() : '';
+  const firstUser = userMessages.length ? userMessages[0].content.trim() : '';
+  const conceptSource = latestUser || firstUser;
+  const conceptSummary = conceptSource
+    ? conceptSource.split(/\n+/).map(s => s.trim()).filter(Boolean).slice(0, 2).join(' ')
+    : 'Idea still forming — capture the problem, audience, and envisioned solution.';
+
+  const userText = userMessages.map(m => (m.content || '').toLowerCase()).join(' ');
+  const signals: string[] = [];
+  if (/(interview|customer discovery|user research|survey)/.test(userText)) {
+    signals.push('Customer discovery activities referenced.');
+  }
+  if (/(waitlist|signup|beta|pilot|demo|prototype|poc)/.test(userText)) {
+    signals.push('Early adoption signal (waitlist/beta/prototype) mentioned.');
+  }
+  if (/(revenue|pricing|paid|contract|invoice|subscription)/.test(userText)) {
+    signals.push('Monetisation evidence or pricing exploration noted.');
+  }
+  if (/(partner|integration|loi|memorandum|channel)/.test(userText)) {
+    signals.push('Partnership or integration interest highlighted.');
+  }
+  if (!signals.length) {
+    signals.push('No validation signals captured yet. Focus on interviews, signups, or prototype feedback.');
+  }
+
+  const missingKeys = Array.isArray(readiness.missing) ? readiness.missing : [];
+  const unknownMap: Record<string, string> = {
+    'stakeholders/users': 'Stakeholders, personas, or buyers not clearly identified.',
+    'scope/objectives': 'Value proposition, success metrics, or boundaries remain unclear.',
+    'NFRs (performance/security)': 'Non-functional expectations (e.g., performance, security, compliance) still unknown.',
+    'constraints/risks': 'Constraints, risks, or assumptions not documented.',
+    'UI/API/integrations': 'Interfaces, integrations, or touchpoints not described yet.',
+    'testing/acceptance': 'Acceptance criteria or validation tests not articulated.',
+    'data model/retention': 'Data flows, retention, or schema considerations missing.',
+    'clear requirements (SHALL)': 'Concrete requirements not yet articulated as SHALL statements.'
+  };
+  const criticalUnknowns = missingKeys.map(m => unknownMap[m] || `${m} still needs clarification.`);
+  if (!criticalUnknowns.length) {
+    criticalUnknowns.push('Key uncertainties resolved — ready to formalize when you choose.');
+  }
+
+  const experimentTemplates: Record<string, { experiment: string; goal: string; owner: string; timeframe: string }> = {
+    'stakeholders/users': {
+      experiment: 'Stakeholder interviews (5 conversations)',
+      goal: 'Validate primary personas and pains',
+      owner: 'Founder / Product Lead',
+      timeframe: '1-2 weeks'
+    },
+    'scope/objectives': {
+      experiment: 'Success metrics workshop',
+      goal: 'Quantify KPIs and MVP boundaries',
+      owner: 'Product + Sponsor',
+      timeframe: '1 week'
+    },
+    'NFRs (performance/security)': {
+      experiment: 'NFR & compliance spike',
+      goal: 'Document performance/security baselines',
+      owner: 'Tech Lead / Security',
+      timeframe: '1 week'
+    },
+    'constraints/risks': {
+      experiment: 'Risk and constraint mapping',
+      goal: 'Surface budget, timeline, and regulatory concerns',
+      owner: 'Project Sponsor',
+      timeframe: '1 week'
+    },
+    'UI/API/integrations': {
+      experiment: 'Integration touchpoint sketching',
+      goal: 'Outline key interfaces and data exchanges',
+      owner: 'Product + Engineering',
+      timeframe: '1 week'
+    },
+    'testing/acceptance': {
+      experiment: 'Acceptance criteria drafting session',
+      goal: 'Define how success will be validated',
+      owner: 'QA / Product',
+      timeframe: '3-5 days'
+    },
+    'data model/retention': {
+      experiment: 'Data model whiteboarding',
+      goal: 'Clarify entities, retention, and compliance needs',
+      owner: 'Engineering',
+      timeframe: '1 week'
+    },
+    'clear requirements (SHALL)': {
+      experiment: 'Requirement refinement workshop',
+      goal: 'Draft 5-7 canonical SHALL statements',
+      owner: 'Product + Engineering',
+      timeframe: '3-5 days'
+    }
+  };
+
+  const experiments = missingKeys
+    .map(key => experimentTemplates[key])
+    .filter(Boolean) as { experiment: string; goal: string; owner: string; timeframe: string }[];
+  if (!experiments.length) {
+    experiments.push(
+      {
+        experiment: 'Customer validation interviews',
+        goal: 'Validate problem urgency and willingness to pay',
+        owner: 'Founder / Product Lead',
+        timeframe: '1-2 weeks'
+      },
+      {
+        experiment: 'MVP scope checkpoint',
+        goal: 'Agree on top 3 capabilities and success metrics',
+        owner: 'Product + Sponsor',
+        timeframe: '1 week'
+      }
+    );
+  }
+
+  const checklistItems = [
+    { label: 'Executive sponsor identified', key: 'stakeholders/users' },
+    { label: 'Top 3 capabilities prioritised', key: 'scope/objectives' },
+    { label: 'Success metrics (KPIs) defined', key: 'scope/objectives' },
+    { label: 'Constraints / risks documented', key: 'constraints/risks' },
+    { label: 'Non-functional requirements captured', key: 'NFRs (performance/security)' },
+    { label: 'Compliance / privacy considerations assessed', key: 'NFRs (performance/security)' },
+    { label: 'Acceptance / test strategy outlined', key: 'testing/acceptance' }
+  ];
+  const missingSet = new Set(missingKeys);
+  const readinessChecklist = checklistItems.map(item => `${missingSet.has(item.key) ? '- [ ]' : '- [x]'} ${item.label}`);
+
+  const requirementsBlock = shalls.length
+    ? ['## Detected Requirements (SHALL)', ...shalls.map(s => `- ${s}`)].join('\n')
+    : '';
+
+  const nowIso = new Date().toISOString();
+
+  return [
+    '# Lean Idea Validation Snapshot',
+    `Generated: ${nowIso}`,
+    '',
+    '## Concept Summary',
+    conceptSummary,
+    '',
+    '## Validation Signals',
+    signals.map(s => `- ${s}`).join('\n'),
+    '',
+    '## Critical Unknowns',
+    criticalUnknowns.map(u => `- ${u}`).join('\n'),
+    '',
+    '## Recommended Next Experiments',
+    '| Experiment | Goal | Owner | Timeframe |',
+    '| --- | --- | --- | --- |',
+    experiments.map(e => `| ${e.experiment} | ${e.goal} | ${e.owner} | ${e.timeframe} |`).join('\n'),
+    '',
+    '## Readiness Checklist',
+    readinessChecklist.join('\n'),
+    '',
+    requirementsBlock
+  ].filter(Boolean).join('\n');
 }
 
 function extractShallFromText(text: string): string[] {

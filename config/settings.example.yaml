@@ -3,11 +3,22 @@
 openai:
   api_key: "${OPENAI_API_KEY}"
   base_url: "${OPENAI_BASE_URL:https://api.x.ai/v1}"
+  model: "${OPENAI_MODEL:gpt-4o-mini}"
+
+gemini:
+  api_key: "${GEMINI_API_KEY}"
+  base_url: "${GEMINI_BASE_URL:https://generativelanguage.googleapis.com/v1beta}"
+  model: "${GEMINI_MODEL:gemini-2.5-flash}"
 
 xai:
-  # Preferred: set XAI_API_KEY for Grok
   api_key: "${XAI_API_KEY}"
+  base_url: "${XAI_BASE_URL:https://api.x.ai/v1}"
   model: "${XAI_MODEL:grok-2-latest}"
+
+search:
+  api_key: "${GOOGLE_SEARCH_API_KEY}"
+  base_url: "${GOOGLE_SEARCH_BASE_URL:https://customsearch.googleapis.com}"
+  engine: "${GOOGLE_SEARCH_ENGINE_ID:}"  # Optional custom search engine id
 
 app:
   name: "OPNXT SDLC and PMO Assistant"

@@ -339,6 +339,7 @@ export default function ChatPanel({ projectId, prefill, onPrefillConsumed, onReg
   ): { ready: boolean; reason: string; score: number; missing: string[] } {
     const userMsgs = (msgs || []).filter(m => m.role === 'user');
     const userCount = userMsgs.length;
+    const substantiveUserReplies = userMsgs.filter(m => (m.content || '').trim().length >= 20).length;
     const totalChars = (msgs || []).reduce((n, m) => n + (m.content?.length || 0), 0);
     const allText = (msgs || []).map(m => m.content).join('\n');
 
@@ -383,8 +384,10 @@ export default function ChatPanel({ projectId, prefill, onPrefillConsumed, onReg
 
     if (score > 100) score = 100;
     // Encourage an actual back-and-forth: if no Q&A loop yet, cap readiness
-    if (!qaLoop && score > 55) score = 55;
-    const ready = score >= 60;
+    if (substantiveUserReplies < 2) {
+      missing.push('additional user detail (two fuller replies)');
+    }
+    const ready = score >= 60 && substantiveUserReplies >= 2;
     const reason = ready ? `Ready (score ${score}).` : `Readiness ${score}%. Keep chatting to cover gaps.`;
     return { ready, reason, score, missing };
   }
