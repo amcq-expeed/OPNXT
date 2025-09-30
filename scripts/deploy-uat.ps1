@@ -42,7 +42,7 @@ function Restart-IISAppPool {
         Write-Host "Recycling IIS App Pool $PoolName" -ForegroundColor Yellow
         Restart-WebAppPool -Name $PoolName -ErrorAction Stop
     } catch {
-        Write-Warning "Failed to recycle app pool $PoolName: $($_.Exception.Message)"
+        Write-Warning "Failed to recycle app pool ${PoolName}: $($_.Exception.Message)"
     }
 }
 
