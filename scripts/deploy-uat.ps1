@@ -18,6 +18,25 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
+function Test-IsAdministrator {
+    try {
+        $principal = [Security.Principal.WindowsPrincipal]::new($currentUser)
+        return $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+    } catch {
+        Write-Host "Unable to determine administrator privileges: $($_.Exception.Message)" -ForegroundColor DarkGray
+        return $false
+    } 
+} elseif (-not [string]::IsNullOrWhiteSpace($SiteName)) {
+    Write-Host ("Skipping IIS site operations for {0} because administrator privileges are required" -f $SiteName) -ForegroundColor DarkGray
+}
+
+$script:IsAdmin = Test-IsAdministrator
+if (-not $script:IsAdmin) {
+    Write-Warning 'Not running with administrative privileges; IIS operations will be skipped.'
+    Write-Host "Skipping IIS site operations for $SiteName" -ForegroundColor DarkGray
+{{ ... }}
+}
+
 if (-not $SourceRoot) {
     $SourceRoot = Resolve-Path (Join-Path $PSScriptRoot '..')
 } else {
@@ -27,6 +46,10 @@ if (-not $SourceRoot) {
 function Restart-IISAppPool {
     param([string]$PoolName)
     if ([string]::IsNullOrWhiteSpace($PoolName)) { return }
+    if (-not $script:IsAdmin) {
+        Write-Host "Skipping IIS App Pool recycle for $PoolName because administrator privileges are required" -ForegroundColor DarkGray
+        return
+    }
     try {
         Import-Module WebAdministration -ErrorAction Stop
     } catch {
@@ -332,11 +355,15 @@ function Resolve-NodeExecutable {
 Stop-ServiceIfExists -Name $FrontendServiceName
 Stop-ServiceIfExists -Name $BackendServiceName
 
-if (-not [string]::IsNullOrWhiteSpace($SiteName)) {
+$iisAccessible = $false
+$importedWebModule = $false
+
+if (-not [string]::IsNullOrWhiteSpace($SiteName) -and $script:IsAdmin) {
     $webModule = Get-Module -ListAvailable -Name WebAdministration | Select-Object -First 1
     if ($null -ne $webModule) {
         try {
             Import-Module WebAdministration -ErrorAction Stop
+            $importedWebModule = $true
             $site = $null
             try {
                 $site = Get-Website -Name $SiteName -ErrorAction Stop
@@ -348,7 +375,11 @@ if (-not [string]::IsNullOrWhiteSpace($SiteName)) {
             }
             if ($iisAccessible -and $null -ne $site -and $site.state -ne 'Stopped') {
                 Write-Host ("Stopping IIS site {0}" -f $SiteName) -ForegroundColor Yellow
-                Stop-Website -Name $SiteName
+                try {
+                    Stop-Website -Name $SiteName -ErrorAction Stop
+                } catch {
+                    Write-Warning ("Failed to stop IIS site {0}: {1}" -f $SiteName, $_.Exception.Message)
+                }
             }
          } catch {
              Write-Warning "Failed to import WebAdministration module: $($_.Exception.Message)"
