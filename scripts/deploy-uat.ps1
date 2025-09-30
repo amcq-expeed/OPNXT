@@ -500,8 +500,27 @@ try {
         & $npmExe 'ci'
         Write-Host "Building Next.js frontend" -ForegroundColor Cyan
         & $npmExe 'run' 'build'
-        Write-Host "Exporting Next.js frontend as static site" -ForegroundColor Cyan
-        & $npmExe 'run' 'export'
+        $staticOutput = Join-Path $frontendTarget 'out'
+        if (-not (Test-Path $staticOutput)) {
+            throw "Next.js static output not found at $staticOutput. Ensure output: 'export' is configured."
+        }
+
+        $frontendWebRoot = Join-Path $frontendTarget 'wwwroot'
+        if (Test-Path $frontendWebRoot) {
+            Write-Host ("Clearing existing static frontend at {0}" -f $frontendWebRoot) -ForegroundColor DarkGray
+            Remove-Item -Path $frontendWebRoot -Recurse -Force
+        }
+        New-Item -ItemType Directory -Path $frontendWebRoot | Out-Null
+
+        $publishArgs = @()
+        $publishArgs += '"{0}"' -f $staticOutput
+        $publishArgs += '"{0}"' -f $frontendWebRoot
+        $publishArgs += '/MIR'
+        Write-Host ("Publishing static frontend assets to {0}" -f $frontendWebRoot) -ForegroundColor Cyan
+        $publishProcess = Start-Process -FilePath 'robocopy' -ArgumentList $publishArgs -NoNewWindow -Wait -PassThru
+        if ($publishProcess.ExitCode -ge 8) {
+            throw "robocopy failed while publishing static frontend (exit code $($publishProcess.ExitCode))"
+        }
     }
     finally {
         Pop-Location
