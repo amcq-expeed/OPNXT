@@ -14,27 +14,23 @@ param(
     [string]$PythonExecutable,
     [string]$NodeExecutable
 )
-
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 function Test-IsAdministrator {
     try {
+        $currentUser = [Security.Principal.WindowsIdentity]::GetCurrent()
         $principal = [Security.Principal.WindowsPrincipal]::new($currentUser)
         return $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
     } catch {
         Write-Host "Unable to determine administrator privileges: $($_.Exception.Message)" -ForegroundColor DarkGray
         return $false
-    } 
-} elseif (-not [string]::IsNullOrWhiteSpace($SiteName)) {
-    Write-Host ("Skipping IIS site operations for {0} because administrator privileges are required" -f $SiteName) -ForegroundColor DarkGray
+    }
 }
 
 $script:IsAdmin = Test-IsAdministrator
 if (-not $script:IsAdmin) {
     Write-Warning 'Not running with administrative privileges; IIS operations will be skipped.'
-    Write-Host "Skipping IIS site operations for $SiteName" -ForegroundColor DarkGray
-{{ ... }}
 }
 
 if (-not $SourceRoot) {
@@ -386,12 +382,10 @@ if (-not [string]::IsNullOrWhiteSpace($SiteName) -and $script:IsAdmin) {
              $iisAccessible = $false
              $importedWebModule = $false
          }
-{{ ... }}
      }
- }
-
-{{ ... }}
-Stop-ServiceIfExists -Name $BackendServiceName
+} elseif (-not [string]::IsNullOrWhiteSpace($SiteName)) {
+    Write-Host ("Skipping IIS site operations for {0} because administrator privileges are required" -f $SiteName) -ForegroundColor DarkGray
+}
 
 if (-not (Test-Path $TargetRoot)) {
     Write-Host "Creating target directory $TargetRoot" -ForegroundColor Cyan
