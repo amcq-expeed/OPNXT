@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<configuration>
+  <system.webServer>
+    <staticContent>
+      <remove fileExtension=".json" />
+      <mimeMap fileExtension=".json" mimeType="application/json" />
+      <mimeMap fileExtension=".webmanifest" mimeType="application/manifest+json" />
+      <mimeMap fileExtension=".wasm" mimeType="application/wasm" />
+    </staticContent>
+    <defaultDocument>
+      <files>
+        <clear />
+        <add value="index.html" />
+      </files>
+    </defaultDocument>
+    <httpProtocol>
+      <customHeaders>
+        <add name="Cache-Control" value="public, max-age=604800" />
+      </customHeaders>
+    </httpProtocol>
+  </system.webServer>
+</configuration>
