@@ -18,6 +18,8 @@ jobs:
       UAT_PASSWORD: ${{ secrets.UAT_PASSWORD }}
       UAT_BACKEND_ENV: ${{ secrets.UAT_BACKEND_ENV }}
       UAT_FRONTEND_ENV: ${{ secrets.UAT_FRONTEND_ENV }}
+      UAT_FRONTEND_API_BASE_URL: ${{ secrets.UAT_FRONTEND_API_BASE_URL }}
+      UAT_FRONTEND_PUBLIC_MODE: ${{ secrets.UAT_FRONTEND_PUBLIC_MODE }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -52,7 +54,11 @@ jobs:
           $backendEnvLocal = Join-Path $env:RUNNER_TEMP 'backend.env'
           Set-Content -Path $backendEnvLocal -Value $env:UAT_BACKEND_ENV -NoNewline
           $frontendEnvLocal = Join-Path $env:RUNNER_TEMP 'frontend.env'
-          Set-Content -Path $frontendEnvLocal -Value $env:UAT_FRONTEND_ENV -NoNewline
+          $lines = @(
+            "NEXT_PUBLIC_API_BASE_URL=$env:UAT_FRONTEND_API_BASE_URL"
+            "NEXT_PUBLIC_PUBLIC_MODE=$env:UAT_FRONTEND_PUBLIC_MODE"
+          )
+          Set-Content -Path $frontendEnvLocal -Value ($lines -join "`n") -NoNewline
 
           $scriptPath = Join-Path $env:GITHUB_WORKSPACE 'scripts\deploy-uat.ps1'
           if (-not (Test-Path $scriptPath)) {
