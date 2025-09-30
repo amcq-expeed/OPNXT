@@ -521,6 +521,11 @@ try {
         if ($publishProcess.ExitCode -ge 8) {
             throw "robocopy failed while publishing static frontend (exit code $($publishProcess.ExitCode))"
         }
+
+        $webConfigSource = Join-Path $frontendTarget 'public/web.config'
+        if (Test-Path $webConfigSource) {
+            Copy-Item -Path $webConfigSource -Destination (Join-Path $frontendWebRoot 'web.config') -Force
+        }
     }
     finally {
         Pop-Location
