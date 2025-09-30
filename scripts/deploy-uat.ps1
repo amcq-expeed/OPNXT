@@ -500,6 +500,8 @@ try {
         & $npmExe 'ci'
         Write-Host "Building Next.js frontend" -ForegroundColor Cyan
         & $npmExe 'run' 'build'
+        Write-Host "Exporting Next.js frontend as static site" -ForegroundColor Cyan
+        & $npmExe 'run' 'export'
     }
     finally {
         Pop-Location
