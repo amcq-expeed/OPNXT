@@ -21,7 +21,6 @@ pypdf>=4.2.0
 Jinja2>=3.1.4
 markdown>=3.6
 python-multipart>=0.0.9
-python-docx>=0.8.11
 
 # Config and utilities
 pyyaml>=6.0.1

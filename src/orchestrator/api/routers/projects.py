@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 import logging
 import re
 from fastapi import APIRouter, HTTPException, status, Response, Depends, Body, UploadFile, File, Query
@@ -30,7 +30,6 @@ from ...domain.docs_models import (
     UploadApplyRequest,
 )
 from ...security.rbac import require_permission, Permission
-from src.sdlc_generator import generate_all_docs
 from src.core import summarize_project
 from ...services.doc_ai import enrich_answers_with_ai
 from ...services.context_store import get_context_store
@@ -38,9 +37,278 @@ from ...infrastructure.doc_store import get_doc_store
 from ...infrastructure.chat_store import get_chat_store
 from ...services.master_prompt_ai import generate_with_master_prompt, generate_backlog_with_master_prompt
 from ...services.doc_ingest import parse_text_from_bytes, extract_shall_statements
-import io
 import zipfile
 import json
+
+
+DEFAULT_DOC_TYPES = ["Project Charter", "SRS", "SDD", "Test Plan"]
+
+
+def _collect_existing_attachments(project_id: str) -> Dict[str, str]:
+    store = get_doc_store()
+    attachments: Dict[str, str] = {}
+    try:
+        listing = store.list_documents(project_id) or {}
+        preferred = {"ProjectCharter.md", "SRS.md", "SDD.md", "TestPlan.md"}
+        for fname in sorted(listing.keys(), key=lambda f: (f not in preferred, f)):
+            versions = listing.get(fname) or []
+            if not versions:
+                continue
+            last_ver = int(versions[-1].get("version", 0))
+            dv = store.get_document(project_id, fname, version=last_ver)
+            if dv and isinstance(dv.content, str) and dv.content.strip():
+                attachments[fname] = dv.content
+    except Exception:
+        pass
+    return attachments
+
+
+def _build_generation_data(
+    project_id: str,
+    proj: Project,
+    opts: Optional[DocGenOptions],
+) -> tuple[Dict[str, Any], bool, str]:
+    data: Dict[str, Any] = {
+        "project": {
+            "id": proj.project_id,
+            "name": proj.name,
+            "title": proj.name,
+            "description": proj.description,
+            "status": proj.status,
+            "current_phase": proj.current_phase,
+            "metadata": proj.metadata,
+        }
+    }
+
+    def _norm_req(text: str) -> Optional[str]:
+        s = str(text or "").strip()
+        s = re.sub(r"^(?:the\s+system\s+shall\s+)+", "", s, flags=re.IGNORECASE)
+        s = re.sub(r"^\s*(?:[-*•\u2022\u2023\u25E6\u2043–—]|\d+[\.)])\s*", "", s)
+        s = s.strip().rstrip(":").strip()
+        if s and not s[0].isupper():
+            s = s[0].upper() + s[1:]
+        if s and not s.endswith((".", "!", "?")):
+            s = s + "."
+        if len(s.split()) < 3:
+            return None
+        return f"The system SHALL {s}"
+
+    try:
+        store = get_context_store()
+        stored = store.get(project_id)
+        if stored:
+            if isinstance(stored.get("answers"), (list, dict)):
+                data.setdefault("answers", {})
+                if isinstance(stored["answers"], dict):
+                    for k, v in stored["answers"].items():
+                        if isinstance(v, list):
+                            existing = list(data["answers"].get(k, [])) if isinstance(data["answers"].get(k), list) else []
+                            normalized = [_norm_req(x) for x in v]
+                            normalized = [x for x in normalized if x]
+                            data["answers"][k] = existing + [x for x in normalized if x not in existing]
+                if isinstance(stored.get("answers"), list):
+                    lst = [_norm_req(str(x)) for x in stored.get("answers")]
+                    lst = [x for x in lst if x]
+                    data.setdefault("answers", {})
+                    existing = list(data["answers"].get("Requirements", [])) if isinstance(data["answers"].get("Requirements"), list) else []
+                    data["answers"]["Requirements"] = existing + [x for x in lst if x not in existing]
+            if isinstance(stored.get("summaries"), dict):
+                data.setdefault("summaries", {})
+                for k, v in stored["summaries"].items():
+                    data["summaries"].setdefault(k, v)
+    except Exception:
+        pass
+
+    try:
+        ai_answers, ai_summaries = enrich_answers_with_ai(proj.description or "")
+        data.setdefault("answers", {})
+        if isinstance(ai_answers, dict):
+            for k, v in ai_answers.items():
+                if k not in data["answers"]:
+                    data["answers"][k] = v
+                elif isinstance(v, list) and isinstance(data["answers"].get(k), list):
+                    existing = data["answers"][k]
+                    data["answers"][k] = list(existing) + [x for x in v if x not in existing]
+        data.setdefault("summaries", {})
+        if isinstance(ai_summaries, dict):
+            for k, v in ai_summaries.items():
+                data["summaries"].setdefault(k, v)
+    except Exception:
+        try:
+            summary = summarize_project(proj.description or "")
+            answers_seed: Dict[str, Any] = {
+                "Planning": [
+                    f"Goal: {summary.get('summary')}",
+                    "Stakeholders: Engineering, Product, QA",
+                    proj.metadata.get("timeline", "MVP timeline TBD"),
+                ],
+                "Requirements": [
+                    f"The system SHALL address: {summary.get('summary')}.",
+                ],
+                "Design": [
+                    "Architecture: FastAPI backend + Next.js frontend; document generation pipeline.",
+                ],
+            }
+            summaries_seed: Dict[str, Any] = {
+                "Planning": summary.get("summary", proj.description or "Project purpose"),
+            }
+            data.setdefault("answers", {})
+            for k, v in answers_seed.items():
+                if k not in data["answers"]:
+                    data["answers"][k] = v
+                elif isinstance(v, list) and isinstance(data["answers"].get(k), list):
+                    existing = data["answers"][k]
+                    data["answers"][k] = list(existing) + [x for x in v if x not in existing]
+            data.setdefault("summaries", {})
+            for k, v in summaries_seed.items():
+                data["summaries"].setdefault(k, v)
+        except Exception:
+            pass
+
+    try:
+        features_raw = str((proj.metadata or {}).get("features") or "").strip()
+        if features_raw:
+            lines = [ln.strip() for ln in features_raw.splitlines() if ln.strip()]
+            feature_reqs: List[str] = []
+            for ln in lines:
+                normalized = _norm_req(ln)
+                if normalized:
+                    feature_reqs.append(normalized)
+            if feature_reqs:
+                data.setdefault("answers", {})
+                existing = list(data["answers"].get("Requirements", [])) if isinstance(data["answers"].get("Requirements"), list) else []
+                merged = feature_reqs + [x for x in existing if x not in feature_reqs]
+                data["answers"]["Requirements"] = merged
+    except Exception:
+        pass
+
+    paste_requirements_raw = ""
+    overlay_on = True if (opts is None or getattr(opts, "traceability_overlay", True)) else False
+
+    if opts is not None:
+        if getattr(opts, "paste_requirements", None):
+            paste_requirements_raw = str(opts.paste_requirements).strip()
+            if paste_requirements_raw:
+                lines = [ln.strip() for ln in paste_requirements_raw.splitlines() if ln.strip()]
+                normalized: List[str] = []
+                for ln in lines:
+                    val = _norm_req(ln)
+                    if val:
+                        normalized.append(val)
+                if normalized:
+                    data.setdefault("answers", {})
+                    existing = list(data["answers"].get("Requirements", [])) if isinstance(data["answers"].get("Requirements"), list) else []
+                    data["answers"]["Requirements"] = normalized + [x for x in existing if x not in normalized]
+
+        if getattr(opts, "answers", None):
+            data.setdefault("answers", {})
+            for k, v in (opts.answers or {}).items():
+                if isinstance(v, list):
+                    existing = list(data["answers"].get(k, [])) if isinstance(data["answers"].get(k), list) else []
+                    merged = existing + [x for x in v if x not in existing]
+                    data["answers"][k] = merged
+                else:
+                    data["answers"][k] = v
+
+        if getattr(opts, "summaries", None):
+            data.setdefault("summaries", {})
+            for k, v in (opts.summaries or {}).items():
+                data["summaries"][k] = v
+
+    if overlay_on:
+        try:
+            project_root = Path(__file__).resolve().parents[4]
+            trace_path = project_root / "reports" / "traceability-map.json"
+            if trace_path.exists():
+                trace = json.loads(trace_path.read_text(encoding="utf-8"))
+                fmap: Dict[str, Any] = trace.get("map", {})
+                answers_overlay: Dict[str, List[str]] = {
+                    "Requirements": [
+                        f"{fr_id} - {(item or {}).get('title', '')} [{(item or {}).get('status', 'unknown')}]"
+                        for fr_id, item in sorted(fmap.items())
+                    ]
+                }
+                summaries_overlay = {
+                    "Planning": "Functional requirements coverage captured from traceability map.",
+                    "Design": "Architecture: FastAPI + Next.js; document services backed by master prompt.",
+                    "Testing": "Maintain >=80% coverage; ensure AI-generated docs traced to SHALL requirements.",
+                }
+                data.setdefault("answers", {})
+                for k, v in answers_overlay.items():
+                    existing = list(data["answers"].get(k, [])) if isinstance(data["answers"].get(k), list) else []
+                    data["answers"][k] = existing + [x for x in v if x not in existing]
+                data.setdefault("summaries", {})
+                for k, v in summaries_overlay.items():
+                    data["summaries"].setdefault(k, v)
+        except Exception:
+            pass
+
+    return data, overlay_on, paste_requirements_raw
+
+
+def _render_docs_with_master_prompt(
+    project_id: str,
+    proj: Project,
+    data: Dict[str, Any],
+    overlay_flag: bool,
+    *,
+    doc_types: Optional[List[str]] = None,
+    paste_requirements: str = "",
+) -> tuple[List[DocumentArtifact], Path]:
+    sections: List[str] = []
+    description = str(data.get("project", {}).get("description") or "").strip()
+    if description:
+        sections.append(f"PROJECT DESCRIPTION:\n{description}")
+    if paste_requirements:
+        sections.append("USER PROVIDED REQUIREMENTS:\n" + paste_requirements)
+
+    context_payload = {
+        "project": data.get("project", {}),
+        "answers": data.get("answers", {}),
+        "summaries": data.get("summaries", {}),
+    }
+    sections.append(
+        "STRUCTURED CONTEXT (answers/summaries as JSON):\n" + json.dumps(context_payload, indent=2)
+    )
+    base_text = "\n\n".join([s for s in sections if s.strip()])
+
+    attachments = _collect_existing_attachments(project_id)
+    context_present = bool(data.get("answers")) or bool(data.get("summaries"))
+    if context_present:
+        attachments = {}
+
+    resolved_doc_types = doc_types or list(DEFAULT_DOC_TYPES)
+    texts = generate_with_master_prompt(
+        project_name=proj.name,
+        input_text=base_text,
+        doc_types=resolved_doc_types,
+        attachments=attachments,
+    )
+    if not texts:
+        raise RuntimeError("Master prompt generation returned no artifacts")
+
+    out_dir = Path("docs") / "generated" / project_id
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    store = get_doc_store()
+    artifacts: List[DocumentArtifact] = []
+    for fname, content in texts.items():
+        try:
+            (out_dir / fname).write_text(content, encoding="utf-8")
+        except Exception:
+            pass
+        try:
+            store.save_document(
+                project_id,
+                fname,
+                content,
+                meta={"overlay": overlay_flag, "ai_master_prompt": True},
+            )
+        except Exception:
+            pass
+        artifacts.append(DocumentArtifact(filename=fname, content=content, path=str(out_dir / fname)))
+
+    return artifacts, out_dir
 
 router = APIRouter(prefix="/projects", tags=["projects"])
 logger = logging.getLogger(__name__)
@@ -80,21 +348,17 @@ def advance_phase(project_id: str, user=Depends(require_permission(Permission.PR
     assert updated is not None
     # Auto-generate documents when reaching final phase 'end'
     if updated.current_phase.lower() == "end":
-        data = {
-            "project": {
-                "id": updated.project_id,
-                "name": updated.name,
-                "description": updated.description,
-                "status": updated.status,
-                "current_phase": updated.current_phase,
-                "metadata": updated.metadata,
-            }
-        }
-        out_dir = Path("docs") / "generated" / project_id
         try:
-            generate_all_docs(data, out_dir=out_dir)
+            data, overlay_flag, paste_raw = _build_generation_data(project_id, updated, None)
+            _render_docs_with_master_prompt(
+                project_id,
+                updated,
+                data,
+                overlay_flag,
+                doc_types=DEFAULT_DOC_TYPES,
+                paste_requirements=paste_raw,
+            )
         except Exception:
-            # Do not fail the advance if doc generation errors; surface via logs later
             pass
     return updated
 
@@ -139,266 +403,62 @@ def generate_documents(
         raise HTTPException(status_code=404, detail="Project not found")
 
     try:
-        # Base project context
-        data: Dict[str, Any] = {
-            "project": {
-                "id": proj.project_id,
-                "name": proj.name,
-                "title": proj.name,  # used by templates
-                "description": proj.description,
-                "status": proj.status,
-                "current_phase": proj.current_phase,
-                "metadata": proj.metadata,
-            }
-        }
+        data, overlay_flag, paste_raw = _build_generation_data(project_id, proj, opts)
+        artifacts, out_dir = _render_docs_with_master_prompt(
+            project_id,
+            proj,
+            data,
+            overlay_flag,
+            doc_types=None,
+            paste_requirements=paste_raw,
+        )
 
-        # Helper: normalize a free-text requirement into canonical SHALL form
-        def _norm_req(text: str) -> str | None:
-            s = str(text or "").strip()
-            # Remove repeated 'the system shall' prefixes first (case-insensitive via flags)
-            s = re.sub(r"^(?:the\s+system\s+shall\s+)+", "", s, flags=re.IGNORECASE)
-            # Then strip leading bullets, numbering, unicode bullets
-            s = re.sub(r"^\s*(?:[-*•\u2022\u2023\u25E6\u2043–—]|\d+[\.)])\s*", "", s)
-            s = s.strip()
-            # Remove stray trailing colon-only items
-            s = s.rstrip().rstrip(':').strip()
-            # Capitalize first letter
-            if s and not s[0].isupper():
-                s = s[0].upper() + s[1:]
-            # Ensure period
-            if s and not s.endswith(('.', '!', '?')):
-                s = s + '.'
-            # Drop too-short fragments (likely headings)
-            if len(s.split()) < 3:
-                return None
-            return f"The system SHALL {s}"
+        fresh_docs = {a.filename: a.content for a in artifacts}
 
-        # Merge stored project context (if any) before AI enrichment and user opts
-        try:
-            store = get_context_store()
-            stored = store.get(project_id)
-            if stored:
-                if isinstance(stored.get("answers"), list) or isinstance(stored.get("answers"), dict):
-                    data.setdefault("answers", {})
-                    if isinstance(stored["answers"], dict):
-                        for k, v in stored["answers"].items():
-                            if isinstance(v, list):
-                                existing = list(data["answers"].get(k, [])) if isinstance(data["answers"].get(k), list) else []
-                                vn = [_norm_req(x) for x in v]
-                                vn = [x for x in vn if x]
-                                data["answers"][k] = existing + [x for x in vn if x not in existing]
-                    # if stored answers is a flat list, append under Requirements
-                    if isinstance(stored.get("answers"), list):
-                        lst = [_norm_req(str(x)) for x in stored.get("answers")]
-                        lst = [x for x in lst if x]
-                        data.setdefault("answers", {})
-                        existing = list(data["answers"].get("Requirements", [])) if isinstance(data["answers"].get("Requirements"), list) else []
-                        data["answers"]["Requirements"] = existing + [x for x in lst if x not in existing]
-                if isinstance(stored.get("summaries"), dict):
-                    data.setdefault("summaries", {})
-                    for k, v in stored["summaries"].items():
-                        data["summaries"].setdefault(k, v)
-        except Exception:
-            pass
-
-        # Seed answers/summaries using AI enrichment when available; fallback is deterministic.
-        # IMPORTANT: Never overwrite stored/user context; only fill gaps or append.
-        try:
-            ai_answers, ai_summaries = enrich_answers_with_ai(proj.description or "")
-            data.setdefault("answers", {})
-            if isinstance(ai_answers, dict):
-                for k, v in ai_answers.items():
-                    if k not in data["answers"]:
-                        data["answers"][k] = v
-                    elif isinstance(v, list) and isinstance(data["answers"].get(k), list):
-                        # append non-duplicates, keep existing first
-                        existing = data["answers"][k]
-                        data["answers"][k] = list(existing) + [x for x in v if x not in existing]
-            data.setdefault("summaries", {})
-            if isinstance(ai_summaries, dict):
-                for k, v in ai_summaries.items():
-                    data["summaries"].setdefault(k, v)
-        except Exception:
-            try:
-                summary = summarize_project(proj.description or "")
-                answers_seed: Dict[str, Any] = {
-                    "Planning": [
-                        f"Goal: {summary.get('summary')}",
-                        "Stakeholders: Engineering, Product, QA",
-                        proj.metadata.get("timeline", "MVP timeline TBD"),
-                    ],
-                    "Requirements": [
-                        # Minimal requirement derived from description; can be expanded later
-                        f"The system SHALL address: {summary.get('summary')}.",
-                    ],
-                    "Design": [
-                        "Architecture: FastAPI backend + Next.js frontend; document generation pipeline.",
-                    ],
-                }
-                summaries_seed: Dict[str, Any] = {
-                    "Planning": summary.get("summary", proj.description or "Project purpose"),
-                }
-                data.setdefault("answers", {})
-                for k, v in answers_seed.items():
-                    if k not in data["answers"]:
-                        data["answers"][k] = v
-                    elif isinstance(v, list) and isinstance(data["answers"].get(k), list):
-                        existing = data["answers"][k]
-                        data["answers"][k] = list(existing) + [x for x in v if x not in existing]
-                data.setdefault("summaries", {})
-                for k, v in summaries_seed.items():
-                    data["summaries"].setdefault(k, v)
-            except Exception:
-                pass
-
-        # Insert user-provided Features (if any) as SHALL requirements
-        try:
-            features_raw = str((proj.metadata or {}).get("features") or "").strip()
-            if features_raw:
-                lines = [ln.strip() for ln in features_raw.splitlines() if ln.strip()]
-                # Normalize bullets and create SHALL statements
-                feature_reqs: list[str] = []
-                for ln in lines:
-                    t = _norm_req(ln)
-                    if t:
-                        feature_reqs.append(t)
-                if feature_reqs:
-                    data.setdefault("answers", {})
-                    existing = list(data["answers"].get("Requirements", [])) if isinstance(data["answers"].get("Requirements"), list) else []
-                    # Prepend features, keep uniqueness
-                    merged = feature_reqs + [x for x in existing if x not in feature_reqs]
-                    data["answers"]["Requirements"] = merged
-        except Exception:
-            pass
-
-        # Merge user-provided inputs from DocGenOptions (paste + structured)
-        try:
-            if opts is not None:
-                # Paste requirements (free text), one per line, normalized to SHALL form
-                if getattr(opts, "paste_requirements", None):
-                    pasted = str(opts.paste_requirements).strip()
-                    if pasted:
-                        plines = [ln.strip() for ln in pasted.splitlines() if ln.strip()]
-                        pr_reqs: list[str] = []
-                        for ln in plines:
-                            t = _norm_req(ln)
-                            if t:
-                                pr_reqs.append(t)
-                        if pr_reqs:
-                            data.setdefault("answers", {})
-                            existing = list(data["answers"].get("Requirements", [])) if isinstance(data["answers"].get("Requirements"), list) else []
-                            data["answers"]["Requirements"] = pr_reqs + [x for x in existing if x not in pr_reqs]
-
-                # Structured answers
-                if getattr(opts, "answers", None):
-                    data.setdefault("answers", {})
-                    for k, v in (opts.answers or {}).items():
-                        if isinstance(v, list):
-                            existing = list(data["answers"].get(k, [])) if isinstance(data["answers"].get(k), list) else []
-                            merged = existing + [x for x in v if x not in existing]
-                            data["answers"][k] = merged
-                        else:
-                            data["answers"][k] = v  # non-list fallback
-
-                # Structured summaries
-                if getattr(opts, "summaries", None):
-                    data.setdefault("summaries", {})
-                    for k, v in (opts.summaries or {}).items():
-                        # Let user-provided summaries override AI/fallback values
-                        data["summaries"][k] = v
-        except Exception:
-            pass
-
-        # Enrich with Traceability Map if available and overlay enabled (default True)
-        try:
-            overlay_on = True if (opts is None or getattr(opts, "traceability_overlay", True)) else False
-            if overlay_on:
-                project_root = Path(__file__).resolve().parents[4]
-                trace_path = project_root / "reports" / "traceability-map.json"
-                if trace_path.exists():
-                    trace = json.loads(trace_path.read_text(encoding="utf-8"))
-                    fmap: Dict[str, Any] = trace.get("map", {})
-                    # Build requirements list like: "FR-001 - User Registration [missing]"
-                    req_items: list[str] = []
-                    for fr_id in sorted(fmap.keys()):
-                        item = fmap.get(fr_id) or {}
-                        title = item.get("title", "")
-                        status_txt = item.get("status", "unknown")
-                        req_items.append(f"{fr_id} - {title} [{status_txt}]")
-
-                    # Summary counts
-                    statuses = [str((fmap.get(k) or {}).get("status", "unknown")) for k in fmap.keys()]
-                    present = statuses.count("present")
-                    partial = statuses.count("partial")
-                    missing = statuses.count("missing")
-                    total = len(statuses)
-
-                    planning_summary = (
-                        f"Functional requirements coverage: present={present}, partial={partial}, missing={missing}, total={total}."
-                    )
-                    design_summary = "System composed of FastAPI backend and Next.js frontend with document generation and RBAC."
-                    testing_summary = "Target unit/integration/e2e with coverage >= 80%; add API and UI tests for critical flows."
-
-                    answers = {
-                        "Requirements": req_items,
-                        "Planning": [
-                            proj.description or "Project purpose",
-                            "Stakeholders: Engineering, Product, QA",
-                            proj.metadata.get("timeline", "MVP timeline TBD"),
-                        ],
-                        "Design": [
-                            "Architecture: FastAPI + Next.js; containerized; future: DB persistence",
-                            "Integrations: LLM providers, CI/CD, object storage (planned)",
-                            "Data model: In-memory repos now; swap to Postgres/Mongo with migrations",
-                        ],
-                        "Testing": [
-                            "Strategy: unit, integration, e2e; contract tests for APIs",
-                            "Environments: dev/stage/prod; seeded test data",
-                        ],
-                        "Implementation": [
-                            "Roles: viewer, contributor, approver, admin",
-                        ],
-                    }
-                    summaries = {
-                        "Planning": planning_summary,
-                        "Design": design_summary,
-                        "Testing": testing_summary,
-                    }
-
-                    # Merge enrichment on top of seeds without dropping them
-                    data.setdefault("answers", {})
-                    for k, v in answers.items():
-                        if k in data["answers"] and isinstance(data["answers"][k], list) and isinstance(v, list):
-                            # append new items
-                            data["answers"][k].extend(x for x in v if x not in data["answers"][k])
-                        else:
-                            data["answers"][k] = v
-                    data.setdefault("summaries", {})
-                    for k, v in summaries.items():
-                        data["summaries"].setdefault(k, v)
-        except Exception:
-            # Safe to continue without enrichment
-            pass
-
-        out_dir = Path("docs") / "generated" / project_id
-        rendered = generate_all_docs(data, out_dir=out_dir)
-
-        # Save document versions to document store
-        try:
+        if opts is not None and getattr(opts, "include_backlog", False):
+            backlog_attachments: Dict[str, str] = {}
             store = get_doc_store()
-            overlay_flag = bool(getattr(opts, "traceability_overlay", False)) if opts is not None else False
-            for fname, text in rendered.items():
-                meta = {"overlay": overlay_flag}
-                store.save_document(project_id, fname, text, meta=meta)
-        except Exception:
-            # Do not fail generation due to versioning issues
-            pass
+            for key in ("SRS.md", "ProjectCharter.md"):
+                if key in fresh_docs:
+                    backlog_attachments[key] = fresh_docs[key]
+                else:
+                    try:
+                        dv = store.get_document(project_id, key)
+                        if dv and dv.content:
+                            backlog_attachments[key] = dv.content
+                    except Exception:
+                        continue
+            if backlog_attachments:
+                try:
+                    backlog_docs = generate_backlog_with_master_prompt(
+                        project_name=proj.name,
+                        attachments=backlog_attachments,
+                    )
+                    for fname, content in backlog_docs.items():
+                        try:
+                            (out_dir / fname).write_text(content, encoding="utf-8")
+                        except Exception:
+                            pass
+                        try:
+                            get_doc_store().save_document(
+                                project_id,
+                                fname,
+                                content,
+                                meta={"ai_master_prompt": True, "kind": "backlog"},
+                            )
+                        except Exception:
+                            pass
+                        artifacts.append(
+                            DocumentArtifact(filename=fname, content=content, path=str(out_dir / fname))
+                        )
+                except Exception:
+                    logger.warning("Backlog generation failed for project %s", project_id, exc_info=True)
 
-        artifacts = [
-            DocumentArtifact(filename=fname, content=content, path=str(out_dir / fname))
-            for fname, content in rendered.items()
-        ]
         return DocGenResponse(project_id=project_id, saved_to=str(out_dir), artifacts=artifacts)
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+    except HTTPException:
+        raise
     except Exception as e:
         logger.exception("Document generation failed for project %s", project_id)
         raise HTTPException(status_code=500, detail=f"Doc generation failed: {e}")
@@ -526,18 +586,18 @@ def download_documents_zip(project_id: str, user=Depends(require_permission(Perm
 
     out_dir = Path("docs") / "generated" / project_id
     if not out_dir.exists():
-        # Generate on-demand if missing
-        data = {
-            "project": {
-                "id": proj.project_id,
-                "name": proj.name,
-                "description": proj.description,
-                "status": proj.status,
-                "current_phase": proj.current_phase,
-                "metadata": proj.metadata,
-            }
-        }
-        generate_all_docs(data, out_dir=out_dir)
+        data, overlay_flag, paste_raw = _build_generation_data(project_id, proj, None)
+        try:
+            _render_docs_with_master_prompt(
+                project_id,
+                proj,
+                data,
+                overlay_flag,
+                doc_types=DEFAULT_DOC_TYPES,
+                paste_requirements=paste_raw,
+            )
+        except Exception:
+            pass
 
     # Create in-memory ZIP
     mem = io.BytesIO()

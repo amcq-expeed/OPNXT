@@ -21,12 +21,10 @@ def _auth_headers():
 
 def test_generate_documents_with_options_and_context(monkeypatch):
     hdrs = _auth_headers()
-    # Create project
     r = client.post("/projects", json={"name": "GD", "description": "Initial desc"}, headers=hdrs)
     assert r.status_code == 201
     pid = r.json()["project_id"]
 
-    # Put structured context
     ctx_payload = {
         "data": {
             "answers": {"Requirements": ["The system SHALL export data."]},
@@ -36,16 +34,21 @@ def test_generate_documents_with_options_and_context(monkeypatch):
     r = client.put(f"/projects/{pid}/context", json=ctx_payload, headers=hdrs)
     assert r.status_code == 200
 
-    # Force AI enrichment to raise to exercise summarize_project fallback path in generate_documents
     from src.orchestrator.api.routers import projects as pr
-    monkeypatch.setattr(pr, "enrich_answers_with_ai", lambda *_args, **_kw: (_ for _ in ()).throw(RuntimeError("no ai")))
+    monkeypatch.setattr(pr, "generate_with_master_prompt", lambda *args, **kwargs: {
+        "ProjectCharter.md": "# Charter",
+        "SRS.md": "# SRS",
+        "SDD.md": "# SDD",
+        "TestPlan.md": "# TestPlan",
+    })
+    monkeypatch.setattr(pr, "generate_backlog_with_master_prompt", lambda *args, **kwargs: {})
 
-    # Provide DocGenOptions with paste requirements and structured answers/summaries
     opts = {
         "traceability_overlay": True,
         "paste_requirements": "- login\n- reset password",
         "answers": {"Design": ["Use FastAPI."]},
         "summaries": {"Design": "High level design"},
+        "include_backlog": False,
     }
 
     r = client.post(f"/projects/{pid}/documents", json=opts, headers=hdrs)
