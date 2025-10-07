@@ -9,10 +9,13 @@ export interface Project {
   metadata?: Record<string, any>;
 }
 
-export async function enrichProject(project_id: string, prompt: string): Promise<EnrichResponse> {
+export async function enrichProject(
+  project_id: string,
+  prompt: string,
+): Promise<EnrichResponse> {
   const res = await apiFetch(`${API_BASE}/projects/${project_id}/enrich`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ prompt }),
   });
   return res.json();
@@ -50,9 +53,13 @@ export interface EnrichResponse {
   summaries: Record<string, string>;
 }
 
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
-const PUBLIC_MODE = (process.env.NEXT_PUBLIC_PUBLIC_MODE === '1' || process.env.NEXT_PUBLIC_PUBLIC_MODE === 'true');
-const MVP_SERVICE_TOKEN = process.env.NEXT_PUBLIC_MVP_SERVICE_TOKEN || '';
+const API_BASE =
+  process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+const PUBLIC_MODE =
+  process.env.NEXT_PUBLIC_PUBLIC_MODE === "1" ||
+  process.env.NEXT_PUBLIC_PUBLIC_MODE === "true";
+const MVP_SERVICE_TOKEN = process.env.NEXT_PUBLIC_MVP_SERVICE_TOKEN || "";
+export const TOKEN_CHANGE_EVENT = "opnxt-token-change";
 
 // --- Auth models ---
 export interface User {
@@ -71,54 +78,90 @@ export interface TokenResponse {
 // --- Token storage (dev: localStorage + in-memory) ---
 let accessToken: string | null = null;
 try {
-  const t = typeof window !== 'undefined' ? window.localStorage.getItem('opnxt_token') : null;
+  const t =
+    typeof window !== "undefined"
+      ? window.localStorage.getItem("opnxt_token")
+      : null;
   if (t) accessToken = t;
 } catch {}
 
 // In public mode, ensure no token is used
 if (PUBLIC_MODE) {
   accessToken = null;
-  try { if (typeof window !== 'undefined') window.localStorage.removeItem('opnxt_token'); } catch {}
+  try {
+    if (typeof window !== "undefined")
+      window.localStorage.removeItem("opnxt_token");
+  } catch {}
 }
 
 export function setAccessToken(token: string | null) {
   accessToken = token;
   try {
-    if (typeof window !== 'undefined') {
-      if (token) window.localStorage.setItem('opnxt_token', token);
-      else window.localStorage.removeItem('opnxt_token');
+    if (typeof window !== "undefined") {
+      if (token) window.localStorage.setItem("opnxt_token", token);
+      else window.localStorage.removeItem("opnxt_token");
+      window.dispatchEvent(
+        new StorageEvent("storage", {
+          key: "opnxt_token",
+          newValue: token ?? null,
+        }),
+      );
+      window.dispatchEvent(
+        new CustomEvent(TOKEN_CHANGE_EVENT, { detail: { token } }),
+      );
     }
   } catch {}
 }
 
-export function getAccessToken() { return accessToken; }
+export function getAccessToken() {
+  return accessToken;
+}
 
-export class ApiError extends Error { status?: number }
+export class ApiError extends Error {
+  status?: number;
+}
 
 function isMvpRoute(): boolean {
   try {
-    return typeof window !== 'undefined' && (window.location?.pathname === '/mvp' || window.location?.pathname?.startsWith('/mvp'));
-  } catch { return false; }
+    if (typeof window === "undefined") return false;
+    const path = window.location?.pathname || "";
+    if (path === "/" || path === "/mvp" || path.startsWith("/mvp/"))
+      return true;
+    return path === "/start" || path.startsWith("/start/");
+  } catch {
+    return false;
+  }
 }
 
-async function apiFetch(input: string, init: RequestInit = {}): Promise<Response> {
+async function apiFetch(
+  input: string,
+  init: RequestInit = {},
+): Promise<Response> {
   const headers: Record<string, string> = { ...(init.headers as any) };
   const omitAuth = PUBLIC_MODE || isMvpRoute();
   if (!omitAuth && accessToken) {
-    headers['Authorization'] = `Bearer ${accessToken}`;
+    headers["Authorization"] = `Bearer ${accessToken}`;
   } else if (omitAuth && MVP_SERVICE_TOKEN) {
-    headers['Authorization'] = `Bearer ${MVP_SERVICE_TOKEN}`;
+    headers["Authorization"] = `Bearer ${MVP_SERVICE_TOKEN}`;
   }
   let res = await fetch(input, { ...init, headers });
   if (!res.ok) {
     const err = new ApiError(`HTTP ${res.status}`);
     err.status = res.status;
-    try { const data = await res.json(); if (data?.detail) err.message = data.detail; } catch {}
+    try {
+      const data = await res.json();
+      if (data?.detail) err.message = data.detail;
+    } catch {}
     // If public or MVP route and we hit an auth error with a lingering token, clear and retry once without Authorization
-    if ((PUBLIC_MODE || isMvpRoute()) && (res.status === 401 || res.status === 403)) {
-      try { setAccessToken(null); } catch {}
+    if (
+      (PUBLIC_MODE || isMvpRoute()) &&
+      (res.status === 401 || res.status === 403)
+    ) {
+      try {
+        setAccessToken(null);
+      } catch {}
       const h2: Record<string, string> = { ...(init.headers as any) };
-      delete h2['Authorization'];
+      delete h2["Authorization"];
       res = await fetch(input, { ...init, headers: h2 });
       if (res.ok) return res;
     }
@@ -133,7 +176,9 @@ export async function listProjects(): Promise<Project[]> {
 }
 
 export async function getProject(project_id: string): Promise<Project> {
-  const res = await apiFetch(`${API_BASE}/projects/${project_id}`, { cache: "no-store" });
+  const res = await apiFetch(`${API_BASE}/projects/${project_id}`, {
+    cache: "no-store",
+  });
   return res.json();
 }
 
@@ -147,59 +192,87 @@ export async function createProject(payload: ProjectCreate): Promise<Project> {
 }
 
 export async function advanceProject(project_id: string): Promise<Project> {
-  const res = await apiFetch(`${API_BASE}/projects/${project_id}/advance`, { method: "PUT" });
+  const res = await apiFetch(`${API_BASE}/projects/${project_id}/advance`, {
+    method: "PUT",
+  });
   return res.json();
 }
 
 export async function deleteProject(project_id: string): Promise<void> {
-  const res = await apiFetch(`${API_BASE}/projects/${project_id}`, { method: 'DELETE' });
+  const res = await apiFetch(`${API_BASE}/projects/${project_id}`, {
+    method: "DELETE",
+  });
 }
 
 export function isFinalPhase(phase: string): boolean {
-  return phase?.toLowerCase() === 'end';
+  return phase?.toLowerCase() === "end";
 }
 
-export async function generateDocuments(project_id: string, opts?: DocGenOptions): Promise<DocGenResponse> {
+export async function generateDocuments(
+  project_id: string,
+  opts?: DocGenOptions,
+): Promise<DocGenResponse> {
   const res = await apiFetch(`${API_BASE}/projects/${project_id}/documents`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
     body: opts ? JSON.stringify(opts) : undefined,
   });
   return res.json();
 }
 
 export function artifactUrl(project_id: string, filename: string): string {
-  const base = API_BASE.replace(/\/$/, '');
+  const base = API_BASE.replace(/\/$/, "");
   return `${base}/files/generated/${encodeURIComponent(project_id)}/${encodeURIComponent(filename)}`;
 }
 
 export function zipUrl(project_id: string): string {
-  const base = API_BASE.replace(/\/$/, '');
+  const base = API_BASE.replace(/\/$/, "");
   return `${base}/projects/${encodeURIComponent(project_id)}/documents.zip`;
 }
 
-export function documentDownloadUrl(project_id: string, filename: string, version?: number): string {
-  const base = API_BASE.replace(/\/$/, '');
-  const v = typeof version === 'number' ? `?version=${version}` : '';
+export function documentDownloadUrl(
+  project_id: string,
+  filename: string,
+  version?: number,
+): string {
+  const base = API_BASE.replace(/\/$/, "");
+  const v = typeof version === "number" ? `?version=${version}` : "";
   return `${base}/projects/${encodeURIComponent(project_id)}/documents/${encodeURIComponent(filename)}/download${v}`;
 }
 
-export function documentDocxUrl(project_id: string, filename: string, version?: number): string {
-  const base = API_BASE.replace(/\/$/, '');
-  const v = typeof version === 'number' ? `?version=${version}` : '';
+export function documentDocxUrl(
+  project_id: string,
+  filename: string,
+  version?: number,
+): string {
+  const base = API_BASE.replace(/\/$/, "");
+  const v = typeof version === "number" ? `?version=${version}` : "";
   return `${base}/projects/${encodeURIComponent(project_id)}/documents/${encodeURIComponent(filename)}/docx${v}`;
 }
 
 export async function login(email: string, password: string): Promise<User> {
   const res = await fetch(`${API_BASE}/auth/login`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ email, password }),
   });
   if (!res.ok) {
-    let msg = `Login failed: ${res.status}`;
-    try { const data = await res.json(); if (data?.detail) msg = data.detail; } catch {}
-    throw new Error(msg);
+    const err = new ApiError(`Login failed (${res.status})`);
+    try {
+      const data = await res.json();
+      if (data?.detail) {
+        if (typeof data.detail === "string") {
+          err.message = data.detail;
+        } else if (Array.isArray(data.detail)) {
+          err.message = data.detail
+            .map((item: any) => item?.msg || item?.type || JSON.stringify(item))
+            .join("; ");
+        } else {
+          err.message = JSON.stringify(data.detail);
+        }
+      }
+    } catch {}
+    throw err;
   }
   const data: TokenResponse = await res.json();
   setAccessToken(data.access_token);
@@ -218,15 +291,24 @@ export function hasRole(user: User | null | undefined, role: string): boolean {
 
 export function canRead(user: User | null | undefined): boolean {
   // viewer and above
-  return hasRole(user, 'viewer') || hasRole(user, 'contributor') || hasRole(user, 'approver') || hasRole(user, 'admin');
+  return (
+    hasRole(user, "viewer") ||
+    hasRole(user, "contributor") ||
+    hasRole(user, "approver") ||
+    hasRole(user, "admin")
+  );
 }
 
 export function canWrite(user: User | null | undefined): boolean {
-  return hasRole(user, 'contributor') || hasRole(user, 'approver') || hasRole(user, 'admin');
+  return (
+    hasRole(user, "contributor") ||
+    hasRole(user, "approver") ||
+    hasRole(user, "admin")
+  );
 }
 
 export function isAdmin(user: User | null | undefined): boolean {
-  return hasRole(user, 'admin');
+  return hasRole(user, "admin");
 }
 
 // --- Agents ---
@@ -257,14 +339,14 @@ export interface AgentUpdate {
 }
 
 export async function listAgents(): Promise<Agent[]> {
-  const res = await apiFetch(`${API_BASE}/agents`, { cache: 'no-store' });
+  const res = await apiFetch(`${API_BASE}/agents`, { cache: "no-store" });
   return res.json();
 }
 
 export async function createAgent(payload: AgentCreate): Promise<Agent> {
   const res = await apiFetch(`${API_BASE}/agents`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
   });
   return res.json();
@@ -275,21 +357,26 @@ export async function getAgent(agent_id: string): Promise<Agent> {
   return res.json();
 }
 
-export async function updateAgent(agent_id: string, patch: AgentUpdate): Promise<Agent> {
+export async function updateAgent(
+  agent_id: string,
+  patch: AgentUpdate,
+): Promise<Agent> {
   const res = await apiFetch(`${API_BASE}/agents/${agent_id}`, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify(patch),
   });
   return res.json();
 }
 
 export async function deleteAgent(agent_id: string): Promise<void> {
-  await apiFetch(`${API_BASE}/agents/${agent_id}`, { method: 'DELETE' });
+  await apiFetch(`${API_BASE}/agents/${agent_id}`, { method: "DELETE" });
 }
 
 // --- Context & Impact ---
-export interface ProjectContext { data: Record<string, any>; }
+export interface ProjectContext {
+  data: Record<string, any>;
+}
 
 export interface LeanSnapshotRequest {
   markdown_content: string;
@@ -301,62 +388,114 @@ export interface LeanSnapshotResponse {
   count: number;
 }
 
-export interface ImpactItem { kind: string; name: string; confidence: number; }
-export interface ImpactResponse { project_id: string; impacts: ImpactItem[]; }
+export interface ImpactItem {
+  kind: string;
+  name: string;
+  confidence: number;
+}
+export interface ImpactResponse {
+  project_id: string;
+  impacts: ImpactItem[];
+}
 
-export async function getProjectContext(project_id: string): Promise<ProjectContext> {
-  const res = await apiFetch(`${API_BASE}/projects/${project_id}/context`, { cache: 'no-store' });
+export async function getProjectContext(
+  project_id: string,
+): Promise<ProjectContext> {
+  const res = await apiFetch(`${API_BASE}/projects/${project_id}/context`, {
+    cache: "no-store",
+  });
   return res.json();
 }
 
-export async function putProjectContext(project_id: string, ctx: ProjectContext): Promise<ProjectContext> {
+export async function putProjectContext(
+  project_id: string,
+  ctx: ProjectContext,
+): Promise<ProjectContext> {
   const res = await apiFetch(`${API_BASE}/projects/${project_id}/context`, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify(ctx),
   });
   return res.json();
 }
 
-export async function saveLeanSnapshot(project_id: string, snapshot: LeanSnapshotRequest): Promise<LeanSnapshotResponse> {
-  const res = await apiFetch(`${API_BASE}/projects/${project_id}/context/lean-snapshot`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(snapshot),
-  });
+export async function saveLeanSnapshot(
+  project_id: string,
+  snapshot: LeanSnapshotRequest,
+): Promise<LeanSnapshotResponse> {
+  const res = await apiFetch(
+    `${API_BASE}/projects/${project_id}/context/lean-snapshot`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(snapshot),
+    },
+  );
   return res.json();
 }
 
-export async function computeImpacts(project_id: string, changed: string[]): Promise<ImpactResponse> {
+export async function computeImpacts(
+  project_id: string,
+  changed: string[],
+): Promise<ImpactResponse> {
   const res = await apiFetch(`${API_BASE}/projects/${project_id}/impacts`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ changed }),
   });
   return res.json();
 }
 
 // --- Document Versioning ---
-export interface DocumentVersionInfo { version: number; created_at: string; meta: Record<string, any>; }
-export interface DocumentVersionsResponse { project_id: string; versions: Record<string, DocumentVersionInfo[]>; }
-export interface DocumentVersionResponse { filename: string; version: number; content: string; }
+export interface DocumentVersionInfo {
+  version: number;
+  created_at: string;
+  meta: Record<string, any>;
+}
+export interface DocumentVersionsResponse {
+  project_id: string;
+  versions: Record<string, DocumentVersionInfo[]>;
+}
+export interface DocumentVersionResponse {
+  filename: string;
+  version: number;
+  content: string;
+}
 
-export async function listDocumentVersions(project_id: string): Promise<DocumentVersionsResponse> {
-  const res = await apiFetch(`${API_BASE}/projects/${project_id}/documents/versions`, { cache: 'no-store' });
+export async function listDocumentVersions(
+  project_id: string,
+): Promise<DocumentVersionsResponse> {
+  const res = await apiFetch(
+    `${API_BASE}/projects/${project_id}/documents/versions`,
+    { cache: "no-store" },
+  );
   return res.json();
 }
 
-export async function getDocumentVersion(project_id: string, filename: string, version: number): Promise<DocumentVersionResponse> {
-  const res = await apiFetch(`${API_BASE}/projects/${project_id}/documents/${encodeURIComponent(filename)}/versions/${version}`);
+export async function getDocumentVersion(
+  project_id: string,
+  filename: string,
+  version: number,
+): Promise<DocumentVersionResponse> {
+  const res = await apiFetch(
+    `${API_BASE}/projects/${project_id}/documents/${encodeURIComponent(filename)}/versions/${version}`,
+  );
   return res.json();
 }
 
 // --- AI Master Prompt Generation ---
-export interface AIGenRequest { input_text: string; doc_types?: string[]; include_backlog?: boolean }
-export async function aiGenerateDocuments(project_id: string, req: AIGenRequest): Promise<DocGenResponse> {
+export interface AIGenRequest {
+  input_text: string;
+  doc_types?: string[];
+  include_backlog?: boolean;
+}
+export async function aiGenerateDocuments(
+  project_id: string,
+  req: AIGenRequest,
+): Promise<DocGenResponse> {
   const res = await apiFetch(`${API_BASE}/projects/${project_id}/ai-docs`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify(req),
   });
   if (!res.ok) {
@@ -367,17 +506,30 @@ export async function aiGenerateDocuments(project_id: string, req: AIGenRequest)
 }
 
 // --- Diagnostics ---
-export interface DiagLLM { provider: string; has_api_key: boolean; base_url: string; model: string; library_present: boolean; ready: boolean }
+export interface DiagLLM {
+  provider: string;
+  has_api_key: boolean;
+  base_url: string;
+  model: string;
+  library_present: boolean;
+  ready: boolean;
+}
 export async function diagLLM(): Promise<DiagLLM> {
-  const res = await apiFetch(`${API_BASE}/diag/llm`, { cache: 'no-store' });
+  const res = await apiFetch(`${API_BASE}/diag/llm`, { cache: "no-store" });
   return res.json();
 }
 
-export interface LLMUpdateRequest { provider?: string; base_url?: string; model?: string }
-export async function updateLLMSettings(patch: LLMUpdateRequest): Promise<DiagLLM> {
+export interface LLMUpdateRequest {
+  provider?: string;
+  base_url?: string;
+  model?: string;
+}
+export async function updateLLMSettings(
+  patch: LLMUpdateRequest,
+): Promise<DiagLLM> {
   const res = await apiFetch(`${API_BASE}/diag/llm`, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify(patch || {}),
   });
   return res.json();
@@ -396,7 +548,7 @@ export interface ChatSession {
 export interface ChatMessage {
   message_id: string;
   session_id: string;
-  role: 'system' | 'user' | 'assistant';
+  role: "system" | "user" | "assistant";
   content: string;
   created_at: string;
 }
@@ -406,59 +558,106 @@ export interface ChatSessionWithMessages {
   messages: ChatMessage[];
 }
 
-export async function listChatSessions(project_id: string): Promise<ChatSession[]> {
-  const res = await apiFetch(`${API_BASE}/chat/sessions?project_id=${encodeURIComponent(project_id)}`, { cache: 'no-store' });
+export async function listChatSessions(
+  project_id: string,
+): Promise<ChatSession[]> {
+  const res = await apiFetch(
+    `${API_BASE}/chat/sessions?project_id=${encodeURIComponent(project_id)}`,
+    { cache: "no-store" },
+  );
   return res.json();
 }
 
-export async function createChatSession(project_id: string, title?: string): Promise<ChatSession> {
+export async function createChatSession(
+  project_id: string,
+  title?: string,
+): Promise<ChatSession> {
   const res = await apiFetch(`${API_BASE}/chat/sessions`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ project_id, title }),
   });
   return res.json();
 }
 
-export async function getChatSession(session_id: string): Promise<ChatSessionWithMessages> {
-  const res = await apiFetch(`${API_BASE}/chat/sessions/${encodeURIComponent(session_id)}`, { cache: 'no-store' });
+export async function getChatSession(
+  session_id: string,
+): Promise<ChatSessionWithMessages> {
+  const res = await apiFetch(
+    `${API_BASE}/chat/sessions/${encodeURIComponent(session_id)}`,
+    { cache: "no-store" },
+  );
   return res.json();
 }
 
-export async function listChatMessages(session_id: string): Promise<ChatMessage[]> {
-  const res = await apiFetch(`${API_BASE}/chat/sessions/${encodeURIComponent(session_id)}/messages`, { cache: 'no-store' });
+export async function listChatMessages(
+  session_id: string,
+): Promise<ChatMessage[]> {
+  const res = await apiFetch(
+    `${API_BASE}/chat/sessions/${encodeURIComponent(session_id)}/messages`,
+    { cache: "no-store" },
+  );
   return res.json();
 }
 
-export async function postChatMessage(session_id: string, content: string): Promise<ChatMessage> {
-  const res = await apiFetch(`${API_BASE}/chat/sessions/${encodeURIComponent(session_id)}/messages`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ content }),
-  });
+export async function postChatMessage(
+  session_id: string,
+  content: string,
+): Promise<ChatMessage> {
+  const res = await apiFetch(
+    `${API_BASE}/chat/sessions/${encodeURIComponent(session_id)}/messages`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ content }),
+    },
+  );
   return res.json();
 }
 
 // --- Uploads / Ingestion ---
-export interface UploadAnalyzeItem { filename: string; text_length: number; requirements: string[] }
-export interface UploadAnalyzeResponse { project_id: string; items: UploadAnalyzeItem[] }
-export interface UploadApplyRequest { requirements: string[]; category?: string; append_only?: boolean }
+export interface UploadAnalyzeItem {
+  filename: string;
+  text_length: number;
+  requirements: string[];
+}
+export interface UploadAnalyzeResponse {
+  project_id: string;
+  items: UploadAnalyzeItem[];
+}
+export interface UploadApplyRequest {
+  requirements: string[];
+  category?: string;
+  append_only?: boolean;
+}
 
-export async function analyzeUploads(project_id: string, files: File[]): Promise<UploadAnalyzeResponse> {
+export async function analyzeUploads(
+  project_id: string,
+  files: File[],
+): Promise<UploadAnalyzeResponse> {
   const fd = new FormData();
-  files.forEach(f => fd.append('files', f));
-  const res = await apiFetch(`${API_BASE}/projects/${encodeURIComponent(project_id)}/uploads/analyze`, {
-    method: 'POST',
-    body: fd,
-  } as any);
+  files.forEach((f) => fd.append("files", f));
+  const res = await apiFetch(
+    `${API_BASE}/projects/${encodeURIComponent(project_id)}/uploads/analyze`,
+    {
+      method: "POST",
+      body: fd,
+    } as any,
+  );
   return res.json();
 }
 
-export async function applyUploadRequirements(project_id: string, req: UploadApplyRequest): Promise<ProjectContext> {
-  const res = await apiFetch(`${API_BASE}/projects/${encodeURIComponent(project_id)}/uploads/apply`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(req || {}),
-  });
+export async function applyUploadRequirements(
+  project_id: string,
+  req: UploadApplyRequest,
+): Promise<ProjectContext> {
+  const res = await apiFetch(
+    `${API_BASE}/projects/${encodeURIComponent(project_id)}/uploads/apply`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(req || {}),
+    },
+  );
   return res.json();
 }

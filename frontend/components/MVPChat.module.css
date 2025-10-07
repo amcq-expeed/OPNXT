@@ -1,0 +1,109 @@
+.chat {
+  display: flex;
+  flex-direction: column;
+  gap: clamp(16px, 3vw, 24px);
+  color: #eef2ff;
+}
+
+.history {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: clamp(12px, 2.2vw, 18px);
+  max-height: min(50vh, 520px);
+  overflow-y: auto;
+  padding: 0 clamp(2px, 1vw, 12px) 12px;
+  margin: 0;
+  background: transparent;
+}
+
+.messages {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: clamp(12px, 2.6vw, 18px);
+}
+
+.empty {
+  color: rgb(226 232 240 / 75%);
+  font-size: clamp(14px, 3vw, 16px);
+  line-height: 1.6;
+}
+
+.msg {
+  max-width: min(70ch, 100%);
+  border-radius: 22px;
+  background: rgb(15 23 42 / 35%);
+  color: #f1f5ff !important;
+  padding: clamp(12px, 2.2vw, 18px);
+  line-height: 1.55;
+  backdrop-filter: blur(8px);
+  border: none;
+  box-shadow: none;
+}
+
+.msgUser {
+  background: rgb(79 70 229 / 28%);
+}
+
+.msgAssistant {
+  background: rgb(15 23 42 / 30%);
+}
+
+.composer {
+  position: static;
+  bottom: auto;
+  display: grid;
+  gap: clamp(12px, 2vw, 18px);
+  padding: clamp(8px, 1.6vw, 12px) 0 0;
+  background: transparent;
+}
+
+.form {
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+}
+
+.textarea {
+  min-height: 88px;
+  max-height: 240px;
+  border-radius: 18px;
+  border: 1px solid rgb(148 163 184 / 35%);
+  padding: 12px 14px;
+  font-size: 14px;
+  background: rgb(255 255 255 / 92%);
+  color: #0b1220 !important;
+  box-shadow: none;
+}
+
+.send {
+  align-self: stretch;
+  padding: 10px 16px;
+  border-radius: 14px;
+  font-weight: 600;
+}
+
+.meta {
+  display: grid;
+  gap: clamp(8px, 2vw, 14px);
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+
+.ghost {
+  background: transparent;
+  border-color: rgb(148 163 184 / 40%);
+  color: rgb(226 232 240 / 90%);
+}
+
+.ghost:hover {
+  background: rgb(148 163 184 / 12%);
+}

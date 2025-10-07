@@ -1,0 +1,43 @@
+.hero {
+  display: grid;
+  justify-items: center;
+  gap: clamp(18px, 4vw, 32px);
+}
+
+.compact {
+  grid-template-columns: 1fr;
+  width: min(1100px, 96vw);
+  margin: 0 auto;
+  text-align: center;
+}
+
+.cluster {
+  width: min(100%, 1024px);
+  margin: 0 auto;
+}
+
+.headlineRow {
+  grid-template-columns: 1fr;
+  text-align: center;
+}
+
+.features {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: clamp(10px, 2.2vw, 16px);
+}
+
+.features li {
+  display: grid;
+  gap: 4px;
+}
+
+.features strong {
+  font-weight: 600;
+}
+
+.features span {
+  opacity: 0.9;
+}

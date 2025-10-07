@@ -7,9 +7,19 @@ interface CardProps extends PropsWithChildren {
   ariaLabel?: string;
 }
 
-export default function Card({ title, children, className = "", role = "region", ariaLabel }: CardProps) {
+export default function Card({
+  title,
+  children,
+  className = "",
+  role = "region",
+  ariaLabel,
+}: CardProps) {
   return (
-    <section className={("card " + className).trim()} role={role as any} aria-label={ariaLabel}>
+    <section
+      className={("card " + className).trim()}
+      role={role as any}
+      aria-label={ariaLabel}
+    >
       {title ? <div className="section-title">{title}</div> : null}
       {children}
     </section>

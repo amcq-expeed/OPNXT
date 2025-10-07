@@ -1,10 +1,5 @@
-import { useEffect } from "react";
-import { useRouter } from "next/router";
+import MVPPage from "./mvp";
 
 export default function HomePage() {
-  const router = useRouter();
-  useEffect(() => {
-    router.replace("/mvp");
-  }, [router]);
-  return null;
+  return <MVPPage />;
 }

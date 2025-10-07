@@ -5,7 +5,12 @@
     "docs/Claude/orchestrator_srs.md",
     "docs/Claude/orchestrator_tdd.md",
     "docs/Claude/ai_sdlc_platform_architecture.md",
-    "docs/Claude/orchestrator_backlog.md"
+    "docs/Claude/orchestrator_backlog.md",
+    "docs/generated/PRJ-2025-0001/ProjectCharter.md",
+    "docs/generated/PRJ-2025-0001/SRS.md",
+    "docs/generated/PRJ-2025-0001/SDD.md",
+    "docs/generated/PRJ-2025-0001/TestPlan.md",
+    "docs/generated/PRJ-2025-0001/Backlog.md"
   ],
   "map": {
     "FR-001": {
@@ -128,6 +133,46 @@
       "title": "Webhook Support",
       "status": "missing",
       "code": []
+    },
+    "PRJ-2025-0001-FR-001": {
+      "title": "User Account Management",
+      "status": "present",
+      "code": [
+        "docs/generated/PRJ-2025-0001/ProjectCharter.md",
+        "docs/generated/PRJ-2025-0001/SRS.md",
+        "docs/generated/PRJ-2025-0001/TestPlan.md",
+        "docs/generated/PRJ-2025-0001/Backlog.json"
+      ]
+    },
+    "PRJ-2025-0001-FR-002": {
+      "title": "Product Catalog Browsing",
+      "status": "present",
+      "code": [
+        "docs/generated/PRJ-2025-0001/SRS.md",
+        "docs/generated/PRJ-2025-0001/SDD.md",
+        "docs/generated/PRJ-2025-0001/TestPlan.md",
+        "docs/generated/PRJ-2025-0001/Backlog.md"
+      ]
+    },
+    "PRJ-2025-0001-FR-003": {
+      "title": "Secure Payment Processing",
+      "status": "present",
+      "code": [
+        "docs/generated/PRJ-2025-0001/SRS.md",
+        "docs/generated/PRJ-2025-0001/SDD.md",
+        "docs/generated/PRJ-2025-0001/TestPlan.md",
+        "docs/generated/PRJ-2025-0001/Backlog.json"
+      ]
+    },
+    "PRJ-2025-0001-FR-004": {
+      "title": "User Reviews and recommendations",
+      "status": "present",
+      "code": [
+        "docs/generated/PRJ-2025-0001/SRS.md",
+        "docs/generated/PRJ-2025-0001/SDD.md",
+        "docs/generated/PRJ-2025-0001/TestPlan.md",
+        "docs/generated/PRJ-2025-0001/Backlog.json"
+      ]
     }
   },
   "nfr": {

@@ -3,10 +3,12 @@
 A minimal Next.js (TypeScript) frontend for OPNXT that calls the FastAPI backend.
 
 ## Prerequisites
+
 - Node.js 18+
 - FastAPI backend running locally at `http://localhost:8000`
 
 ## Configure
+
 Create `.env.local` (or copy the example):
 
 ```
@@ -25,6 +27,7 @@ npm run dev
 Open http://localhost:3000
 
 ## Build
+
 ```
 npm run build
 npm start

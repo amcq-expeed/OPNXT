@@ -1,5 +1,12 @@
-html, body { padding: 0; margin: 0; }
-* { box-sizing: border-box; }
+html,
+body {
+  padding: 0;
+  margin: 0;
+}
+
+* {
+  box-sizing: border-box;
+}
 
 button {
   padding: 6px 12px;
@@ -9,17 +16,31 @@ button {
   cursor: pointer;
 }
 
-input, textarea {
+input,
+textarea {
   padding: 6px 10px;
   border-radius: 6px;
   border: 1px solid #ccc;
 }
 
-th, td { font-family: Inter, system-ui, Arial; font-size: 14px; }
+th,
+td {
+  font-family: Inter, system-ui, Arial;
+  font-size: 14px;
+}
 
 /* Base typography & focus styles */
 body {
-  font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+  font-family:
+    Inter,
+    system-ui,
+    -apple-system,
+    "Segoe UI",
+    Roboto,
+    Helvetica,
+    Arial,
+    "Apple Color Emoji",
+    "Segoe UI Emoji";
   line-height: 1.5;
 }
 
@@ -36,6 +57,7 @@ a.skip-link {
   height: 1px;
   overflow: hidden;
 }
+
 a.skip-link:focus {
   position: fixed;
   left: 16px;

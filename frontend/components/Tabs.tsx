@@ -13,9 +13,11 @@ interface TabsProps {
 }
 
 export default function Tabs({ tabs, defaultTabId }: TabsProps) {
-  const [activeId, setActiveId] = useState<string>(defaultTabId || (tabs[0]?.id ?? ""));
+  const [activeId, setActiveId] = useState<string>(
+    defaultTabId || (tabs[0]?.id ?? ""),
+  );
   const listRef = useRef<HTMLDivElement | null>(null);
-  const tabIds = useMemo(() => tabs.map(t => t.id), [tabs]);
+  const tabIds = useMemo(() => tabs.map((t) => t.id), [tabs]);
   const baseId = useId();
 
   useEffect(() => {
@@ -23,15 +25,22 @@ export default function Tabs({ tabs, defaultTabId }: TabsProps) {
   }, [activeId, tabIds]);
 
   function onKeyDown(e: React.KeyboardEvent) {
-    if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft' && e.key !== 'Home' && e.key !== 'End') return;
+    if (
+      e.key !== "ArrowRight" &&
+      e.key !== "ArrowLeft" &&
+      e.key !== "Home" &&
+      e.key !== "End"
+    )
+      return;
     e.preventDefault();
     const idx = tabIds.indexOf(activeId);
     if (idx < 0) return;
     let nextIdx = idx;
-    if (e.key === 'ArrowRight') nextIdx = (idx + 1) % tabIds.length;
-    else if (e.key === 'ArrowLeft') nextIdx = (idx - 1 + tabIds.length) % tabIds.length;
-    else if (e.key === 'Home') nextIdx = 0;
-    else if (e.key === 'End') nextIdx = tabIds.length - 1;
+    if (e.key === "ArrowRight") nextIdx = (idx + 1) % tabIds.length;
+    else if (e.key === "ArrowLeft")
+      nextIdx = (idx - 1 + tabIds.length) % tabIds.length;
+    else if (e.key === "Home") nextIdx = 0;
+    else if (e.key === "End") nextIdx = tabIds.length - 1;
     const nextId = tabIds[nextIdx];
     setActiveId(nextId);
     const btnId = `${baseId}-tab-${nextId}`;
@@ -48,7 +57,7 @@ export default function Tabs({ tabs, defaultTabId }: TabsProps) {
         onKeyDown={onKeyDown}
         ref={listRef}
       >
-        {tabs.map(t => (
+        {tabs.map((t) => (
           <button
             key={t.id}
             className="tab"
@@ -63,7 +72,7 @@ export default function Tabs({ tabs, defaultTabId }: TabsProps) {
           </button>
         ))}
       </div>
-      {tabs.map(t => (
+      {tabs.map((t) => (
         <div
           key={t.id}
           id={`${baseId}-panel-${t.id}`}
