@@ -322,6 +322,18 @@
   flex-wrap: wrap;
 }
 
+.doc-preview__actions-row {
+  margin-top: 12px;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.doc-preview--modal {
+  max-height: min(70vh, 900px);
+  overflow-y: auto;
+  padding: clamp(18px, 3vw, 24px);
+}
+
 .doc-preview__actions .btn {
   min-width: 120px;
 }
@@ -369,6 +381,59 @@
 .doc-preview::-webkit-scrollbar-thumb {
   background: rgb(102 146 220 / 45%);
   border-radius: 999px;
+}
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgb(4 10 22 / 60%);
+  backdrop-filter: blur(6px);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: clamp(20px, 6vw, 48px);
+  z-index: 1200;
+}
+
+.modal-shell {
+  position: relative;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  background: linear-gradient(135deg, #0b1730, #141f3d);
+  border: 1px solid rgb(130 185 255 / 35%);
+  border-radius: clamp(18px, 3vw, 22px);
+  box-shadow: 0 28px 86px rgb(8 15 35 / 65%);
+  overflow: hidden;
+}
+
+.modal-header,
+.modal-footer {
+  padding: clamp(16px, 3vw, 24px);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+}
+
+.modal-header {
+  border-bottom: 1px solid rgb(120 180 255 / 25%);
+}
+
+.modal-footer {
+  border-top: 1px solid rgb(120 180 255 / 25%);
+}
+
+.modal-body {
+  padding: clamp(18px, 3vw, 28px);
+  overflow-y: auto;
+  display: block;
+}
+
+.modal-header h3 {
+  margin: 0;
+  font-size: clamp(18px, 2.4vw, 22px);
+  color: #f4f8ff;
 }
 
 .doc-list {
@@ -1961,25 +2026,69 @@ select {
   width: 100%;
   border-collapse: collapse;
   background: var(--surface-1);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
+  border: 1px solid var(--surface-3);
+  border-radius: 18px;
   overflow: hidden;
 }
 
 .table th,
 .table td {
-  padding: 10px 12px;
-  border-bottom: 1px solid var(--border);
-  text-align: left;
+  padding: 12px 14px;
+  border-bottom: 1px solid rgba(136, 176, 238, 0.18);
+  color: rgba(236, 244, 255, 0.92);
+  vertical-align: top;
 }
 
 .table thead th {
-  background: var(--surface-2);
+  background: rgba(20, 44, 86, 0.72);
   font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.table tbody tr {
+  transition: background 160ms ease, color 160ms ease;
 }
 
 .table tbody tr:hover {
-  background: #fafafa;
+  background: rgba(78, 122, 210, 0.32);
+}
+
+.table tbody tr:hover td {
+  color: #f7fbff;
+}
+
+.table tbody tr:hover a,
+.table tbody tr:hover .btn {
+  color: #f7fbff;
+  border-color: rgba(247, 251, 255, 0.4);
+}
+
+.projects-table {
+  margin-top: 18px;
+}
+
+.projects-create-wrapper {
+  display: grid;
+  gap: 12px;
+  margin-top: 24px;
+}
+
+.projects-create__toggle {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.projects-create__toggle .btn {
+  min-width: 200px;
+}
+
+.projects-create__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 12px;
+  flex-wrap: wrap;
 }
 
 /* --- AppShell / Sidebar / Breadcrumb --- */

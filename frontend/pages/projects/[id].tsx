@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { useRouter } from "next/router";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import {
@@ -8,10 +8,7 @@ import {
   DocGenResponse,
   getProject,
   generateDocuments,
-  artifactUrl,
   zipUrl,
-  enrichProject,
-  EnrichResponse,
   getProjectContext,
   putProjectContext,
   computeImpacts,
@@ -21,11 +18,6 @@ import {
   getDocumentVersion,
   DocumentVersionsResponse,
   aiGenerateDocuments,
-  diagLLM,
-  DiagLLM,
-  analyzeUploads,
-  applyUploadRequirements,
-  UploadAnalyzeResponse,
 } from "../../lib/api";
 import Tabs from "../../components/Tabs";
 import ChatPanel from "../../components/ChatPanel";
@@ -36,6 +28,7 @@ import NextAction from "../../components/ui/NextAction";
 import Stat from "../../components/ui/Stat";
 import Stepper from "../../components/ui/Stepper";
 import DocList from "../../components/DocList";
+import Modal from "../../components/ui/Modal";
 
 export default function ProjectDetailsPage() {
   const router = useRouter();
@@ -60,9 +53,6 @@ export default function ProjectDetailsPage() {
   }, [router.query.tab]);
 
   // Chat/Paste requirements UX state
-  const [promptText, setPromptText] = useState<string>("");
-  const requirementsRef = useRef<HTMLTextAreaElement | null>(null);
-  const [enriching, setEnriching] = useState<boolean>(false);
   const [overlayOn, setOverlayOn] = useState<boolean>(false);
   const [docGeneration, setDocGeneration] = useState<{
     active: boolean;
@@ -83,7 +73,6 @@ export default function ProjectDetailsPage() {
       return next.slice(-8);
     });
   }, []);
-  const [enriched, setEnriched] = useState<EnrichResponse | null>(null);
 
   // Design Q&A (Open Questions in SDD)
   const [designQuestions, setDesignQuestions] = useState<string[]>([]);
@@ -117,16 +106,10 @@ export default function ProjectDetailsPage() {
     filename: string;
     version: number;
   } | null>(null);
+  const [previewModalOpen, setPreviewModalOpen] = useState<boolean>(false);
 
   // AI generation options
-  const [docTypes, setDocTypes] = useState<string[]>([
-    "Project Charter",
-    "SRS",
-    "SDD",
-    "Test Plan",
-  ]);
   const [includeBacklog, setIncludeBacklog] = useState<boolean>(false);
-  const [llmDiag, setLlmDiag] = useState<DiagLLM | null>(null);
   // Scenario chips → prefill chat input
   const [chipPrefill, setChipPrefill] = useState<string | undefined>(undefined);
   const scenarioChips = useMemo<LaunchScenario[]>(
@@ -138,14 +121,6 @@ export default function ProjectDetailsPage() {
     ],
     [],
   );
-
-  // Upload analysis state
-  const [uploadResult, setUploadResult] =
-    useState<UploadAnalyzeResponse | null>(null);
-  const [uploadReqs, setUploadReqs] = useState<string[]>([]);
-  const [uploadSel, setUploadSel] = useState<Record<string, boolean>>({});
-  const [uploadBusy, setUploadBusy] = useState<boolean>(false);
-  const [uploadMsg, setUploadMsg] = useState<string | null>(null);
 
   // Read ?prefill= from URL once to seed ChatPanel
   useEffect(() => {
@@ -262,14 +237,6 @@ export default function ProjectDetailsPage() {
             <span className="muted">
               {docGeneration.message || generationProgressText}
             </span>
-            {docGeneration.model && (
-              <span
-                className="badge"
-                style={{ background: "var(--surface-2)" }}
-              >
-                Model: {docGeneration.model}
-              </span>
-            )}
           </div>
           {docGenerationLog.length > 0 && (
             <ul
@@ -433,6 +400,12 @@ export default function ProjectDetailsPage() {
     return direct;
   }, [docs, selected]);
 
+  useEffect(() => {
+    if (!selectedArtifact && previewModalOpen) {
+      setPreviewModalOpen(false);
+    }
+  }, [selectedArtifact, previewModalOpen]);
+
   const selectedApproval = selected ? approvals?.[selected] : undefined;
 
   const artifactSummaries = useMemo(() => {
@@ -590,59 +563,6 @@ export default function ProjectDetailsPage() {
     try {
       router.push(`/projects/${id}?tab=Requirements`);
     } catch {}
-  }
-
-  async function onUploadFilesChanged(list: FileList | null) {
-    if (!id || !list || list.length === 0) return;
-    const files = Array.from(list);
-    try {
-      setUploadBusy(true);
-      setUploadMsg(null);
-      const resp = await analyzeUploads(id, files);
-      setUploadResult(resp);
-      const all = Array.from(
-        new Set((resp.items || []).flatMap((it) => it.requirements || [])),
-      );
-      setUploadReqs(all);
-      const map: Record<string, boolean> = {};
-      all.forEach((r) => (map[r] = true));
-      setUploadSel(map);
-      setUploadMsg(
-        `Analyzed ${files.length} file(s); found ${all.length} requirement(s).`,
-      );
-    } catch (e: any) {
-      setUploadMsg(e?.message || String(e));
-    } finally {
-      setUploadBusy(false);
-    }
-  }
-
-  async function onApplyFromUploads(generate: boolean) {
-    if (!id) return;
-    const selected = uploadReqs.filter((r) => uploadSel[r]);
-    if (selected.length === 0) {
-      setUploadMsg("Select at least one requirement to apply.");
-      return;
-    }
-    try {
-      setUploadBusy(true);
-      setUploadMsg(null);
-      await applyUploadRequirements(id, {
-        requirements: selected,
-        category: "Requirements",
-        append_only: true,
-      });
-      setUploadMsg(
-        `Applied ${selected.length} requirement(s) to Stored Context.`,
-      );
-      if (generate) {
-        await onAIGenerateSmart();
-      }
-    } catch (e: any) {
-      setUploadMsg(e?.message || String(e));
-    } finally {
-      setUploadBusy(false);
-    }
   }
 
   function cancelDocGeneration() {
@@ -858,143 +778,7 @@ export default function ProjectDetailsPage() {
     }
   }
 
-  async function onEnrich() {
-    if (!id || !promptText.trim()) return;
-    try {
-      setEnriching(true);
-      setError(null);
-      const resp = await enrichProject(id, promptText.trim());
-      setEnriched(resp);
-      setNotice("Content enriched.");
-    } catch (e: any) {
-      setError(e?.message || String(e));
-    } finally {
-      setEnriching(false);
-    }
-  }
-
-  async function onGenerateWithInputs() {
-    if (!id) return;
-    try {
-      resetDocGenerationLog("Processing provided inputs…");
-      setDocGeneration({
-        active: true,
-        stage: "context",
-        message: "Processing provided inputs…",
-        cancelRequested: false,
-      });
-      setNotice("Processing provided inputs…");
-      setLoading(true);
-      setError(null);
-      const opts: any = { traceability_overlay: overlayOn };
-      if (
-        enriched &&
-        (Object.keys(enriched.answers || {}).length > 0 ||
-          Object.keys(enriched.summaries || {}).length > 0)
-      ) {
-        opts.answers = enriched.answers;
-        opts.summaries = enriched.summaries;
-      } else if (promptText.trim()) {
-        opts.paste_requirements = promptText.trim();
-      }
-      setDocGeneration((prev) =>
-        prev.active
-          ? { ...prev, stage: "llm", message: "Calling language model…" }
-          : prev,
-      );
-      appendDocLog("Calling language model…");
-      const resp = await generateDocuments(id, opts);
-      setDocGeneration((prev) =>
-        prev.active
-          ? { ...prev, stage: "post", message: "Formatting artifacts…" }
-          : prev,
-      );
-      appendDocLog("Formatting artifacts…");
-      setDocs(resp);
-      if (resp.artifacts.length > 0) setSelected(resp.artifacts[0].filename);
-      setNotice(`Generated ${resp.artifacts.length} documents.`);
-      appendDocLog(`Generated ${resp.artifacts.length} documents.`);
-    } catch (e: any) {
-      setError(e?.message || String(e));
-      appendDocLog(`Error: ${e?.message || String(e)}`);
-    } finally {
-      setLoading(false);
-      setDocGeneration({ active: false, stage: "idle" });
-      appendDocLog("Generation run finished.");
-    }
-  }
-
-  async function onAIGenerate() {
-    if (!id || !promptText.trim()) return;
-    try {
-      resetDocGenerationLog("Processing your prompt…");
-      setDocGeneration({
-        active: true,
-        stage: "context",
-        message: "Processing your prompt…",
-        cancelRequested: false,
-      });
-      setNotice("Processing your prompt…");
-      setLoading(true);
-      setError(null);
-      const req: any = {
-        input_text: promptText.trim(),
-        include_backlog: includeBacklog,
-      };
-      if (docTypes && docTypes.length > 0 && docTypes.length < 4)
-        req.doc_types = docTypes.slice();
-      setDocGeneration((prev) =>
-        prev.active
-          ? { ...prev, stage: "llm", message: "Calling language model…" }
-          : prev,
-      );
-      appendDocLog("Calling language model…");
-      const resp = await aiGenerateDocuments(id, req);
-      setDocGeneration((prev) =>
-        prev.active
-          ? { ...prev, stage: "post", message: "Formatting artifacts…" }
-          : prev,
-      );
-      appendDocLog("Formatting artifacts…");
-      setDocs(resp);
-      if (resp.artifacts.length > 0) {
-        const keep =
-          selected && resp.artifacts.find((a) => a.filename === selected);
-        setSelected(keep ? keep.filename : resp.artifacts[0].filename);
-      }
-      setNotice(`AI-generated ${resp.artifacts.length} documents.`);
-      appendDocLog(`Generated ${resp.artifacts.length} documents.`);
-    } catch (e: any) {
-      setError(e?.message || String(e));
-      appendDocLog(`Error: ${e?.message || String(e)}`);
-    } finally {
-      setLoading(false);
-      setDocGeneration({ active: false, stage: "idle" });
-      appendDocLog("Generation run finished.");
-    }
-  }
-
   function buildSmartPrompt(overrideCtx?: ProjectContext | null): string {
-    // 1) Prefer explicit text from builder
-    const fromBuilder = promptText.trim();
-    if (fromBuilder) return fromBuilder;
-
-    // 2) If enriched content exists, synthesize a prompt
-    if (
-      enriched &&
-      (Object.keys(enriched.answers || {}).length > 0 ||
-        Object.keys(enriched.summaries || {}).length > 0)
-    ) {
-      const planning = enriched.summaries?.Planning || "";
-      const reqs = (enriched.answers?.Requirements || []).filter(Boolean);
-      const lines = [
-        planning ? `Planning Summary:\n${planning}` : "",
-        reqs.length ? `Requirements:\n- ${reqs.join("\n- ")}` : "",
-      ].filter(Boolean);
-      if (lines.length) return lines.join("\n\n");
-    }
-
-    // 3) Fallback to Stored Context
     const sourceCtx = overrideCtx ?? ctx;
     const data: any = sourceCtx?.data || {};
     const planning = data?.summaries?.Planning || "";
@@ -1041,20 +825,8 @@ export default function ProjectDetailsPage() {
           : prev,
       );
       appendDocLog("Calling language model…");
-      const diagPromise = diagLLM()
-        .then((d) => {
-          setLlmDiag(d);
-          setDocGeneration((prev) =>
-            prev.active ? { ...prev, model: `${d.provider}/${d.model}` } : prev,
-          );
-          setNotice(`LLM request queued with ${d.provider}/${d.model}.`);
-          appendDocLog(`Queued with ${d.provider}/${d.model}.`);
-        })
-        .catch(() => {});
       const prompt = buildSmartPrompt(latest);
       const req: any = { input_text: prompt, include_backlog: includeBacklog };
-      if (docTypes && docTypes.length > 0 && docTypes.length < 4)
-        req.doc_types = docTypes.slice();
       const resp = await aiGenerateDocuments(id, req);
       setDocGeneration((prev) =>
         prev.active
@@ -1066,7 +838,6 @@ export default function ProjectDetailsPage() {
       if (resp.artifacts.length > 0) setSelected(resp.artifacts[0].filename);
       setNotice(`AI-generated ${resp.artifacts.length} documents.`);
       appendDocLog(`Generated ${resp.artifacts.length} documents.`);
-      await diagPromise;
     } catch (e: any) {
       setError(e?.message || String(e));
       appendDocLog(`Error: ${e?.message || String(e)}`);
@@ -1074,18 +845,6 @@ export default function ProjectDetailsPage() {
       setLoading(false);
       setDocGeneration({ active: false, stage: "idle" });
       appendDocLog("Generation run finished.");
-    }
-  }
-
-  async function onCheckLLM() {
-    try {
-      const d = await diagLLM();
-      setLlmDiag(d);
-      setNotice(
-        `LLM: provider=${d.provider}, model=${d.model}, ready=${d.ready}`,
-      );
-    } catch (e: any) {
-      setError(e?.message || String(e));
     }
   }
 
@@ -1258,16 +1017,6 @@ export default function ProjectDetailsPage() {
     </div>
   );
 
-  function focusRequirements() {
-    try {
-      requirementsRef.current?.scrollIntoView({
-        behavior: "smooth",
-        block: "center",
-      });
-      requirementsRef.current?.focus();
-    } catch {}
-  }
-
   const RequirementsTab = (
     <div>
       {/* KPIs */}
@@ -1293,7 +1042,6 @@ export default function ProjectDetailsPage() {
           variant: "primary",
         }}
         secondary={[
-          { label: "Generate with inputs", onClick: onGenerateWithInputs },
           { label: "Regenerate", onClick: onRegenerate },
         ]}
       />
@@ -1309,216 +1057,6 @@ export default function ProjectDetailsPage() {
               onAIGenerateRequested={onAIGenerateSmart}
               autoGenerateDefault={false}
             />
-          </div>
-          <div className="card" style={{ marginBottom: 16 }}>
-            <details open>
-              <summary style={{ cursor: "pointer" }}>
-                <strong>Import Existing Documents (optional)</strong>
-              </summary>
-              <div style={{ display: "grid", gap: 8, marginTop: 8 }}>
-                <input
-                  type="file"
-                  multiple
-                  accept=".pdf,.docx,.md,.txt"
-                  onChange={(e) => onUploadFilesChanged(e.target.files)}
-                />
-                {uploadMsg && <span className="muted">{uploadMsg}</span>}
-                {uploadReqs.length > 0 && (
-                  <div>
-                    <div className="muted" style={{ marginBottom: 6 }}>
-                      Select which extracted requirements to apply:
-                    </div>
-                    <div
-                      className="card"
-                      style={{ maxHeight: 180, overflowY: "auto" }}
-                    >
-                      {uploadReqs.map((r, i) => (
-                        <label
-                          key={i}
-                          style={{
-                            display: "flex",
-                            alignItems: "flex-start",
-                            gap: 8,
-                            marginBottom: 6,
-                          }}
-                        >
-                          <input
-                            type="checkbox"
-                            checked={!!uploadSel[r]}
-                            onChange={(e) =>
-                              setUploadSel((prev) => ({
-                                ...prev,
-                                [r]: e.target.checked,
-                              }))
-                            }
-                          />
-                          <span style={{ fontSize: 13 }}>{r}</span>
-                        </label>
-                      ))}
-                    </div>
-                    <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
-                      <button
-                        className="btn"
-                        onClick={() => onApplyFromUploads(false)}
-                        disabled={uploadBusy || uploadReqs.length === 0}
-                      >
-                        {uploadBusy ? "Applying…" : "Apply selected"}
-                      </button>
-                      <button
-                        className="btn btn-primary"
-                        onClick={() => onApplyFromUploads(true)}
-                        disabled={uploadBusy || uploadReqs.length === 0}
-                      >
-                        {uploadBusy ? "Applying…" : "Apply & Generate"}
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </div>
-            </details>
-          </div>
-          <div className="card">
-            <details>
-              <summary style={{ cursor: "pointer" }}>
-                <strong>Requirements Builder (optional)</strong>
-              </summary>
-              <textarea
-                aria-label="Requirements input"
-                placeholder="Optionally add or paste requirements… One per line is fine."
-                value={promptText}
-                onChange={(e) => setPromptText(e.target.value)}
-                rows={8}
-                ref={requirementsRef}
-                style={{ width: "100%", marginTop: 8 }}
-              />
-              <div style={{ display: "grid", gap: 6, marginTop: 8 }}>
-                <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
-                  <label>
-                    <input
-                      type="checkbox"
-                      checked={docTypes.includes("Project Charter")}
-                      onChange={(e) =>
-                        setDocTypes((prev) =>
-                          e.target.checked
-                            ? Array.from(new Set([...prev, "Project Charter"]))
-                            : prev.filter((x) => x !== "Project Charter"),
-                        )
-                      }
-                    />{" "}
-                    Project Charter
-                  </label>
-                  <label>
-                    <input
-                      type="checkbox"
-                      checked={docTypes.includes("SRS")}
-                      onChange={(e) =>
-                        setDocTypes((prev) =>
-                          e.target.checked
-                            ? Array.from(new Set([...prev, "SRS"]))
-                            : prev.filter((x) => x !== "SRS"),
-                        )
-                      }
-                    />{" "}
-                    SRS
-                  </label>
-                  <label>
-                    <input
-                      type="checkbox"
-                      checked={docTypes.includes("SDD")}
-                      onChange={(e) =>
-                        setDocTypes((prev) =>
-                          e.target.checked
-                            ? Array.from(new Set([...prev, "SDD"]))
-                            : prev.filter((x) => x !== "SDD"),
-                        )
-                      }
-                    />{" "}
-                    SDD
-                  </label>
-                  <label>
-                    <input
-                      type="checkbox"
-                      checked={docTypes.includes("Test Plan")}
-                      onChange={(e) =>
-                        setDocTypes((prev) =>
-                          e.target.checked
-                            ? Array.from(new Set([...prev, "Test Plan"]))
-                            : prev.filter((x) => x !== "Test Plan"),
-                        )
-                      }
-                    />{" "}
-                    Test Plan
-                  </label>
-                </div>
-                <label
-                  style={{
-                    display: "inline-flex",
-                    gap: 8,
-                    alignItems: "center",
-                  }}
-                >
-                  <input
-                    type="checkbox"
-                    checked={includeBacklog}
-                    onChange={(e) => setIncludeBacklog(e.target.checked)}
-                  />{" "}
-                  Also generate Backlog (Epics → Stories with Gherkin)
-                </label>
-              </div>
-              <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
-                <button
-                  className="btn"
-                  onClick={onEnrich}
-                  disabled={enriching || !promptText.trim()}
-                >
-                  {enriching ? "Enriching…" : "Enrich"}
-                </button>
-                <button
-                  className="btn"
-                  onClick={onGenerateWithInputs}
-                  disabled={loading}
-                >
-                  {loading ? "Generating…" : "Generate with inputs"}
-                </button>
-                <button
-                  className="btn btn-primary"
-                  onClick={onAIGenerate}
-                  disabled={loading || !promptText.trim()}
-                >
-                  {loading ? "Generating…" : "Generate with AI"}
-                </button>
-                <button className="btn" onClick={onCheckLLM} disabled={loading}>
-                  Check LLM
-                </button>
-              </div>
-            </details>
-            {llmDiag && (
-              <div className="muted" style={{ marginTop: 4 }}>
-                Provider: {llmDiag.provider}, Model: {llmDiag.model}, Ready:{" "}
-                {String(llmDiag.ready)}
-              </div>
-            )}
-            {enriched && (
-              <div style={{ marginTop: 12 }}>
-                <div className="muted">Enriched preview</div>
-                <div style={{ display: "grid", gap: 6 }}>
-                  <div>
-                    <strong>Planning Summary</strong>
-                    <div style={{ whiteSpace: "pre-wrap" }}>
-                      {enriched.summaries?.Planning || ""}
-                    </div>
-                  </div>
-                  <div>
-                    <strong>Requirements</strong>
-                    <ul>
-                      {(enriched.answers?.Requirements || []).map((r, i) => (
-                        <li key={i}>{r}</li>
-                      ))}
-                    </ul>
-                  </div>
-                </div>
-              </div>
-            )}
           </div>
         </div>
         {/* Right: Docs preview + versions to be visible alongside chat */}
@@ -1545,17 +1083,6 @@ export default function ProjectDetailsPage() {
                 <button className="btn" onClick={onRegenerate} disabled={loading}>
                   {loading ? "Regenerating…" : "Regenerate"}
                 </button>
-                <label
-                  style={{ display: "inline-flex", gap: 6, alignItems: "center" }}
-                  title="Toggle traceability overlay when generating documents"
-                >
-                  <input
-                    type="checkbox"
-                    checked={overlayOn}
-                    onChange={(e) => setOverlayOn(e.target.checked)}
-                  />{" "}
-                  Traceability overlay
-                </label>
               </div>
               {project && (
                 <a className="btn" href={zipUrl(project.project_id)}>
@@ -1764,17 +1291,6 @@ export default function ProjectDetailsPage() {
             <button className="btn" onClick={onRegenerate} disabled={loading}>
               {loading ? "Regenerating…" : "Regenerate"}
             </button>
-            <label
-              style={{ display: "inline-flex", gap: 6, alignItems: "center" }}
-              title="Toggle traceability overlay when generating documents"
-            >
-              <input
-                type="checkbox"
-                checked={overlayOn}
-                onChange={(e) => setOverlayOn(e.target.checked)}
-              />{" "}
-              Traceability overlay
-            </label>
           </div>
           {project && (
             <a className="btn" href={zipUrl(project.project_id)}>
@@ -1828,6 +1344,16 @@ export default function ProjectDetailsPage() {
               Select an artifact to preview it here.
             </p>
           )}
+        </div>
+        <div className="doc-preview__actions-row">
+          <button
+            className="btn"
+            type="button"
+            onClick={() => setPreviewModalOpen(true)}
+            disabled={!selectedArtifact}
+          >
+            Expand
+          </button>
         </div>
         {selected && (
           <div className="doc-preview__footer">
@@ -2294,8 +1820,51 @@ export default function ProjectDetailsPage() {
           } catch {}
         }}
         scenarios={scenarioChips}
+        showForm={false}
       />
       <Tabs tabs={tabs} defaultTabId={defaultTabId} />
+      <Modal
+        open={previewModalOpen && !!selectedArtifact}
+        onClose={() => setPreviewModalOpen(false)}
+        title={selectedArtifact?.filename}
+        size="xl"
+        footer={
+          selected ? (
+            <div className="doc-preview__actions">
+              <button
+                className="btn btn-primary"
+                type="button"
+                onClick={handleApproveSelected}
+                disabled={
+                  approvalBusy || !selected || selectedApproval?.approved === true
+                }
+              >
+                {approvalBusy ? "Updating…" : "Approve"}
+              </button>
+              <button
+                className="btn"
+                type="button"
+                onClick={handleRejectSelected}
+                disabled={
+                  approvalBusy || !selected || selectedApproval?.approved === false
+                }
+              >
+                {approvalBusy ? "Updating…" : "Reject"}
+              </button>
+            </div>
+          ) : undefined
+        }
+      >
+        {selectedArtifact ? (
+          <div className="doc-preview doc-preview--modal">
+            <ReactMarkdown remarkPlugins={[remarkGfm]}>
+              {selectedArtifact.content}
+            </ReactMarkdown>
+          </div>
+        ) : (
+          <p className="doc-preview__placeholder">Select an artifact to preview.</p>
+        )}
+      </Modal>
     </div>
   );
 }

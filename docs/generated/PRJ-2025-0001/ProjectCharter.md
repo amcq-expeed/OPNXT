@@ -1,36 +1,51 @@
 # Project Charter
 
-**Project Name:** Bookstore POC Mimicking Amazon's Original Platform  
+**Project Name:** Online Bookstore Mimicking Amazon
+
 **Version:** 1.0  
 **Date:** 2023-10-05  
-**Author:** [Your Name]  
-**Approval:** [Approval Status]
+**Author:** AI SDLC Documentation Expert  
+**Approval:** Pending
 
-## Purpose  
-The purpose of this project is to develop a proof of concept (POC) for a bookstore platform that mimics the original features of Amazon, focusing on providing a user-friendly experience for book buyers.
+## Purpose
+To create an online bookstore that mimics the early 1990s Amazon model, focusing solely on book sales.
 
-## Scope  
-This project will encompass the design and development of a bookstore platform that includes essential functionalities such as user registration, guest checkout, browsing categories, reading reviews, and managing a shopping cart. The POC will not include advanced features beyond the core functionalities.
+## Objectives
+- Develop a comprehensive online platform for selling both physical and digital books.
+- Automate inventory management and ensure adherence to industry standards for order handling and returns.
+- Implement user-friendly features that replicate Amazon's functionalities, such as user accounts, reviews, and search capabilities.
 
-## Objectives  
-- To create a user-friendly platform that allows users to easily navigate and purchase books.  
-- To ensure the platform adheres to industry standards for performance and security.  
-- To validate the concept of an online bookstore inspired by Amazon's original platform.
+## Scope
+- The project will encompass the design, development, and deployment of an online bookstore.
+- It will include functionalities for individual consumers, authors, and publishers.
+- The system will support both physical and digital book sales.
 
-## Stakeholders  
-- Primary Stakeholder: [Your Name] (Sole Stakeholder)
+## Stakeholders
+- Individual consumers
+- Authors
+- Publishers
+- Development team (not specified yet)
 
-## Risks  
-- Limited budget and resources for development.  
-- Potential technical challenges in mimicking Amazon's functionalities.
+## Constraints
+- No known budgetary or technological constraints at this time.
+- The project must adhere to industry standards and best practices.
 
-## Success Criteria  
-- Successful implementation of core functionalities.  
-- Positive user feedback on usability and navigation.  
-- Adherence to performance standards (quick page loads).
+## Success Metrics
+- Successful launch of the online bookstore.
+- User engagement metrics (e.g., number of accounts created, books sold).
+- Customer satisfaction ratings based on user experience.
 
-## Assumptions  
-- The project will be developed as a proof of concept with limited scope.
+## Assumptions
+- The system will be developed using industry-standard technologies.
+- Users will have access to both physical and digital books.
 
-## Open Questions  
-- Are there any specific design elements from Amazon's platform that should be incorporated?
+## Open Questions
+- What specific payment methods should be supported?
+- Are there any specific marketing features to incorporate?
+- What customer support features are desired?
+
+---
+
+**Assumptions & Open Questions:**
+- The project will follow industry standards for performance and security.
+- Further clarification on payment methods and marketing features is needed.

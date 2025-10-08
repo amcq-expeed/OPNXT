@@ -1,59 +1,59 @@
-# Backlog for Bookstore Mimicking Amazon's Original Platform
+# Backlog for Online Bookstore Mimicking Amazon
 
 ## Epics
 ### Epic 1: User Account Management
 - **Feature 1.1:** User Registration
-- **Feature 1.2:** Guest Checkout
+- **Feature 1.2:** User Profile Management
 
-### Epic 2: Book Browsing and Search
-- **Feature 2.1:** Browse Categories
-- **Feature 2.2:** Read Reviews
+### Epic 2: Book Search and Discovery
+- **Feature 2.1:** Search Functionality
+- **Feature 2.2:** Book Recommendations
 
-### Epic 3: Shopping Cart Management
-- **Feature 3.1:** Manage Shopping Cart
-- **Feature 3.2:** Checkout Process
+### Epic 3: Inventory Management
+- **Feature 3.1:** Automated Inventory Tracking
+- **Feature 3.2:** Admin Inventory Updates
+
+### Epic 4: Order Management
+- **Feature 4.1:** Order Placement
+- **Feature 4.2:** Order Returns
+
+### Epic 5: User Reviews
+- **Feature 5.1:** Review Submission
+- **Feature 5.2:** Review Display
 
 ## User Stories
 ### User Story 1: User Registration
-- **As a** user, **I want** to create an account **so that** I can manage my purchases.
+- **As a** User, **I want** to create an account **so that** I can manage my purchases.
 - **Acceptance Criteria:**
-  - Given I am on the registration page, when I fill in my details and submit, then my account should be created successfully.
+  - Given I am on the registration page, when I fill in my details and submit, then my account should be created.
   - Given I have an existing account, when I try to register again, then I should see an error message.
   - Given I am on the registration page, when I leave required fields empty, then I should see validation messages.
-  - Given I have created an account, when I log in, then I should be redirected to my account dashboard.
+  - Given I am a new user, when I register successfully, then I should receive a confirmation email.
 
-### User Story 2: Guest Checkout
-- **As a** user, **I want** to purchase books without creating an account **so that** I can complete my purchase quickly.
+### User Story 2: Book Search
+- **As a** User, **I want** to search for books **so that** I can find what I want to buy.
 - **Acceptance Criteria:**
-  - Given I have added books to my cart, when I choose guest checkout, then I should be able to proceed without creating an account.
-  - Given I am on the guest checkout page, when I fill in my details and submit, then my order should be processed successfully.
-  - Given I am a guest user, when I try to access my order history, then I should see a message indicating that I need an account.
-  - Given I have completed a guest checkout, when I return to the site, then I should not have an account created automatically.
+  - Given I am on the homepage, when I enter a book title in the search bar, then I should see relevant results.
+  - Given I am on the search results page, when I apply filters, then the results should update accordingly.
+  - Given I am on the search results page, when I click on a book, then I should see the book details.
+  - Given I am on the search results page, when I search for a non-existent book, then I should see a 'no results found' message.
 
-### User Story 3: Browse Categories
-- **As a** user, **I want** to browse categories of books **so that** I can find books of interest easily.
+### User Story 3: Order Placement
+- **As a** User, **I want** to place an order for a book **so that** I can purchase it.
 - **Acceptance Criteria:**
-  - Given I am on the homepage, when I click on a category, then I should see a list of books in that category.
-  - Given I am viewing a category, when I filter by author, then I should see only books by that author.
-  - Given I am on the category page, when I sort by price, then I should see the books sorted accordingly.
-  - Given I am browsing, when I click on a book, then I should be taken to the book details page.
+  - Given I have selected a book, when I click 'Add to Cart', then the book should be added to my cart.
+  - Given I have items in my cart, when I proceed to checkout, then I should be able to enter my payment details.
+  - Given I have completed my order, when I check my email, then I should receive an order confirmation.
+  - Given I am on the checkout page, when I enter invalid payment information, then I should see an error message.
 
-### User Story 4: Read Reviews
-- **As a** user, **I want** to read reviews of books **so that** I can make informed purchasing decisions.
+### User Story 4: Review Submission
+- **As a** User, **I want** to submit a review for a book **so that** I can share my opinion.
 - **Acceptance Criteria:**
-  - Given I am on a book details page, when I scroll down, then I should see a list of reviews for that book.
-  - Given I am viewing reviews, when I click on a review, then I should see the full review details.
-  - Given I am on the book details page, when there are no reviews, then I should see a message indicating that there are no reviews yet.
-  - Given I am a logged-in user, when I submit a review, then it should be added to the list of reviews for that book.
+  - Given I have purchased a book, when I navigate to the book page, then I should see an option to leave a review.
+  - Given I am submitting a review, when I leave the review field empty, then I should see a validation message.
+  - Given I have submitted a review, when I refresh the page, then my review should be displayed.
+  - Given I am a user, when I try to submit a review for a book I haven't purchased, then I should see an error message.
 
-### User Story 5: Manage Shopping Cart
-- **As a** user, **I want** to manage my shopping cart **so that** I can add or remove books before checkout.
-- **Acceptance Criteria:**
-  - Given I have added books to my cart, when I view my cart, then I should see all the selected books.
-  - Given I am viewing my cart, when I remove a book, then it should no longer appear in my cart.
-  - Given I am viewing my cart, when I change the quantity of a book, then the total price should update accordingly.
-  - Given I am ready to checkout, when I click on the checkout button, then I should be taken to the checkout page.
-
-## Definitions
-- **Definition of Ready (DoR):** User stories must have clear acceptance criteria and be estimated.
-- **Definition of Done (DoD):** User stories are considered done when they meet acceptance criteria, are tested, and are deployed to production.
+## Definitions of Ready and Done
+- **Definition of Ready:** User stories must have clear acceptance criteria, be estimated, and have no blockers.
+- **Definition of Done:** User stories are implemented, tested, and accepted by the product owner.

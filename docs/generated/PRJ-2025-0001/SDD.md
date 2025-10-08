@@ -1,43 +1,39 @@
-# System Design Document (SDD)
+# Software Design Document (SDD)
 
-**Project Name:** Bookstore POC Mimicking Amazon's Original Platform  
+**Project Name:** Online Bookstore Mimicking Amazon  
 **Version:** 1.0  
 **Date:** 2023-10-05  
-**Author:** [Your Name]  
-**Approval:** [Approval Status]
+**Author:** AI SDLC Documentation Expert  
+**Approval:** Pending
 
-## 1. Architecture Overview  
-The architecture of the bookstore platform will follow a client-server model, where the client interacts with the server to perform operations related to book browsing and purchasing.
+## 1. Architecture Overview
+The system will follow a microservices architecture to ensure scalability and maintainability.
 
-## 2. Modules/Components  
-- **User Management Module:** Handles user registration, authentication, and account management.  
-- **Book Catalog Module:** Manages the browsing and searching of books.  
-- **Shopping Cart Module:** Manages the addition and removal of books in the shopping cart.  
-- **Checkout Module:** Handles the purchase process, including guest checkout.
+## 2. Modules/Components
+- **User Management Module:** Handles user accounts and authentication.
+- **Inventory Management Module:** Manages stock levels and order processing.
+- **Search Module:** Provides search functionalities with filters and recommendations.
+- **Review Module:** Allows users to submit and view reviews.
 
-## 3. Sequence/Flow  
-1. User registers or logs in.  
-2. User browses books by category.  
-3. User reads reviews and adds books to the shopping cart.  
-4. User proceeds to checkout and completes the purchase.
+## 3. Data Model
+- **User Table:** Stores user information.
+- **Book Table:** Stores book details (title, author, price, etc.).
+- **Order Table:** Stores order details (user ID, book ID, status).
 
-## 4. Integrations/APIs  
-- Payment processing API for handling transactions.
+## 4. Integration Points
+- Payment Gateway for processing transactions.
+- Email Service for sending order confirmations and newsletters.
 
-## 5. Data Model  
-- **User Table:** Stores user information.  
-- **Book Table:** Stores book details and reviews.  
-- **Cart Table:** Stores items added to the shopping cart.
+## 5. Error Handling
+The system will log errors and provide user-friendly messages for common issues.
 
-## 6. Error Handling  
-- The system will provide user-friendly error messages for common issues (e.g., login failures, payment errors).
+## 6. Security
+The system will implement SSL for secure data transmission and follow best practices for data protection.
 
-## 7. Security  
-- User data will be protected through encryption and secure payment processing methods.
+## 7. Deployment
+The system will be deployed on a cloud platform to ensure scalability.
 
-## 8. Deployment  
-- The platform will be deployed on a cloud service provider for scalability and reliability.
+---
 
-## Assumptions & Open Questions  
-- The platform will be developed as a proof of concept with limited scope.  
-- Are there any specific design elements from Amazon's platform that should be incorporated?
+**Assumptions & Open Questions:**
+- Further clarification on specific technologies and platforms is needed.

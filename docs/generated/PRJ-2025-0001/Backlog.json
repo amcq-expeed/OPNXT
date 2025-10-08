@@ -1,57 +1,107 @@
 [
   {
     "Epic": "User Account Management",
-    "Feature": "User Registration",
-    "UserStory": "User Registration",
-    "AcceptanceCriteria": [
-      "Given I am on the registration page, when I fill in my details and submit, then my account should be created successfully.",
-      "Given I have an existing account, when I try to register again, then I should see an error message.",
-      "Given I am on the registration page, when I leave required fields empty, then I should see validation messages.",
-      "Given I have created an account, when I log in, then I should be redirected to my account dashboard."
+    "Features": [
+      {
+        "Feature": "User Registration",
+        "User Stories": [
+          {
+            "User Story": "User Story 1: User Registration",
+            "Acceptance Criteria": [
+              "Given I am on the registration page, when I fill in my details and submit, then my account should be created.",
+              "Given I have an existing account, when I try to register again, then I should see an error message.",
+              "Given I am on the registration page, when I leave required fields empty, then I should see validation messages.",
+              "Given I am a new user, when I register successfully, then I should receive a confirmation email."
+            ]
+          }
+        ]
+      },
+      {
+        "Feature": "User Profile Management",
+        "User Stories": []
+      }
     ]
   },
   {
-    "Epic": "User Account Management",
-    "Feature": "Guest Checkout",
-    "UserStory": "Guest Checkout",
-    "AcceptanceCriteria": [
-      "Given I have added books to my cart, when I choose guest checkout, then I should be able to proceed without creating an account.",
-      "Given I am on the guest checkout page, when I fill in my details and submit, then my order should be processed successfully.",
-      "Given I am a guest user, when I try to access my order history, then I should see a message indicating that I need an account.",
-      "Given I have completed a guest checkout, when I return to the site, then I should not have an account created automatically."
+    "Epic": "Book Search and Discovery",
+    "Features": [
+      {
+        "Feature": "Search Functionality",
+        "User Stories": [
+          {
+            "User Story": "User Story 2: Book Search",
+            "Acceptance Criteria": [
+              "Given I am on the homepage, when I enter a book title in the search bar, then I should see relevant results.",
+              "Given I am on the search results page, when I apply filters, then the results should update accordingly.",
+              "Given I am on the search results page, when I click on a book, then I should see the book details.",
+              "Given I am on the search results page, when I search for a non-existent book, then I should see a 'no results found' message."
+            ]
+          }
+        ]
+      },
+      {
+        "Feature": "Book Recommendations",
+        "User Stories": []
+      }
     ]
   },
   {
-    "Epic": "Book Browsing and Search",
-    "Feature": "Browse Categories",
-    "UserStory": "Browse Categories",
-    "AcceptanceCriteria": [
-      "Given I am on the homepage, when I click on a category, then I should see a list of books in that category.",
-      "Given I am viewing a category, when I filter by author, then I should see only books by that author.",
-      "Given I am on the category page, when I sort by price, then I should see the books sorted accordingly.",
-      "Given I am browsing, when I click on a book, then I should be taken to the book details page."
+    "Epic": "Inventory Management",
+    "Features": [
+      {
+        "Feature": "Automated Inventory Tracking",
+        "User Stories": []
+      },
+      {
+        "Feature": "Admin Inventory Updates",
+        "User Stories": []
+      }
     ]
   },
   {
-    "Epic": "Book Browsing and Search",
-    "Feature": "Read Reviews",
-    "UserStory": "Read Reviews",
-    "AcceptanceCriteria": [
-      "Given I am on a book details page, when I scroll down, then I should see a list of reviews for that book.",
-      "Given I am viewing reviews, when I click on a review, then I should see the full review details.",
-      "Given I am on the book details page, when there are no reviews, then I should see a message indicating that there are no reviews yet.",
-      "Given I am a logged-in user, when I submit a review, then it should be added to the list of reviews for that book."
+    "Epic": "Order Management",
+    "Features": [
+      {
+        "Feature": "Order Placement",
+        "User Stories": [
+          {
+            "User Story": "User Story 3: Order Placement",
+            "Acceptance Criteria": [
+              "Given I have selected a book, when I click 'Add to Cart', then the book should be added to my cart.",
+              "Given I have items in my cart, when I proceed to checkout, then I should be able to enter my payment details.",
+              "Given I have completed my order, when I check my email, then I should receive an order confirmation.",
+              "Given I am on the checkout page, when I enter invalid payment information, then I should see an error message."
+            ]
+          }
+        ]
+      },
+      {
+        "Feature": "Order Returns",
+        "User Stories": []
+      }
     ]
   },
   {
-    "Epic": "Shopping Cart Management",
-    "Feature": "Manage Shopping Cart",
-    "UserStory": "Manage Shopping Cart",
-    "AcceptanceCriteria": [
-      "Given I have added books to my cart, when I view my cart, then I should see all the selected books.",
-      "Given I am viewing my cart, when I remove a book, then it should no longer appear in my cart.",
-      "Given I am viewing my cart, when I change the quantity of a book, then the total price should update accordingly.",
-      "Given I am ready to checkout, when I click on the checkout button, then I should be taken to the checkout page."
+    "Epic": "User Reviews",
+    "Features": [
+      {
+        "Feature": "Review Submission",
+        "User Stories": [
+          {
+            "User Story": "User Story 4: Review Submission",
+            "Acceptance Criteria": [
+              "Given I have purchased a book, when I navigate to the book page, then I should see an option to leave a review.",
+              "Given I am submitting a review, when I leave the review field empty, then I should see a validation message.",
+              "Given I have submitted a review, when I refresh the page, then my review should be displayed.",
+              "Given I am a user, when I try to submit a review for a book I haven't purchased, then I should see an error message."
+            ]
+          }
+        ]
+      },
+      {
+        "Feature": "Review Display",
+        "User Stories": []
+      }
     ]
   }
 ]

@@ -1,51 +1,50 @@
 # Test Plan
 
-**Project Name:** Bookstore POC Mimicking Amazon's Original Platform  
+**Project Name:** Online Bookstore Mimicking Amazon  
 **Version:** 1.0  
 **Date:** 2023-10-05  
-**Author:** [Your Name]  
-**Approval:** [Approval Status]
+**Author:** AI SDLC Documentation Expert  
+**Approval:** Pending
 
-## 1. Test Objectives  
-To validate the functionalities of the bookstore platform and ensure it meets the specified requirements.
+## 1. Test Objectives
+To validate that the online bookstore meets all functional and non-functional requirements as specified in the SRS.
 
-## 2. In/Out of Scope  
-### In Scope  
-- Functional testing of user registration, guest checkout, browsing, and shopping cart management.  
-### Out of Scope  
-- Performance testing beyond basic load times.
+## 2. In/Out of Scope
+- **In Scope:** Functional testing, performance testing, security testing.
+- **Out of Scope:** Usability testing.
 
-## 3. Test Types  
-- Unit Testing  
-- Integration Testing  
-- End-to-End Testing  
-- Security Testing
+## 3. Test Types
+- **Unit Testing:** Validate individual components.
+- **Integration Testing:** Ensure modules work together.
+- **End-to-End Testing:** Validate the complete user journey.
+- **Performance Testing:** Assess load times and user capacity.
+- **Security Testing:** Validate data protection measures.
 
-## 4. Environments  
-- Development Environment  
-- Staging Environment  
-- Production Environment
+## 4. Entry/Exit Criteria
+- **Entry Criteria:** All components must be developed and integrated.
+- **Exit Criteria:** All test cases must pass with acceptable performance metrics.
 
-## 5. Roles  
-- Test Manager: [Your Name]  
-- Testers: [Your Name] (Sole Tester)
+## 5. Environments
+- Development Environment for initial testing.
+- Staging Environment for pre-production testing.
+- Production Environment for live testing.
 
-## 6. Schedule  
-- Testing will commence after the completion of the development phase.
+## 6. Roles
+- Test Manager: Oversees testing activities.
+- Test Engineers: Execute test cases and report defects.
 
-## 7. Metrics  
-- Number of test cases executed  
-- Number of defects found
+## 7. Schedule
+Testing will commence after development completion and will last for 4 weeks.
 
-## 8. Risks  
-- Limited resources may affect testing coverage.
+## 8. Metrics
+- Number of test cases executed.
+- Number of defects found.
+- Performance metrics (load times, user capacity).
 
-## 9. Entry/Exit Criteria  
-### Entry Criteria  
-- All features must be developed and ready for testing.  
-### Exit Criteria  
-- All critical defects must be resolved before deployment.
+## 9. Risks
+- Potential delays in development may impact testing timelines.
 
-## Assumptions & Open Questions  
-- The platform will be developed as a proof of concept with limited scope.  
-- Are there any specific design elements from Amazon's platform that should be incorporated?
+---
+
+**Assumptions & Open Questions:**
+- Further clarification on specific testing tools and frameworks is needed.

@@ -38,6 +38,7 @@ export default function ProjectsPage() {
   const [generatingId, setGeneratingId] = useState<string | null>(null);
   const [docMap, setDocMap] = useState<Record<string, DocGenResponse>>({});
   const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [showAdvancedCreate, setShowAdvancedCreate] = useState<boolean>(false);
 
   // Quick Start (chat-first) input + scenario chips
   const [quickText, setQuickText] = useState<string>("");
@@ -118,6 +119,10 @@ export default function ProjectsPage() {
     try {
       setCreating(true);
       const proj = await createProject(payload);
+      setItems((prev) => [
+        proj,
+        ...prev.filter((p) => p.project_id !== proj.project_id),
+      ]);
       setName("");
       setDescription("");
       setFeatures("");
@@ -150,6 +155,10 @@ export default function ProjectsPage() {
         features: "",
       } as ProjectCreate;
       const proj = await createProject(payload);
+      setItems((prev) => [
+        proj,
+        ...prev.filter((p) => p.project_id !== proj.project_id),
+      ]);
       const prefill = encodeURIComponent(
         `I want to build: ${text}. Please help capture clear, testable requirements (FR and NFR), then generate a Charter, SRS, SDD, and Test Plan.`,
       );
@@ -175,6 +184,10 @@ export default function ProjectsPage() {
         features: "",
       } as ProjectCreate;
       const proj = await createProject(payload);
+      setItems((prev) => [
+        proj,
+        ...prev.filter((p) => p.project_id !== proj.project_id),
+      ]);
       const prefill = encodeURIComponent(
         `Let's build a ${scenario}. Start by asking me clarifying questions and propose SHALL-style requirements. Then generate the core documents.`,
       );
@@ -297,41 +310,6 @@ export default function ProjectsPage() {
           </span>
         </label>
 
-        {canWrite(currentUser) ? (
-          <form onSubmit={onCreate} className="card projects-create">
-            <input
-              className="input"
-              placeholder="Name"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              required
-            />
-            <textarea
-              className="textarea"
-              placeholder="Description"
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              required
-            />
-            <textarea
-              className="textarea"
-              placeholder="Features (one per line)"
-              value={features}
-              onChange={(e) => setFeatures(e.target.value)}
-              rows={4}
-            />
-            <button
-              className="btn btn-primary"
-              type="submit"
-              disabled={creating}
-            >
-              {creating ? "Creating…" : "Create"}
-            </button>
-          </form>
-        ) : (
-          <p className="muted">You have read-only access.</p>
-        )}
-
         {loading && <div className="badge">Loading…</div>}
         {error && <p className="error">{error}</p>}
         {notice && <p className="notice">{notice}</p>}
@@ -426,7 +404,7 @@ export default function ProjectsPage() {
           return (
             <div
               key={`${p.project_id}-docs`}
-              className="card"
+              className="card projects-docs"
               style={{ marginTop: 16 }}
             >
               <strong>
@@ -458,9 +436,72 @@ export default function ProjectsPage() {
             </div>
           );
         })}
+
+        {canWrite(currentUser) ? (
+          <div className="projects-create-wrapper">
+            <div className="projects-create__toggle">
+              <button
+                type="button"
+                className="btn"
+                onClick={() => setShowAdvancedCreate((prev) => !prev)}
+              >
+                {showAdvancedCreate ? "Hide advanced create" : "Manual project entry"}
+              </button>
+            </div>
+            {showAdvancedCreate && (
+              <form onSubmit={onCreate} className="card projects-create">
+                <p className="muted" style={{ marginTop: 0 }}>
+                  Prefer the chat-first quick start above. Use this manual form only when you need to pre-seed description or feature bullets.
+                </p>
+                <input
+                  className="input"
+                  placeholder="Name"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  required
+                />
+                <textarea
+                  className="textarea"
+                  placeholder="Description"
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                  required
+                />
+                <textarea
+                  className="textarea"
+                  placeholder="Features (one per line)"
+                  value={features}
+                  onChange={(e) => setFeatures(e.target.value)}
+                  rows={4}
+                />
+                <div className="projects-create__actions">
+                  <button
+                    className="btn"
+                    type="button"
+                    onClick={() => {
+                      setShowAdvancedCreate(false);
+                      setName("");
+                      setDescription("");
+                      setFeatures("");
+                    }}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    className="btn btn-primary"
+                    type="submit"
+                    disabled={creating}
+                  >
+                    {creating ? "Creating…" : "Create"}
+                  </button>
+                </div>
+              </form>
+            )}
+          </div>
+        ) : (
+          <p className="muted">You have read-only access.</p>
+        )}
       </section>
     </div>
   );
 }
-
-// Ensure module is properly closed
