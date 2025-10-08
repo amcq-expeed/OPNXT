@@ -1,6 +1,13 @@
 import { NextResponse, NextRequest } from "next/server";
 
+const PUBLIC_MODE =
+  process.env.NEXT_PUBLIC_PUBLIC_MODE === "1" ||
+  process.env.NEXT_PUBLIC_PUBLIC_MODE === "true";
+
 export function middleware(req: NextRequest) {
+  if (!PUBLIC_MODE) {
+    return NextResponse.next();
+  }
   const url = req.nextUrl;
   const p = url.pathname;
 
