@@ -114,6 +114,12 @@ export function setAccessToken(token: string | null) {
 }
 
 export function getAccessToken() {
+  if (!accessToken && typeof window !== "undefined") {
+    try {
+      const stored = window.localStorage.getItem("opnxt_token");
+      if (stored) accessToken = stored;
+    } catch {}
+  }
   return accessToken;
 }
 
@@ -139,8 +145,9 @@ async function apiFetch(
 ): Promise<Response> {
   const headers: Record<string, string> = { ...(init.headers as any) };
   const omitAuth = PUBLIC_MODE || isMvpRoute();
-  if (!omitAuth && accessToken) {
-    headers["Authorization"] = `Bearer ${accessToken}`;
+  const token = getAccessToken();
+  if (!omitAuth && token) {
+    headers["Authorization"] = `Bearer ${token}`;
   } else if (omitAuth && MVP_SERVICE_TOKEN) {
     headers["Authorization"] = `Bearer ${MVP_SERVICE_TOKEN}`;
   }
