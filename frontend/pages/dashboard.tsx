@@ -14,7 +14,17 @@ import {
   ProjectCreate,
 } from "../lib/api";
 import NextAction from "../components/ui/NextAction";
+import KpiCard from "../components/ui/KpiCard";
 import logoFull from "../public/logo-full.svg";
+
+const PHASE_LABELS = [
+  "Charter",
+  "Specifications",
+  "Design",
+  "Implementation",
+  "Testing",
+  "Deployment",
+];
 
 export default function DashboardPage() {
   const router = useRouter();
@@ -28,6 +38,7 @@ export default function DashboardPage() {
   const [assistantIdea, setAssistantIdea] = useState("");
   const [assistantLoading, setAssistantLoading] = useState(false);
   const [assistantError, setAssistantError] = useState<string | null>(null);
+  const [phaseFilter, setPhaseFilter] = useState<string>("All");
 
   useEffect(() => {
     (async () => {
@@ -92,14 +103,94 @@ export default function DashboardPage() {
   const sddApproved = !!approvals?.["SDD.md"]?.approved;
   const testApproved = !!approvals?.["TestPlan.md"]?.approved;
 
-  const phaseLabels = [
-    "Charter",
-    "Specifications",
-    "Design",
-    "Implementation",
-    "Testing",
-    "Deployment",
-  ];
+  const normalizedPhase = (phase: string | undefined, status: string | undefined) => {
+    const value = (phase || status || "").toLowerCase();
+    const match = PHASE_LABELS.find((label) => value.includes(label.toLowerCase()));
+    return match ?? PHASE_LABELS[0];
+  };
+
+  const phaseCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    PHASE_LABELS.forEach((label) => counts.set(label, 0));
+    projects.forEach((project) => {
+      const phase = normalizedPhase(project.current_phase, project.status);
+      counts.set(phase, (counts.get(phase) ?? 0) + 1);
+    });
+    return counts;
+  }, [projects]);
+
+  const engagedPhaseCount = useMemo(
+    () => Array.from(phaseCounts.values()).filter((count) => count > 0).length,
+    [phaseCounts],
+  );
+
+  const dominantPhase = useMemo(() => {
+    let maxPhase = PHASE_LABELS[0];
+    let max = -1;
+    PHASE_LABELS.forEach((label) => {
+      const value = phaseCounts.get(label) ?? 0;
+      if (value > max) {
+        max = value;
+        maxPhase = label;
+      }
+    });
+    return maxPhase;
+  }, [phaseCounts]);
+
+  const dominantPhaseCount = useMemo(
+    () => phaseCounts.get(dominantPhase) ?? 0,
+    [phaseCounts, dominantPhase],
+  );
+
+  const testingReadyCount = useMemo(
+    () =>
+      projects.filter((project) => {
+        const phase = normalizedPhase(project.current_phase, project.status);
+        return phase === "Testing" || phase === "Deployment";
+      }).length,
+    [projects],
+  );
+
+  const engagedPhasePercent = useMemo(() => {
+    if (!projects.length) return 0;
+    return Math.round((engagedPhaseCount / PHASE_LABELS.length) * 100);
+  }, [projects.length, engagedPhaseCount]);
+
+  const phaseFilters = useMemo(() => ["All", ...PHASE_LABELS], []);
+
+  const filteredProjects = useMemo(() => {
+    if (phaseFilter === "All") return projects;
+    return projects.filter((project) =>
+      normalizedPhase(project.current_phase, project.status) === phaseFilter,
+    );
+  }, [projects, phaseFilter]);
+
+  const latestUpdatedProject = useMemo(() => {
+    if (!projects.length) return null;
+    return [...projects].sort((a, b) => {
+      const dateA = new Date(a.updated_at || a.created_at || 0).getTime();
+      const dateB = new Date(b.updated_at || b.created_at || 0).getTime();
+      return dateB - dateA;
+    })[0];
+  }, [projects]);
+
+  const latestUpdateLabel = useMemo(() => {
+    if (!latestUpdatedProject) return "—";
+    const stamp = latestUpdatedProject.updated_at || latestUpdatedProject.created_at;
+    if (!stamp) return latestUpdatedProject.name;
+    try {
+      return new Intl.DateTimeFormat(undefined, {
+        month: "short",
+        day: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      }).format(new Date(stamp));
+    } catch {
+      return latestUpdatedProject.name;
+    }
+  }, [latestUpdatedProject]);
+
+  const hasProjects = projects.length > 0;
 
   const currentIndex = useMemo(() => {
     let idx = 0; // Charter (default)
@@ -108,15 +199,25 @@ export default function DashboardPage() {
     if (srsApproved) idx = 3;
     if (sddApproved) idx = 4;
     if (testApproved) idx = 5;
-    return Math.min(idx, phaseLabels.length - 1);
+    return Math.min(idx, PHASE_LABELS.length - 1);
   }, [charterApproved, reqCount, srsApproved, sddApproved, testApproved]);
 
-  const currentPhaseLabel = phaseLabels[currentIndex] ?? phaseLabels[0];
+  const currentPhaseLabel = PHASE_LABELS[currentIndex] ?? PHASE_LABELS[0];
 
   const selectedProject = useMemo(
     () => projects.find((p) => p.project_id === selected) || null,
     [projects, selected],
   );
+
+  useEffect(() => {
+    if (!filteredProjects.length) {
+      setSelected(null);
+      return;
+    }
+    if (!selected || !filteredProjects.some((project) => project.project_id === selected)) {
+      setSelected(filteredProjects[0].project_id);
+    }
+  }, [filteredProjects, selected]);
 
   const assistantScenarios = useMemo(
     () => [
@@ -132,6 +233,8 @@ export default function DashboardPage() {
   );
 
   const handleOpenProjects = () => router.push("/projects");
+  const handleOpenProject = (projectId: string) =>
+    router.push(`/projects/${encodeURIComponent(projectId)}`);
   const handleOpenProjectTab = (tab: string) => {
     if (!selected) {
       handleOpenProjects();
@@ -203,7 +306,7 @@ export default function DashboardPage() {
           "Launch your first initiative to unlock delivery governance and AI documents.",
         primary: {
           label: "Create a project",
-          onClick: handleOpenProjects,
+          onClick: openAssistant,
           variant: "primary" as const,
         },
       };
@@ -324,216 +427,248 @@ export default function DashboardPage() {
 
   return (
     <div className="dashboard-shell" aria-live="polite">
-      <div className="dashboard-landing">
-        <header className="dashboard-landing__top">
-          <div
-            className="dashboard-landing__brand"
-            aria-label="OPNXT portfolio pulse"
-          >
-            <Image
-              src={logoFull}
-              alt="OPNXT"
-              priority
-              className="dashboard-landing__logo"
-            />
-            <span>Concept → Delivery mission control</span>
+      <header className="dashboard-header">
+        <div
+          className="dashboard-header__brand"
+          aria-label="OPNXT portfolio pulse"
+        >
+          <Image src={logoFull} alt="OPNXT" priority className="dashboard-header__logo" />
+          <div className="dashboard-header__text">
+            <span className="badge">Portfolio pulse</span>
+            <h1>Concept → Delivery mission control</h1>
+            <p>
+              AI keeps requirements, approvals, and delivery telemetry synchronized so nothing falls
+              through.
+            </p>
           </div>
-          <div className="dashboard-landing__links">
-            <Link href="/projects" className="btn btn-secondary">
-              Create project
-            </Link>
-            <button type="button" className="btn" onClick={openAssistant}>
-              Open MVP assistant
-            </button>
-          </div>
-        </header>
-        <div className="dashboard-landing__grid">
-          <section className="dashboard-pulse" aria-labelledby="portfolio-pulse">
-            <header className="dashboard-pulse__header">
-              <span className="badge">Portfolio pulse</span>
-              <h1 id="portfolio-pulse">Track readiness from concept to launch</h1>
-              <p>
-                AI keeps requirements, approvals, and delivery telemetry synchronized so
-                nothing falls through.
-              </p>
-            </header>
-            <div className="dashboard-pulse__stats" role="list">
-              {[
-                {
-                  title: "Active initiatives",
-                  value: projects.length
-                    ? projects.length.toString().padStart(2, "0")
-                    : "—",
-                },
-                {
-                  title: "Requirements captured",
-                  value: reqCount ? reqCount.toString().padStart(2, "0") : "—",
-                },
-                {
-                  title: "Current phase gate",
-                  value: currentPhaseLabel,
-                },
-              ].map((stat) => (
-                <article key={stat.title} className="dashboard-pulse__stat" role="listitem">
-                  <span>{stat.title}</span>
-                  <strong>{stat.value}</strong>
-                </article>
-              ))}
-            </div>
-          </section>
-
-          <aside className="assistant-callout" aria-labelledby="assistant-callout-title">
-            <header>
-              <h2 id="assistant-callout-title">MVP assistant</h2>
-              <p>
-                Launch a quick session to capture discovery details and generate documentation
-                without leaving the dashboard.
-              </p>
-            </header>
-            <div className="assistant-callout__actions">
-              <button
-                type="button"
-                className="btn btn-primary"
-                onClick={openAssistant}
-              >
-                Start new session
-              </button>
-              <button
-                type="button"
-                className="btn btn-secondary"
-                onClick={handleOpenProjects}
-              >
-                View projects
-              </button>
-            </div>
-            <div className="assistant-callout__scenarios" aria-label="Popular assistant prompts">
-              {assistantScenarios.map((scenario) => (
-                <button
-                  key={scenario.label}
-                  type="button"
-                  onClick={() => launchAssistant(scenario.value)}
-                  className="assistant-callout__chip"
-                  disabled={assistantLoading}
-                >
-                  {assistantLoading ? "Starting…" : scenario.label}
-                </button>
-              ))}
-            </div>
-            {assistantError && !assistantOpen && (
-              <p className="assistant-callout__error" role="alert">
-                {assistantError}
-              </p>
-            )}
-          </aside>
         </div>
-      </div>
+        <div className="dashboard-header__actions">
+          <button type="button" className="btn btn-primary" onClick={openAssistant}>
+            Start new initiative
+          </button>
+          <Link href="/projects" className="btn btn-secondary">
+            View portfolio
+          </Link>
+        </div>
+      </header>
 
-      <section className="dashboard-panels" aria-label="Delivery insights">
-        <div className="panel panel--wide">
-          <header>
-            <div>
-              <h2>Next best action</h2>
-              <p>AI guidance on what to move forward next.</p>
-            </div>
-            <button
-              className="btn btn-tertiary"
-              type="button"
-              onClick={() => router.push("/projects")}
-            >
-              View portfolio
-            </button>
-          </header>
-          <div className="panel__body">
+      <section className="dashboard-ribbon" aria-label="Portfolio metrics">
+        <KpiCard
+          title="Active initiatives"
+          value={hasProjects ? projects.length.toString().padStart(2, "0") : "—"}
+          description="Currently tracked projects"
+          trendLabel={hasProjects ? "Live" : undefined}
+          trendDirection={hasProjects ? "up" : "down"}
+          onClick={hasProjects ? handleOpenProjects : undefined}
+        />
+        <KpiCard
+          title="Phases engaged"
+          value={engagedPhaseCount ? engagedPhaseCount.toString().padStart(2, "0") : "—"}
+          description="Phase gates with active work"
+          trendLabel={hasProjects ? `${engagedPhasePercent}% coverage` : undefined}
+          trendDirection={engagedPhaseCount ? (engagedPhaseCount >= 3 ? "up" : "flat") : "down"}
+        />
+        <KpiCard
+          title="Dominant phase"
+          value={hasProjects ? dominantPhase : "—"}
+          description={hasProjects ? `${dominantPhaseCount} initiatives` : "No active phases yet"}
+          trendLabel={hasProjects ? "Focus" : undefined}
+          trendDirection="flat"
+          onClick={hasProjects ? () => setPhaseFilter(dominantPhase) : undefined}
+        />
+        <KpiCard
+          title="Testing runway"
+          value={testingReadyCount ? testingReadyCount.toString().padStart(2, "0") : "—"}
+          description="Ready for validation"
+          trendLabel={testingReadyCount ? "Ready" : undefined}
+          trendDirection={testingReadyCount ? "up" : "flat"}
+          onClick={testingReadyCount ? () => setPhaseFilter("Testing") : undefined}
+        />
+        <KpiCard
+          title="Latest sync"
+          value={hasProjects ? latestUpdateLabel : "Awaiting kickoff"}
+          description={
+            latestUpdatedProject
+              ? latestUpdatedProject.name
+              : "Launch your first initiative to start telemetry."
+          }
+          trendLabel={latestUpdatedProject ? "Open" : undefined}
+          trendDirection={latestUpdatedProject ? "up" : "flat"}
+          onClick={
+            latestUpdatedProject
+              ? () => handleOpenProject(latestUpdatedProject.project_id)
+              : openAssistant
+          }
+        />
+      </section>
+
+      <section className="dashboard-layout" aria-label="Delivery insights">
+        <div className="dashboard-layout__main">
+          <article className="dashboard-card dashboard-card--band">
             <NextAction
+              className="next-action--fluid"
               message={nextActionConfig.message}
               primary={nextActionConfig.primary}
               secondary={nextActionConfig.secondary}
             />
-          </div>
-        </div>
+          </article>
 
-        <div className="panel">
-          <header>
-            <h2>Projects</h2>
-            <p>Select an initiative to review context.</p>
-          </header>
-          <div className="panel__body">
-            <ul className="panel-list">
-              {projects.map((p) => (
-                <li key={p.project_id}>
-                  <button
-                    type="button"
-                    onClick={() => setSelected(p.project_id)}
+          <article className="dashboard-card">
+            <header className="dashboard-card__header">
+              <div>
+                <h2>Initiatives</h2>
+                <p>Browse active delivery workstreams by phase.</p>
+              </div>
+              <label className="dashboard-select">
+                <span className="sr-only">Filter by phase</span>
+                <select value={phaseFilter} onChange={(event) => setPhaseFilter(event.target.value)}>
+                  {phaseFilters.map((phase) => (
+                    <option key={phase} value={phase}>
+                      {phase}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </header>
+            <div className="dashboard-card__body">
+              {filteredProjects.length ? (
+                <ul className="initiative-list">
+                  {filteredProjects.map((project) => {
+                    const phase = normalizedPhase(project.current_phase, project.status);
+                    const timestamp = project.updated_at || project.created_at;
+                    const detail = timestamp
+                      ? new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" }).format(
+                          new Date(timestamp),
+                        )
+                      : "New";
+                    return (
+                      <li key={project.project_id}>
+                        <button
+                          type="button"
+                          onClick={() => handleOpenProject(project.project_id)}
+                          className="initiative-list__item"
+                        >
+                          <div className="initiative-list__meta">
+                            <span className="initiative-list__phase">{phase}</span>
+                            <span className="initiative-list__updated">{detail}</span>
+                          </div>
+                          <div className="initiative-list__content">
+                            <strong>{project.name}</strong>
+                            <span>{project.description || "Awaiting charter summary."}</span>
+                          </div>
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+              ) : (
+                <div className="initiative-empty">
+                  <h3>{phaseFilter === "All" ? "No projects yet" : `No projects in ${phaseFilter}`}</h3>
+                  <p>
+                    {hasProjects
+                      ? "Adjust filters or launch the MVP assistant to unlock new initiatives."
+                      : "Kick off your first initiative to activate portfolio telemetry."}
+                  </p>
+                  <div className="initiative-empty__actions">
+                    <button type="button" className="btn btn-primary" onClick={openAssistant}>
+                      Start with MVP assistant
+                    </button>
+                    {phaseFilter !== "All" && (
+                      <button type="button" className="btn" onClick={() => setPhaseFilter("All")}>
+                        Reset filter
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          </article>
+
+          <article className="dashboard-card">
+            <header className="dashboard-card__header">
+              <div>
+                <h2>Phase gate readiness</h2>
+                <p>Follow enterprise checkpoints as you advance toward launch.</p>
+              </div>
+              {selectedProject ? (
+                <button
+                  type="button"
+                  className="btn btn-tertiary"
+                  onClick={() => handleOpenProject(selectedProject.project_id)}
+                >
+                  View project
+                </button>
+              ) : null}
+            </header>
+            <div className="dashboard-card__body">
+              <ol className="phase-track phase-track--inline">
+                {PHASE_LABELS.map((label, idx) => (
+                  <li
+                    key={label}
                     className={
-                      selected === p.project_id
-                        ? "panel-list__item panel-list__item--active"
-                        : "panel-list__item"
+                      idx <= currentIndex
+                        ? "phase-track__step phase-track__step--active"
+                        : "phase-track__step"
                     }
                   >
-                    <div>
-                      <strong>{p.name}</strong>
-                      <span>{p.current_phase || p.status}</span>
-                    </div>
-                    <svg viewBox="0 0 24 24" aria-hidden="true">
-                      <path
-                        d="M8 5l8 7-8 7"
-                        stroke="currentColor"
-                        strokeWidth="1.6"
-                        fill="none"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                      />
-                    </svg>
+                    <span>{label}</span>
+                  </li>
+                ))}
+              </ol>
+            </div>
+          </article>
+        </div>
+
+        <aside className="dashboard-layout__sidebar" aria-label="Assistant and activity">
+          <article className="dashboard-card dashboard-card--assistant">
+            <header className="dashboard-card__header">
+              <h2>MVP assistant</h2>
+              <p>Launch a guided discovery to capture requirements and generate docs.</p>
+            </header>
+            <div className="dashboard-card__body">
+              <div className="assistant-actions">
+                <button type="button" className="btn btn-primary" onClick={openAssistant}>
+                  Start new session
+                </button>
+                <button type="button" className="btn" onClick={handleOpenProjects}>
+                  View portfolio
+                </button>
+              </div>
+              <div className="assistant-chips" aria-label="Popular assistant prompts">
+                {assistantScenarios.map((scenario) => (
+                  <button
+                    key={scenario.label}
+                    type="button"
+                    onClick={() => launchAssistant(scenario.value)}
+                    className="assistant-chip"
+                    disabled={assistantLoading}
+                  >
+                    {assistantLoading ? "Starting…" : scenario.label}
                   </button>
-                </li>
-              ))}
-              {!projects.length && (
-                <li className="panel-list__empty">
-                  No projects yet. Launch your first initiative from the MVP.
-                </li>
+                ))}
+              </div>
+              {assistantError && !assistantOpen && (
+                <p className="assistant-error" role="alert">
+                  {assistantError}
+                </p>
               )}
-            </ul>
-          </div>
-        </div>
+            </div>
+          </article>
 
-        <div className="panel">
-          <header>
-            <h2>Recent activity</h2>
-            <p>Latest AI assists, approvals, and document drops.</p>
-          </header>
-          <div className="panel__body">
-            <p className="muted">
-              No recent activity. Engage the MVP assistant to kickstart
-              delivery.
-            </p>
-          </div>
-        </div>
-
-        <div className="panel panel--wide">
-          <header>
-            <h2>Phase gate readiness</h2>
-            <p>
-              Follow the enterprise checkpoints as you move from concept to
-              launch.
-            </p>
-          </header>
-          <div className="panel__body">
-            <ol className="phase-track">
-              {phaseLabels.map((label, idx) => (
-                <li
-                  key={label}
-                  className={
-                    idx <= currentIndex
-                      ? "phase-track__step phase-track__step--active"
-                      : "phase-track__step"
-                  }
-                >
-                  <span>{label}</span>
-                </li>
-              ))}
-            </ol>
-          </div>
-        </div>
+          <article className="dashboard-card">
+            <header className="dashboard-card__header">
+              <div>
+                <h2>Recent activity</h2>
+                <p>Latest AI assists, approvals, and doc drops.</p>
+              </div>
+            </header>
+            <div className="dashboard-card__body activity-empty">
+              <p>
+                No recent activity yet. Use the MVP assistant to kickstart delivery telemetry.
+              </p>
+            </div>
+          </article>
+        </aside>
       </section>
 
       {assistantOpen && (
