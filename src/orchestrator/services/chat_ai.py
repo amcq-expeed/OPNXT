@@ -276,7 +276,7 @@ def _fallback_structured_reply(
         f"Maya – Product Strategy: I'm hearing that {summary_line}."
     )
     if gaps:
-        strategy_line += f" To sharpen the vision, let's fill in details on {', '.join(gaps[:2])}."
+        strategy_line += f" To refine this and sharpen the vision, let's fill in details on {', '.join(gaps[:2])}."
     lines.append(strategy_line)
 
     engineering_parts: List[str] = ["Priya – Engineering Lead: from a build perspective I want to ensure feasibility stays clear."]
