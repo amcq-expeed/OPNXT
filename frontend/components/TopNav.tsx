@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { useRouter } from "next/router";
 import {
   getAccessToken,
@@ -111,10 +112,13 @@ export default function TopNav({
               aria-label="OPNXT home"
             >
               <span className={`top-nav__brand-row ${styles.brandRow}`}>
-                <img
+                <Image
                   src="/logo-full.svg"
                   alt="Expeed Software"
                   className={`top-nav__img ${styles.img}`}
+                  width={120}
+                  height={32}
+                  priority
                 />
                 <span className={`top-nav__logo ${styles.logo}`}>OPNXT</span>
               </span>

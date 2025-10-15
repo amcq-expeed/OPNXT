@@ -114,7 +114,7 @@ export default function SupportWidget({
             <div className="support-thread">
               <div className="support-thread__bubble support-thread__bubble--agent">
                 <p>
-                  Hi there! You're speaking with OPNXT Support AI. I'm ready to help you with account,
+                  Hi there! You’re speaking with OPNXT Support AI. I’m ready to help you with account,
                   onboarding, or project questions.
                 </p>
                 <p>How can I assist today?</p>
