@@ -10,6 +10,8 @@ the hot path when they are not required.
 from __future__ import annotations
 
 import os
+import socket
+from urllib.parse import urlparse
 from dataclasses import dataclass
 from typing import Dict, Optional, Iterable, Set
 
@@ -20,31 +22,36 @@ class ProviderSelection:
 
     name: str
     model: str
-    api_key_env: str
+    api_key_env: Optional[str]
     base_url_env: Optional[str] = None
+    default_base_url: Optional[str] = None
+    requires_api_key: bool = True
 
 
 class ModelRouter:
     """Simple policy-based router for multi-model orchestration."""
 
-    PROVIDER_CONFIG: Dict[str, Dict[str, Optional[str]]] = {
+    PROVIDER_CONFIG: Dict[str, Dict[str, Optional[str] | bool]] = {
         "openai": {
             "api_key_env": "OPENAI_API_KEY",
             "base_url_env": "OPENAI_BASE_URL",
             "model_env": "OPENAI_MODEL",
             "default_model": "gpt-4o-mini",
+            "default_base_url": "https://api.openai.com/v1",
         },
         "gemini": {
             "api_key_env": "GEMINI_API_KEY",
             "base_url_env": "GEMINI_BASE_URL",
             "model_env": "GEMINI_MODEL",
             "default_model": "gemini-2.5-flash",
+            "default_base_url": "https://generativelanguage.googleapis.com/v1beta",
         },
         "xai": {
             "api_key_env": "XAI_API_KEY",
             "base_url_env": "XAI_BASE_URL",
             "model_env": "XAI_MODEL",
             "default_model": "grok-2-latest",
+            "default_base_url": "https://api.x.ai/v1",
         },
         "search": {
             "api_key_env": "GOOGLE_SEARCH_API_KEY",
@@ -52,13 +59,21 @@ class ModelRouter:
             "model_env": "GOOGLE_SEARCH_MODEL",
             "default_model": "google-search-api",
         },
+        "local": {
+            "api_key_env": "LOCAL_API_KEY",
+            "base_url_env": "LOCAL_BASE_URL",
+            "model_env": "LOCAL_MODEL",
+            "default_model": "gpt-oss:120b",
+            "default_base_url": "http://127.0.0.1:11434",
+            "requires_api_key": False,
+        },
     }
 
     ROUTING_POLICY: Dict[str, tuple[str, ...]] = {
         # Everyday conversation should prefer the more cost-effective model.
-        "conversation": ("gemini", "openai", "xai"),
+        "conversation": ("local", "gemini", "openai", "xai"),
         # Traceable artifacts (charter, SRS, etc.) prioritise the premium model.
-        "governance_artifact": ("openai", "gemini", "xai"),
+        "governance_artifact": ("openai", "local", "gemini", "xai"),
         # Retrieval augmented or real-time lookups use the search pipeline first.
         "realtime_grounding": ("search", "openai"),
     }
@@ -70,6 +85,8 @@ class ModelRouter:
     ) -> None:
         self._env = env or os.environ
         self._allowed: Optional[Set[str]] = set(allowed_providers) if allowed_providers else None
+        preferred = (self._env.get("OPNXT_MODEL_PROVIDER") or "").strip().lower()
+        self._forced_provider = preferred if preferred else None
 
     # ------------------------------------------------------------------
     # Provider resolution helpers
@@ -80,19 +97,44 @@ class ModelRouter:
             return False
         if self._allowed is not None and provider not in self._allowed:
             return False
-        api_key_env = cfg["api_key_env"]
-        if not api_key_env:
+        requires_key = bool(cfg.get("requires_api_key", True))
+        api_key_env = cfg.get("api_key_env")
+        if requires_key:
+            if not api_key_env:
+                return False
+            return bool(self._env.get(api_key_env))
+
+        base_url_env = cfg.get("base_url_env") or ""
+        base_url = self._env.get(base_url_env, cfg.get("default_base_url") or "")
+        if not base_url:
             return False
-        return bool(self._env.get(api_key_env))
+
+        parsed = urlparse(base_url)
+        host = parsed.hostname
+        if not host:
+            return False
+        if parsed.scheme == "https":
+            port = parsed.port or 443
+        else:
+            port = parsed.port or 80
+
+        try:
+            with socket.create_connection((host, port), timeout=1.5):
+                return True
+        except OSError:
+            return False
 
     def _resolve_selection(self, provider: str) -> ProviderSelection:
         cfg = self.PROVIDER_CONFIG[provider]
-        model = self._env.get(cfg["model_env"] or "", cfg["default_model"] or "")
+        model_env = cfg.get("model_env") or ""
+        model = self._env.get(model_env, cfg.get("default_model") or "")
         return ProviderSelection(
             name=provider,
             model=model,
-            api_key_env=cfg["api_key_env"],
+            api_key_env=cfg.get("api_key_env"),
             base_url_env=cfg.get("base_url_env"),
+            default_base_url=cfg.get("default_base_url"),
+            requires_api_key=bool(cfg.get("requires_api_key", True)),
         )
 
     # ------------------------------------------------------------------
@@ -109,6 +151,11 @@ class ModelRouter:
         """
 
         priority = self.ROUTING_POLICY.get(purpose, self.ROUTING_POLICY["conversation"])
+        if self._forced_provider:
+            if self._allowed is not None and self._forced_provider not in self._allowed:
+                pass
+            elif self._provider_available(self._forced_provider):
+                return self._resolve_selection(self._forced_provider)
         for provider in priority:
             if self._provider_available(provider):
                 return self._resolve_selection(provider)

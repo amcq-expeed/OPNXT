@@ -1,107 +1,69 @@
-[
-  {
-    "Epic": "User Account Management",
-    "Features": [
-      {
-        "Feature": "User Registration",
-        "User Stories": [
-          {
-            "User Story": "User Story 1: User Registration",
-            "Acceptance Criteria": [
-              "Given I am on the registration page, when I fill in my details and submit, then my account should be created.",
-              "Given I have an existing account, when I try to register again, then I should see an error message.",
-              "Given I am on the registration page, when I leave required fields empty, then I should see validation messages.",
-              "Given I am a new user, when I register successfully, then I should receive a confirmation email."
-            ]
-          }
-        ]
-      },
-      {
-        "Feature": "User Profile Management",
-        "User Stories": []
-      }
-    ]
-  },
-  {
-    "Epic": "Book Search and Discovery",
-    "Features": [
-      {
-        "Feature": "Search Functionality",
-        "User Stories": [
-          {
-            "User Story": "User Story 2: Book Search",
-            "Acceptance Criteria": [
-              "Given I am on the homepage, when I enter a book title in the search bar, then I should see relevant results.",
-              "Given I am on the search results page, when I apply filters, then the results should update accordingly.",
-              "Given I am on the search results page, when I click on a book, then I should see the book details.",
-              "Given I am on the search results page, when I search for a non-existent book, then I should see a 'no results found' message."
-            ]
-          }
-        ]
-      },
-      {
-        "Feature": "Book Recommendations",
-        "User Stories": []
-      }
-    ]
-  },
-  {
-    "Epic": "Inventory Management",
-    "Features": [
-      {
-        "Feature": "Automated Inventory Tracking",
-        "User Stories": []
-      },
-      {
-        "Feature": "Admin Inventory Updates",
-        "User Stories": []
-      }
-    ]
-  },
-  {
-    "Epic": "Order Management",
-    "Features": [
-      {
-        "Feature": "Order Placement",
-        "User Stories": [
-          {
-            "User Story": "User Story 3: Order Placement",
-            "Acceptance Criteria": [
-              "Given I have selected a book, when I click 'Add to Cart', then the book should be added to my cart.",
-              "Given I have items in my cart, when I proceed to checkout, then I should be able to enter my payment details.",
-              "Given I have completed my order, when I check my email, then I should receive an order confirmation.",
-              "Given I am on the checkout page, when I enter invalid payment information, then I should see an error message."
-            ]
-          }
-        ]
-      },
-      {
-        "Feature": "Order Returns",
-        "User Stories": []
-      }
-    ]
-  },
-  {
-    "Epic": "User Reviews",
-    "Features": [
-      {
-        "Feature": "Review Submission",
-        "User Stories": [
-          {
-            "User Story": "User Story 4: Review Submission",
-            "Acceptance Criteria": [
-              "Given I have purchased a book, when I navigate to the book page, then I should see an option to leave a review.",
-              "Given I am submitting a review, when I leave the review field empty, then I should see a validation message.",
-              "Given I have submitted a review, when I refresh the page, then my review should be displayed.",
-              "Given I am a user, when I try to submit a review for a book I haven't purchased, then I should see an error message."
-            ]
-          }
-        ]
-      },
-      {
-        "Feature": "Review Display",
-        "User Stories": []
-      }
-    ]
-  }
-]
+{
+  "Epics": [
+    {
+      "Epic": "Document Creation",
+      "Features": [
+        {
+          "Feature": "Real-time Document Creation",
+          "UserStories": [
+            {
+              "UserStory": "As a Project Manager, I want to create a PRD in real-time so that I can capture requirements as they come to mind.",
+              "AcceptanceCriteria": [
+                "Given I am logged in, when I start a new PRD, then I should see a blank document ready for editing.",
+                "Given I make changes, when I save the document, then my changes should be saved without delay.",
+                "Given I am editing, when I invite another user, then they should see my changes in real-time.",
+                "Given I am editing, when I exceed the character limit for a section, then I should receive a validation error."
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "Epic": "Collaboration Features",
+      "Features": [
+        {
+          "Feature": "User Feedback Collection",
+          "UserStories": [
+            {
+              "UserStory": "As a Project Manager, I want to collect feedback on my PRD so that I can improve the document based on team input.",
+              "AcceptanceCriteria": [
+                "Given I have shared the PRD, when a user provides feedback, then I should see their feedback in a dedicated section.",
+                "Given I receive feedback, when I respond to it, then my response should be visible to the user who provided the feedback.",
+                "Given I have feedback, when I mark it as resolved, then it should be archived from the feedback section.",
+                "Given I have unresolved feedback, when I view the document, then I should see a notification indicating the number of unresolved feedback items."
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "Epic": "Document Management",
+      "Features": [
+        {
+          "Feature": "Version Control",
+          "UserStories": [
+            {
+              "UserStory": "As a Project Manager, I want to save drafts of my PRD so that I can revert to previous versions if needed.",
+              "AcceptanceCriteria": [
+                "Given I am editing a PRD, when I save a draft, then a new version should be created.",
+                "Given I have multiple versions, when I view the version history, then I should see a list of all saved versions with timestamps.",
+                "Given I select a previous version, when I choose to revert, then the document should reflect the selected version.",
+                "Given I have reverted to a previous version, when I make new changes, then a new version should be created again."
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "Assumptions": [
+    "Users will have access to the necessary technology to use the application.",
+    "The application will be developed following industry standards."
+  ],
+  "OpenQuestions": [
+    "What specific integrations with other tools are required?",
+    "What types of notifications or alerts should be implemented for user collaboration?"
+  ]
+}

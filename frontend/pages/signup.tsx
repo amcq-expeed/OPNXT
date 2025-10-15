@@ -3,7 +3,7 @@ import Link from "next/link";
 import { FormEvent, useMemo, useState } from "react";
 import { useRouter } from "next/router";
 import Image from "next/image";
-import { login } from "../lib/api";
+import { register } from "../lib/api";
 import logoFull from "../public/logo-full.svg";
 
 type SocialProvider = {
@@ -15,22 +15,23 @@ type SocialProvider = {
 const heroHighlights = [
   {
     title: "Concept → Charter",
-    copy: "Capture discovery notes, risks, and SHALL statements in minutes.",
+    copy: "Guide intake and produce stakeholder-ready Charters with AI assistance.",
   },
   {
-    title: "Delivery cockpit",
-    copy: "Navigate dashboards, approvals, and AI-generated docs from one workspace.",
+    title: "Design synchrony",
+    copy: "Keep SRS, SDD, and Test Plans in lockstep from the moment you launch.",
   },
   {
-    title: "Instant bundles",
-    copy: "Export Charters, SRS, SDD, and Test Plans in your preferred formats instantly.",
+    title: "Workspace momentum",
+    copy: "Invite teams, track approvals, and ship documentation bundles instantly.",
   },
 ];
 
-export default function LoginPage() {
+export default function SignupPage() {
   const router = useRouter();
-  const [email, setEmail] = useState("adam.thacker@expeed.com");
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -66,45 +67,43 @@ export default function LoginPage() {
   const redirectAfterAuth = () => {
     if (typeof window === "undefined") return;
     const defaultPath = process.env.NEXT_PUBLIC_POST_LOGIN_PATH || "/dashboard";
-    let target = defaultPath;
-    try {
-      const url = new URL(window.location.href);
-      const rt = url.searchParams.get("returnTo");
-      if (rt && rt !== "/" && rt.startsWith("/")) {
-        target = rt;
-      }
-    } catch {}
-    window.location.href = target;
+    window.location.href = defaultPath;
   };
 
-  async function onSubmit(e: FormEvent) {
-    e.preventDefault();
+  async function onSubmit(event: FormEvent) {
+    event.preventDefault();
     setError(null);
+
+    if (password !== confirmPassword) {
+      setError("Passwords do not match.");
+      return;
+    }
+
     try {
       setLoading(true);
-      await login(email, password);
+      await register(email, password);
       redirectAfterAuth();
-    } catch (e: any) {
-      setError(e?.message || String(e));
+    } catch (err: any) {
+      setError(err?.message || String(err));
     } finally {
       setLoading(false);
     }
   }
 
   return (
-    <div className="auth-page auth-page--login" aria-live="polite">
+    <div className="auth-page auth-page--signup" aria-live="polite">
       <Head>
-        <title>Sign in · OPNXT</title>
+        <title>Create your account · OPNXT</title>
       </Head>
       <div className="auth-page__panel auth-page__panel--split">
-        <section className="auth-panel__main" aria-label="Sign in">
+        <section className="auth-panel__main" aria-label="Create account">
           <div className="auth-page__logo" aria-hidden="true">
             <Image src={logoFull} alt="OPNXT" priority />
           </div>
           <header className="auth-page__header">
-            <span className="badge">Workspace access</span>
-            <h1>Welcome back</h1>
-            <p>Sign in to synchronize projects, approvals, and AI-generated documents.</p>
+            <span className="badge">Create a free account</span>
+            <h1>Welcome to OPNXT</h1>
+            <p>Launch a workspace that keeps requirements, design, and testing synchronized.</p>
           </header>
 
           <div className="auth-page__social">
@@ -124,8 +123,8 @@ export default function LoginPage() {
             ))}
           </div>
 
-          <div className="auth-divider" role="separator" aria-label="Email sign in">
-            <span>or continue with email</span>
+          <div className="auth-divider" role="separator" aria-label="Email sign up">
+            <span>or sign up with email</span>
           </div>
 
           {error && (
@@ -147,7 +146,7 @@ export default function LoginPage() {
                 type="email"
                 placeholder="you@company.com"
                 value={email}
-                onChange={(e) => setEmail(e.target.value)}
+                onChange={(event) => setEmail(event.target.value)}
                 required
                 autoComplete="email"
                 disabled={loading}
@@ -159,11 +158,11 @@ export default function LoginPage() {
                 <input
                   id="password"
                   type={showPassword ? "text" : "password"}
-                  placeholder="Enter your password"
+                  placeholder="Create a secure password"
                   value={password}
-                  onChange={(e) => setPassword(e.target.value)}
+                  onChange={(event) => setPassword(event.target.value)}
                   required
-                  autoComplete="current-password"
+                  autoComplete="new-password"
                   disabled={loading}
                 />
                 <button
@@ -177,32 +176,37 @@ export default function LoginPage() {
                 </button>
               </div>
             </label>
+            <label className="auth-field" htmlFor="confirm-password">
+              <span>Confirm password</span>
+              <input
+                id="confirm-password"
+                type={showPassword ? "text" : "password"}
+                placeholder="Re-enter password"
+                value={confirmPassword}
+                onChange={(event) => setConfirmPassword(event.target.value)}
+                required
+                autoComplete="new-password"
+                disabled={loading}
+              />
+            </label>
 
             <button type="submit" className="auth-submit" disabled={loading}>
-              {loading ? "Signing in…" : "Sign in"}
+              {loading ? "Creating account…" : "Create account"}
             </button>
           </form>
 
           <div className="auth-page__meta">
-            <button
-              type="button"
-              className="auth-link"
-              onClick={() => router.push("/reset-password")}
-              disabled={loading}
-            >
-              Forgot your password?
-            </button>
             <span>
-              Need an account? <Link href="/signup">Create one</Link>
+              Already have an account? <Link href="/login">Sign in</Link>
             </span>
           </div>
         </section>
         <aside className="auth-panel__aside" aria-label="Highlights">
           <div className="auth-hero">
-            <h2>Bring concepts to launch faster.</h2>
+            <h2>Spin up your delivery cockpit today.</h2>
             <p>
-              OPNXT orchestrates chartering, specifications, design, and testing with an AI-led
-              delivery control centre.
+              From first discovery notes to traceable approvals, OPNXT accelerates every artifact in
+              your SDLC.
             </p>
             <ul className="auth-hero__list">
               {heroHighlights.map((item) => (

@@ -4,6 +4,10 @@ import "../styles/globals.css";
 import "../styles/tokens.css";
 import "../styles/tailwind.css";
 import "../styles/theme.css";
+import "../styles/auth.css";
+import "../styles/dashboard.css";
+import "../styles/support-widget.css";
+import "../styles/accelerator.css";
 import AppShell from "../components/AppShell";
 
 export default function MyApp({ Component, pageProps }: AppProps) {

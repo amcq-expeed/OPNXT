@@ -5,13 +5,13 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  backdrop-filter: blur(16px);
+  backdrop-filter: blur(12px);
   background: linear-gradient(
-    122deg,
-    rgb(8 16 34 / 90%),
-    rgb(15 26 48 / 72%)
+    120deg,
+    rgb(255 255 255 / 96%),
+    rgb(237 244 255 / 94%)
   );
-  border-bottom: 1px solid rgb(118 170 255 / 14%);
+  border-bottom: 1px solid rgb(190 214 255 / 48%);
 }
 
 .topNavOverlay {
@@ -20,10 +20,21 @@
   right: 0;
   background: linear-gradient(
     180deg,
-    rgb(8 16 34 / 92%) 0%,
-    rgb(8 16 34 / 45%) 55%,
-    rgb(8 16 34 / 0%) 100%
+    rgb(255 255 255 / 92%) 0%,
+    rgb(255 255 255 / 65%) 55%,
+    rgb(255 255 255 / 0%) 100%
   );
+}
+
+.topNavStandard {
+  box-shadow: 0 18px 36px rgb(36 64 120 / 12%);
+}
+
+.topNavMinimal {
+  justify-content: flex-end;
+  background: transparent;
+  border-bottom: none;
+  box-shadow: none;
 }
 
 .inner {
@@ -42,7 +53,7 @@
   flex-direction: column;
   gap: 4px;
   text-decoration: none;
-  color: rgb(236 242 255 / 94%);
+  color: #102347;
 }
 
 .brandRow {
@@ -78,33 +89,163 @@
 }
 
 .links a {
-  padding: 6px 14px;
+  padding: 8px 16px;
   border-radius: 999px;
   text-decoration: none;
-  color: rgb(214 226 255 / 78%);
+  color: var(--muted);
   transition:
     background 150ms ease,
-    color 150ms ease;
+    color 150ms ease,
+    box-shadow 150ms ease;
 }
 
 .links a:hover {
-  background: rgb(118 170 255 / 18%);
-  color: rgb(244 248 255 / 95%);
+  background: rgb(160 198 255 / 25%);
+  color: #14285c;
+  box-shadow: 0 12px 20px rgb(42 74 132 / 14%);
 }
 
 .links a.active {
   background: linear-gradient(
     125deg,
-    rgb(94 150 255 / 36%),
-    rgb(140 110 255 / 32%)
+    rgb(180 210 255 / 65%),
+    rgb(218 206 255 / 60%)
   );
-  border: 1px solid rgb(130 180 255 / 34%);
-  color: rgb(244 248 255 / 95%);
+  border: 1px solid rgb(150 196 255 / 55%);
+  color: #13265a;
+  box-shadow: 0 14px 28px rgb(40 72 132 / 14%);
+}
+
+.actions {
+  display: inline-flex;
+  gap: 10px;
 }
 
 .actions .btn {
   border-radius: 999px;
   padding: 10px 20px;
+}
+
+.sidebarToggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  border: 1px solid rgb(190 214 255 / 55%);
+  background: rgb(255 255 255 / 92%);
+  color: #13265a;
+  font-size: 20px;
+  cursor: pointer;
+  transition:
+    transform 140ms ease,
+    box-shadow 140ms ease,
+    border-color 140ms ease;
+}
+
+.sidebarToggle:hover,
+.sidebarToggle:focus-visible {
+  transform: translateY(-1px);
+  box-shadow: 0 12px 24px rgb(46 80 150 / 16%);
+  border-color: rgb(154 194 255 / 60%);
+  outline: none;
+}
+
+.innerMinimal {
+  justify-content: space-between;
+  width: 100%;
+  max-width: 1100px;
+  padding: clamp(12px, 3vw, 20px) clamp(18px, 4vw, 32px);
+  gap: clamp(12px, 4vw, 28px);
+}
+
+.minimalCrumb {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgb(82 104 150 / 82%);
+}
+
+.minimalHome {
+  text-decoration: none;
+  color: #102347;
+  font-weight: 600;
+}
+
+.minimalDivider {
+  color: rgb(142 170 210 / 70%);
+}
+
+.minimalCurrent {
+  color: #14285c;
+  font-weight: 600;
+}
+
+.minimalPrimaryCta {
+  display: inline-flex;
+  align-items: center;
+  padding: 10px 18px;
+  border-radius: 999px;
+  background: linear-gradient(135deg, #5c8cff, #6d5bff);
+  color: #fff;
+  font-weight: 600;
+  text-decoration: none;
+  letter-spacing: 0.04em;
+  transition:
+    transform 140ms ease,
+    box-shadow 140ms ease;
+}
+
+.minimalPrimaryCta:hover,
+.minimalPrimaryCta:focus-visible {
+  transform: translateY(-1px);
+  box-shadow: 0 12px 24px rgb(46 80 150 / 24%);
+  outline: none;
+}
+
+.userSummary {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 999px;
+  background: rgb(244 248 255 / 90%);
+  border: 1px solid rgb(190 214 255 / 45%);
+}
+
+.userAvatar {
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  display: grid;
+  place-items: center;
+  background: linear-gradient(135deg, #5c8cff, #6d5bff);
+  color: #fff;
+  font-weight: 600;
+  font-size: 13px;
+  letter-spacing: 0.06em;
+}
+
+.userCopy {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 12px;
+  line-height: 1.2;
+  color: #162a56;
+}
+
+.userName {
+  font-weight: 600;
+}
+
+.userMeta {
+  color: rgb(96 118 166 / 78%);
+  font-size: 11px;
 }
 
 @media (width <= 900px) {

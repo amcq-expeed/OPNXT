@@ -17,6 +17,7 @@ class _Session:
     created_at: str
     updated_at: str
     created_by: str
+    persona: Optional[str]
 
 
 @dataclass
@@ -38,7 +39,13 @@ class InMemoryChatStore:
     def _now_iso(self) -> str:
         return datetime.now(UTC).isoformat().replace("+00:00", "Z")
 
-    def create_session(self, project_id: str, created_by: str, title: Optional[str] = None) -> ChatSession:
+    def create_session(
+        self,
+        project_id: str,
+        created_by: str,
+        title: Optional[str] = None,
+        persona: Optional[str] = None,
+    ) -> ChatSession:
         with self._lock:
             sid = uuid.uuid4().hex
             now = self._now_iso()
@@ -49,6 +56,7 @@ class InMemoryChatStore:
                 created_at=now,
                 updated_at=now,
                 created_by=created_by,
+                persona=persona,
             )
             self._sessions[sid] = sess
             self._by_project.setdefault(project_id, []).append(sid)
@@ -70,6 +78,15 @@ class InMemoryChatStore:
         with self._lock:
             sess = self._sessions.get(session_id)
             return ChatSession(**sess.__dict__) if sess else None
+
+    def update_session_persona(self, session_id: str, persona: Optional[str]) -> ChatSession:
+        with self._lock:
+            sess = self._sessions.get(session_id)
+            if not sess:
+                raise KeyError("Session not found")
+            sess.persona = persona
+            self._sessions[session_id] = sess
+            return ChatSession(**sess.__dict__)
 
     def add_message(self, session_id: str, role: str, content: str) -> ChatMessage:
         with self._lock:

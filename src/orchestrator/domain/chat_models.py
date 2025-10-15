@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 class ChatSessionCreate(BaseModel):
     project_id: str
     title: Optional[str] = None
+    persona: Optional[str] = None
 
 
 class ChatSession(BaseModel):
@@ -17,6 +18,7 @@ class ChatSession(BaseModel):
     created_at: str
     updated_at: str
     created_by: str
+    persona: Optional[str] = None
 
 
 Role = Literal["system", "user", "assistant"]

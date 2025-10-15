@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from dotenv import load_dotenv
+import logging
 from fastapi import FastAPI, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -12,12 +13,18 @@ from .routers.diag import router as diag_router
 from .routers.auth import router as auth_router
 from .routers.agents import router as agents_router
 from .routers.chat import router as chat_router
+from .routers.catalog import router as catalog_router
+from .routers.accelerators import router as accelerators_router
+from .routers.telemetry import router as telemetry_router
 from .routers.migration import router as migration_router
 from ..observability.metrics import metrics_middleware_factory
 
 load_dotenv()  # Load environment variables from .env if present (OPENAI_API_KEY, XAI_API_KEY, etc.)
 
 app = FastAPI(title="OPNXT Orchestrator API", version="0.1.0")
+
+logging.basicConfig(level=logging.INFO)
+logging.getLogger("opnxt.accelerator").setLevel(logging.INFO)
 
 # Observability: request latency histogram
 app.middleware("http")(metrics_middleware_factory())
@@ -28,6 +35,9 @@ app.include_router(auth_router)
 app.include_router(agents_router)
 app.include_router(diag_router)
 app.include_router(chat_router)
+app.include_router(catalog_router)
+app.include_router(accelerators_router)
+app.include_router(telemetry_router)
 app.include_router(migration_router)
 
 # Also expose the same routers under /api for alignment with architecture doc
@@ -36,6 +46,9 @@ app.include_router(auth_router, prefix="/api")
 app.include_router(agents_router, prefix="/api")
 app.include_router(diag_router, prefix="/api")
 app.include_router(chat_router, prefix="/api")
+app.include_router(catalog_router, prefix="/api")
+app.include_router(accelerators_router, prefix="/api")
+app.include_router(telemetry_router, prefix="/api")
 app.include_router(migration_router, prefix="/api")
 
 # CORS (for Next.js dev server on localhost:3000)

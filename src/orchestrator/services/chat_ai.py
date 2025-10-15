@@ -3,6 +3,8 @@ from __future__ import annotations
 from typing import List, Dict, Optional
 import os
 import re
+import requests
+import logging
 
 from .model_router import ModelRouter
 
@@ -13,10 +15,14 @@ except Exception:  # pragma: no cover - optional import
     ChatOpenAI = None  # type: ignore
 
 
+logger = logging.getLogger(__name__)
+
+
 DEFAULT_BASE_URLS = {
     "openai": "https://api.openai.com/v1",
     "gemini": "https://generativelanguage.googleapis.com/v1beta",
     "xai": "https://api.x.ai/v1",
+    "local": "http://127.0.0.1:11434",
 }
 
 
@@ -91,6 +97,47 @@ def detect_user_intent(user_message: str, history: Optional[List[Dict[str, str]]
     return "idea"
 
 
+class LocalLLMClient:
+    def __init__(self, base_url: str, model: str, timeout: float = 30.0) -> None:
+        self._base_url = base_url.rstrip("/")
+        self._model = model
+        self._timeout = timeout
+
+    def invoke(self, messages: List[Dict[str, str]]):
+        logger.debug("LocalLLMClient invoking model=%s base_url=%s", self._model, self._base_url)
+        prompt_parts: List[str] = []
+        for msg in messages:
+            role = msg.get("role", "user").lower()
+            content = msg.get("content", "")
+            if not content:
+                continue
+            if role == "system":
+                prompt_parts.append(f"[INSTRUCTION]\n{content}\n")
+            elif role == "assistant":
+                prompt_parts.append(f"Assistant: {content}\n")
+            else:
+                prompt_parts.append(f"User: {content}\n")
+        prompt = "\n".join(prompt_parts).strip()
+        payload = {
+            "model": self._model,
+            "prompt": prompt,
+            "stream": False,
+        }
+        try:
+            resp = requests.post(
+                f"{self._base_url}/api/generate",
+                json=payload,
+                timeout=self._timeout,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            logger.debug("LocalLLMClient received keys=%s", list(data.keys()))
+            return data.get("response") or data.get("text") or ""
+        except Exception as exc:  # pragma: no cover - diagnostic path
+            logger.exception("LocalLLMClient request failed: base_url=%s model=%s", self._base_url, self._model)
+            raise
+
+
 def _get_llm(purpose: str):
     router = ModelRouter()
     selection = router.select_provider(purpose)
@@ -98,17 +145,34 @@ def _get_llm(purpose: str):
     if selection.name == "search":
         raise RuntimeError("Search provider cannot handle conversational responses")
 
+    if selection.name == "local":
+        base_url = DEFAULT_BASE_URLS.get("local") or "http://127.0.0.1:11434"
+        if selection.base_url_env:
+            base_url = os.getenv(selection.base_url_env, base_url)
+        elif selection.default_base_url:
+            base_url = selection.default_base_url
+        logger.info("Using local LLM provider base_url=%s model=%s", base_url, selection.model)
+        return LocalLLMClient(base_url=base_url, model=selection.model)
+
     if not ChatOpenAI:
         raise RuntimeError("LLM client not available")
 
-    api_key = os.getenv(selection.api_key_env)
-    if not api_key:
+    api_key = os.getenv(selection.api_key_env) if selection.api_key_env else None
+    if selection.requires_api_key and not api_key:
         raise RuntimeError("LLM not configured")
 
     base_url = DEFAULT_BASE_URLS.get(selection.name)
     if selection.base_url_env:
         base_url = os.getenv(selection.base_url_env, base_url)
+    elif selection.default_base_url:
+        base_url = selection.default_base_url
 
+    logger.info(
+        "Using remote LLM provider name=%s model=%s base_url=%s",
+        selection.name,
+        selection.model,
+        base_url,
+    )
     return ChatOpenAI(api_key=api_key, base_url=base_url, model=selection.model, temperature=0.2)
 
 
@@ -169,7 +233,82 @@ def _suggest_questions(text: str, max_q: int = 3) -> List[str]:
     return out
 
 
-def reply_with_chat_ai(project_name: str, user_message: str, history: List[Dict[str, str]] | None = None, attachments: Optional[Dict[str, str]] = None) -> str:
+def _summarize_from_conversation(user_message: str, history: Optional[List[Dict[str, str]]] = None) -> str:
+    """Return first-line summary drawn from user content."""
+
+    history = history or []
+    text = (user_message or "").strip()
+    if not text:
+        for turn in reversed(history):
+            if (turn.get("role") or "user") == "user":
+                content = (turn.get("content") or "").strip()
+                if content:
+                    text = content
+                    break
+    if not text:
+        return "Capture the core objectives, stakeholders, and success criteria."
+    first_line = text.splitlines()[0].strip()
+    if len(first_line) > 220:
+        first_line = first_line[:217] + "…"
+    return first_line
+
+
+def _fallback_structured_reply(
+    user_message: str,
+    history: Optional[List[Dict[str, str]]],
+    persona: Optional[str],
+    attachments: Optional[Dict[str, str]],
+) -> str:
+    all_turns = history or []
+    convo_text_parts = [user_message or ""]
+    for turn in all_turns[-6:]:
+        content = turn.get("content") if isinstance(turn, dict) else None
+        if content:
+            convo_text_parts.append(str(content))
+    convo_text = "\n".join(filter(None, convo_text_parts))
+
+    summary_line = _summarize_from_conversation(user_message, history)
+    gaps = _diagnose_gaps(convo_text)
+    questions = _suggest_questions(convo_text)
+
+    lines: List[str] = []
+    strategy_line = (
+        f"Maya – Product Strategy: I'm hearing that {summary_line}."
+    )
+    if gaps:
+        strategy_line += f" To sharpen the vision, let's fill in details on {', '.join(gaps[:2])}."
+    lines.append(strategy_line)
+
+    engineering_parts: List[str] = ["Priya – Engineering Lead: from a build perspective I want to ensure feasibility stays clear."]
+    if persona:
+        engineering_parts.append(f"I'll keep the `{persona}` perspective in mind as we shape interfaces and flows.")
+    if attachments:
+        engineering_parts.append("I reviewed the material you shared and will thread any critical constraints into our plan.")
+    if not gaps:
+        engineering_parts.append("Technically this seems on-track; let's validate integrations and data paths next.")
+    lines.append(" ".join(engineering_parts))
+
+    delivery_line = "Luis – Delivery Coach: I'll map the next moves so we can keep momentum without overloading the first release."
+    lines.append(delivery_line)
+
+    if questions:
+        lines.append("Questions we're holding:")
+        for i, q in enumerate(questions[:2], 1):
+            lines.append(f"{i}) {q}")
+    else:
+        lines.append("Just confirm what success looks like and we'll press ahead.")
+
+    lines.append("Whenever you're ready, let us know and we'll start drafting the right artifacts—PRDs, requirement sets, or delivery roadmaps.")
+    return "\n".join(lines)
+
+
+def reply_with_chat_ai(
+    project_name: str,
+    user_message: str,
+    history: List[Dict[str, str]] | None = None,
+    attachments: Optional[Dict[str, str]] = None,
+    persona: Optional[str] = None,
+) -> str:
     """Return assistant reply using LLM if configured; otherwise a helpful deterministic fallback.
 
     history: list of {role, content} where role in {system,user,assistant}
@@ -211,11 +350,31 @@ def reply_with_chat_ai(project_name: str, user_message: str, history: List[Dict[
 
     try:
         llm = _get_llm(purpose)
-        sys = (
-            "You are OPNXT's SDLC refinement assistant. Your goal is to conduct a short, focused conversation to clarify and improve the user's idea before any documents are generated. "
-            "Ground responses in attached documents if present. Each reply should: (1) briefly reflect your understanding; (2) ask 2-3 targeted questions focusing on missing areas (stakeholders, scope/objectives, NFRs, constraints, interfaces, data, testing). "
-            "Do not expose canonical SHALL phrasing directly to the user; capture requirements implicitly so the system can use them later. Keep responses concise (<= 8 sentences). Do not suggest generating documents; wait until the user explicitly asks or enough detail has been captured."
+        persona_line = (
+            f"The primary stakeholder persona is `{persona}`. Tailor tone and guidance to help this persona make confident decisions. "
+            if persona
+            else ""
         )
+        sys_lines = [
+            "You are the OPNXT Expert Circle: a collaborative trio of specialists (Maya – Product Strategy, Priya – Engineering Lead, Luis – Delivery Coach).",
+            "Respond like a cohesive roundtable, weaving short contributions from each expert so the user feels supported by a team rather than an automated script.",
+            "Open with a warm acknowledgement of the user's intent and reflect back the most relevant details they shared.",
+            "Anchor every reply in helping the user produce concrete SDLC artifacts (charters, BRDs, SRS, test plans, delivery roadmaps, or implementation builds).",
+            "State clearly what artifacts you can draft now, what information is missing, and how close the conversation is to document-ready.",
+            "Offer balanced guidance that blends product vision, technical feasibility, and delivery execution while highlighting gaps that would block artifact creation.",
+            "When prior context or attachments exist, reference the most pertinent insights and explain how they shape the upcoming documents.",
+            "Format every response using Markdown with the following sections in order: '### Executive Summary', '### Readiness & Gaps', '### Recommended Actions', and '### Questions for You'.",
+            "Within each section, use concise bullet lists (or numbered lists for questions) and keep sentences crisp and professional.",
+            "Do not prefix bullet items with individual persona names; speak as the Expert Circle collectively while indicating which capability is covering each point when relevant.",
+            "Each response must summarize what new information the user provided, update the document-readiness status, and either (a) commit to drafting specific artifacts or (b) request the precise next inputs needed.",
+            "Make explicit offers to generate the required documents or begin build scaffolding once the user confirms readiness.",
+            "Close with an inviting next action plus one or two focused questions that either capture missing requirements or confirm that you should start drafting. Always remind the user they can ask you to generate the documents or proceed to build support.",
+            "Avoid rigid templates—use natural paragraphs with short bullet lists when helpful—and keep the entire response under 12 sentences.",
+            "Maintain an expert, optimistic, and collaborative tone. Do not use canonical SHALL phrasing; keep it conversational.",
+        ]
+        if persona_line:
+            sys_lines.append(persona_line.strip())
+        sys = "\n".join(sys_lines)
         msgs = [{"role": "system", "content": sys}]
         if attachments:
             att = _attachment_block(attachments)
@@ -230,16 +389,6 @@ def reply_with_chat_ai(project_name: str, user_message: str, history: List[Dict[
         msgs.append({"role": "user", "content": user_message})
         res = llm.invoke(msgs)
         return res.content if hasattr(res, "content") else str(res)
-    except Exception:
-        text = (user_message or "").strip()
-        lines: List[str] = []
-        if text:
-            first_line = text.splitlines()[0].strip()
-            lines.append(f"I understand you want to: {first_line[:180]}")
-        qs = _suggest_questions(text)
-        lines.append("To refine this, a few quick questions:")
-        for i, q in enumerate(qs, 1):
-            lines.append(f"{i}) {q}")
-        if attachments:
-            lines.append("I'll also consider any attached docs for continuity.")
-        return "\n".join(lines)
+    except Exception as exc:
+        logger.exception("LLM invocation failed; falling back to deterministic prompts")
+        return _fallback_structured_reply(user_message, history, persona, attachments)

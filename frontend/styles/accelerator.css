@@ -1,0 +1,237 @@
+.accelerator-shell {
+  min-height: 100vh;
+  padding: clamp(20px, 3vw, 48px) clamp(24px, 4vw, 64px) clamp(32px, 4vw, 72px);
+  background: radial-gradient(circle at top right, rgba(66, 113, 255, 0.1), transparent 55%);
+  display: flex;
+  flex-direction: column;
+  gap: clamp(16px, 2vw, 28px);
+}
+
+.accelerator-header {
+  display: grid;
+  gap: clamp(12px, 1.5vw, 18px);
+  max-width: 960px;
+}
+
+.accelerator-breadcrumb {
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+  font-size: 13px;
+  color: #57607c;
+}
+
+.accelerator-breadcrumb a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.accelerator-breadcrumb a:hover {
+  text-decoration: underline;
+}
+
+.accelerator-header h1 {
+  font-size: clamp(28px, 4vw, 40px);
+  font-weight: 700;
+  margin: 0;
+  color: #1f2554;
+}
+
+.accelerator-subhead {
+  margin: 0;
+  color: #48517a;
+  max-width: 780px;
+  font-size: clamp(16px, 2vw, 19px);
+}
+
+.accelerator-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  font-size: 12px;
+  color: #3a4062;
+}
+
+.accelerator-meta span {
+  background: rgba(71, 83, 133, 0.12);
+  padding: 6px 12px;
+  border-radius: 999px;
+}
+
+.accelerator-deliverables {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  font-size: 12px;
+}
+
+.accelerator-deliverables span {
+  background: rgba(77, 122, 255, 0.12);
+  color: #2740a6;
+  padding: 6px 12px;
+  border-radius: 999px;
+}
+
+.accelerator-actions {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.accelerator-promote {
+  background: #1f4cff;
+  color: #fff;
+  border: none;
+  border-radius: 999px;
+  padding: 10px 20px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 160ms ease, opacity 160ms ease;
+}
+
+.accelerator-promote:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.accelerator-promote:not(:disabled):hover {
+  background: #1536c5;
+}
+
+.accelerator-link {
+  color: #1f4cff;
+  text-decoration: none;
+  font-weight: 600;
+}
+
+.accelerator-link:hover {
+  text-decoration: underline;
+}
+
+.accelerator-status {
+  background: rgba(31, 76, 255, 0.08);
+  border-radius: 12px;
+  padding: 14px 18px;
+  color: #1f2554;
+  font-size: 14px;
+}
+
+.accelerator-status--error {
+  background: rgba(227, 73, 53, 0.1);
+  color: #8a1c13;
+}
+
+.accelerator-chat {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  max-width: 960px;
+}
+
+.accelerator-messages {
+  list-style: none;
+  display: grid;
+  gap: 16px;
+  margin: 0;
+  padding: 0;
+}
+
+.accelerator-message {
+  display: grid;
+  gap: 6px;
+  padding: 16px 18px;
+  border-radius: 16px;
+  background: #fff;
+  box-shadow: 0 16px 32px rgba(28, 45, 90, 0.08);
+}
+
+.accelerator-message--assistant {
+  background: linear-gradient(135deg, rgba(38, 76, 232, 0.12), rgba(119, 148, 255, 0.08));
+}
+
+.accelerator-message__role {
+  font-size: 12px;
+  font-weight: 600;
+  color: #3f4870;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.accelerator-message p {
+  margin: 0;
+  font-size: 15px;
+  color: #1e2346;
+  white-space: pre-wrap;
+}
+
+.accelerator-composer {
+  max-width: 960px;
+}
+
+.accelerator-form {
+  display: grid;
+  gap: 12px;
+  border-radius: 16px;
+  padding: 18px;
+  background: #fff;
+  box-shadow: 0 14px 32px rgba(22, 35, 82, 0.12);
+}
+
+.accelerator-form textarea {
+  width: 100%;
+  resize: vertical;
+  min-height: 120px;
+  border-radius: 12px;
+  border: 1px solid rgba(44, 51, 89, 0.2);
+  padding: 12px 14px;
+  font-size: 15px;
+  line-height: 1.45;
+  transition: border 140ms ease, box-shadow 140ms ease;
+}
+
+.accelerator-form textarea:focus {
+  border-color: #1f4cff;
+  box-shadow: 0 0 0 3px rgba(31, 76, 255, 0.18);
+  outline: none;
+}
+
+.accelerator-form textarea:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.accelerator-compose-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.accelerator-compose-actions button {
+  background: #1f4cff;
+  color: #fff;
+  border: none;
+  border-radius: 999px;
+  padding: 10px 22px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 160ms ease, opacity 160ms ease;
+}
+
+.accelerator-compose-actions button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.accelerator-compose-actions button:not(:disabled):hover {
+  background: #1536c5;
+}
+
+@media (max-width: 720px) {
+  .accelerator-shell {
+    padding: 18px 16px 40px;
+  }
+
+  .accelerator-form textarea {
+    min-height: 100px;
+  }
+}

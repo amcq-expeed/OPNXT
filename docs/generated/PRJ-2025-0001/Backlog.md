@@ -1,59 +1,37 @@
-# Backlog for Online Bookstore Mimicking Amazon
+# Backlog for PRD Automation Application
 
 ## Epics
-### Epic 1: User Account Management
-- **Feature 1.1:** User Registration
-- **Feature 1.2:** User Profile Management
+### Epic 1: Document Creation
+- **Feature 1.1:** Real-time Document Creation
+  - **User Story 1.1.1:** As a Project Manager, I want to create a PRD in real-time so that I can capture requirements as they come to mind.
+    - **Acceptance Criteria:**
+      - Given I am logged in, when I start a new PRD, then I should see a blank document ready for editing.
+      - Given I make changes, when I save the document, then my changes should be saved without delay.
+      - Given I am editing, when I invite another user, then they should see my changes in real-time.
+      - Given I am editing, when I exceed the character limit for a section, then I should receive a validation error.
 
-### Epic 2: Book Search and Discovery
-- **Feature 2.1:** Search Functionality
-- **Feature 2.2:** Book Recommendations
+### Epic 2: Collaboration Features
+- **Feature 2.1:** User Feedback Collection
+  - **User Story 2.1.1:** As a Project Manager, I want to collect feedback on my PRD so that I can improve the document based on team input.
+    - **Acceptance Criteria:**
+      - Given I have shared the PRD, when a user provides feedback, then I should see their feedback in a dedicated section.
+      - Given I receive feedback, when I respond to it, then my response should be visible to the user who provided the feedback.
+      - Given I have feedback, when I mark it as resolved, then it should be archived from the feedback section.
+      - Given I have unresolved feedback, when I view the document, then I should see a notification indicating the number of unresolved feedback items.
 
-### Epic 3: Inventory Management
-- **Feature 3.1:** Automated Inventory Tracking
-- **Feature 3.2:** Admin Inventory Updates
+### Epic 3: Document Management
+- **Feature 3.1:** Version Control
+  - **User Story 3.1.1:** As a Project Manager, I want to save drafts of my PRD so that I can revert to previous versions if needed.
+    - **Acceptance Criteria:**
+      - Given I am editing a PRD, when I save a draft, then a new version should be created.
+      - Given I have multiple versions, when I view the version history, then I should see a list of all saved versions with timestamps.
+      - Given I select a previous version, when I choose to revert, then the document should reflect the selected version.
+      - Given I have reverted to a previous version, when I make new changes, then a new version should be created again.
 
-### Epic 4: Order Management
-- **Feature 4.1:** Order Placement
-- **Feature 4.2:** Order Returns
+## Assumptions
+- Users will have access to the necessary technology to use the application.
+- The application will be developed following industry standards.
 
-### Epic 5: User Reviews
-- **Feature 5.1:** Review Submission
-- **Feature 5.2:** Review Display
-
-## User Stories
-### User Story 1: User Registration
-- **As a** User, **I want** to create an account **so that** I can manage my purchases.
-- **Acceptance Criteria:**
-  - Given I am on the registration page, when I fill in my details and submit, then my account should be created.
-  - Given I have an existing account, when I try to register again, then I should see an error message.
-  - Given I am on the registration page, when I leave required fields empty, then I should see validation messages.
-  - Given I am a new user, when I register successfully, then I should receive a confirmation email.
-
-### User Story 2: Book Search
-- **As a** User, **I want** to search for books **so that** I can find what I want to buy.
-- **Acceptance Criteria:**
-  - Given I am on the homepage, when I enter a book title in the search bar, then I should see relevant results.
-  - Given I am on the search results page, when I apply filters, then the results should update accordingly.
-  - Given I am on the search results page, when I click on a book, then I should see the book details.
-  - Given I am on the search results page, when I search for a non-existent book, then I should see a 'no results found' message.
-
-### User Story 3: Order Placement
-- **As a** User, **I want** to place an order for a book **so that** I can purchase it.
-- **Acceptance Criteria:**
-  - Given I have selected a book, when I click 'Add to Cart', then the book should be added to my cart.
-  - Given I have items in my cart, when I proceed to checkout, then I should be able to enter my payment details.
-  - Given I have completed my order, when I check my email, then I should receive an order confirmation.
-  - Given I am on the checkout page, when I enter invalid payment information, then I should see an error message.
-
-### User Story 4: Review Submission
-- **As a** User, **I want** to submit a review for a book **so that** I can share my opinion.
-- **Acceptance Criteria:**
-  - Given I have purchased a book, when I navigate to the book page, then I should see an option to leave a review.
-  - Given I am submitting a review, when I leave the review field empty, then I should see a validation message.
-  - Given I have submitted a review, when I refresh the page, then my review should be displayed.
-  - Given I am a user, when I try to submit a review for a book I haven't purchased, then I should see an error message.
-
-## Definitions of Ready and Done
-- **Definition of Ready:** User stories must have clear acceptance criteria, be estimated, and have no blockers.
-- **Definition of Done:** User stories are implemented, tested, and accepted by the product owner.
+## Open Questions
+- What specific integrations with other tools are required?
+- What types of notifications or alerts should be implemented for user collaboration?

@@ -60,6 +60,8 @@ const PUBLIC_MODE =
   process.env.NEXT_PUBLIC_PUBLIC_MODE === "true";
 const MVP_SERVICE_TOKEN = process.env.NEXT_PUBLIC_MVP_SERVICE_TOKEN || "";
 export const TOKEN_CHANGE_EVENT = "opnxt-token-change";
+const TELEMETRY_ENDPOINT = `${API_BASE}/telemetry/events`;
+const TELEMETRY_SOURCE = "web-app";
 
 // --- Auth models ---
 export interface User {
@@ -144,11 +146,11 @@ async function apiFetch(
   init: RequestInit = {},
 ): Promise<Response> {
   const headers: Record<string, string> = { ...(init.headers as any) };
-  const omitAuth = PUBLIC_MODE || isMvpRoute();
   const token = getAccessToken();
-  if (!omitAuth && token) {
+  const guestContext = (PUBLIC_MODE || isMvpRoute()) && !token;
+  if (!guestContext && token) {
     headers["Authorization"] = `Bearer ${token}`;
-  } else if (omitAuth && MVP_SERVICE_TOKEN) {
+  } else if (guestContext && MVP_SERVICE_TOKEN) {
     headers["Authorization"] = `Bearer ${MVP_SERVICE_TOKEN}`;
   }
   let res = await fetch(input, { ...init, headers });
@@ -284,6 +286,36 @@ export async function login(email: string, password: string): Promise<User> {
   const data: TokenResponse = await res.json();
   setAccessToken(data.access_token);
   return data.user;
+}
+
+export async function register(email: string, password: string): Promise<User> {
+  const res = await fetch(`${API_BASE}/auth/register`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, password }),
+  });
+  if (!res.ok) {
+    const err = new ApiError(`Registration failed (${res.status})`);
+    try {
+      const data = await res.json();
+      if (data?.detail) {
+        if (typeof data.detail === "string") err.message = data.detail;
+        else if (Array.isArray(data.detail))
+          err.message = data.detail
+            .map((item: any) => item?.msg || item?.type || JSON.stringify(item))
+            .join("; ");
+        else err.message = JSON.stringify(data.detail);
+      }
+    } catch {}
+    throw err;
+  }
+  const data: TokenResponse = await res.json();
+  setAccessToken(data.access_token);
+  return data.user;
+}
+
+export function logout() {
+  setAccessToken(null);
 }
 
 export async function me(): Promise<User> {
@@ -638,6 +670,174 @@ export interface UploadApplyRequest {
   append_only?: boolean;
 }
 
+// --- Catalog ---
+export interface CatalogIntent {
+  intent_id: string;
+  title: string;
+  group: string;
+  description: string;
+  prefill_prompt: string;
+  deliverables: string[];
+  personas: string[];
+  guardrails: string[];
+  icon?: string | null;
+  requirement_area?: string | null;
+  core_functionality?: string | null;
+  opnxt_benefit?: string | null;
+}
+
+export function formatCatalogIntentPrompt(intent: CatalogIntent): string {
+  const lines: string[] = [];
+  lines.push(`Accelerator: ${intent.title}`);
+  lines.push(`Goal: ${intent.description}`);
+  if (intent.deliverables?.length) {
+    lines.push(`Target outputs: ${intent.deliverables.join(", ")}`);
+  }
+  if (intent.guardrails?.length) {
+    lines.push(`Guardrails to respect: ${intent.guardrails.join(", ")}`);
+  }
+  if (intent.requirement_area) {
+    lines.push(`Requirement focus: ${intent.requirement_area}`);
+  }
+  if (intent.opnxt_benefit) {
+    lines.push(`OPNXT benefit: ${intent.opnxt_benefit}`);
+  }
+  if (intent.core_functionality) {
+    lines.push(`Core functionality: ${intent.core_functionality}`);
+  }
+  lines.push(intent.prefill_prompt.trim());
+  return lines.filter(Boolean).join("\n\n");
+}
+
+type CatalogCacheEntry = {
+  data: CatalogIntent[];
+  fetchedAt: number;
+};
+
+const CATALOG_CACHE_TTL_MS = 1000 * 60 * 5; // 5 minutes
+const catalogCache = new Map<string, CatalogCacheEntry>();
+const catalogPending = new Map<string, Promise<CatalogIntent[]>>();
+
+export function clearCatalogCache() {
+  catalogCache.clear();
+  catalogPending.clear();
+}
+
+// --- Accelerator sessions ---
+export interface AcceleratorSession {
+  session_id: string;
+  accelerator_id: string;
+  created_by: string;
+  created_at: string;
+  persona?: string | null;
+  project_id?: string | null;
+  promoted_at?: string | null;
+  metadata?: Record<string, any>;
+}
+
+export interface AcceleratorMessage {
+  message_id: string;
+  session_id: string;
+  role: "assistant" | "user" | "system";
+  content: string;
+  created_at: string;
+}
+
+export interface LaunchAcceleratorResponse {
+  session: AcceleratorSession;
+  intent: CatalogIntent;
+  messages: AcceleratorMessage[];
+}
+
+export async function launchAcceleratorSession(
+  intentId: string,
+): Promise<LaunchAcceleratorResponse> {
+  const res = await apiFetch(`${API_BASE}/accelerators/${intentId}/sessions`, {
+    method: "POST",
+  });
+  return res.json();
+}
+
+export async function getAcceleratorSession(
+  sessionId: string,
+): Promise<LaunchAcceleratorResponse> {
+  const res = await apiFetch(`${API_BASE}/accelerators/sessions/${sessionId}`, {
+    cache: "no-store",
+  });
+  return res.json();
+}
+
+export async function postAcceleratorMessage(
+  sessionId: string,
+  content: string,
+): Promise<AcceleratorMessage> {
+  const res = await apiFetch(`${API_BASE}/accelerators/sessions/${sessionId}/messages`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ content }),
+  });
+  return res.json();
+}
+
+export interface PromoteAcceleratorPayload {
+  project_id?: string;
+  name?: string;
+  description?: string;
+}
+
+export interface PromoteAcceleratorResponse {
+  session: AcceleratorSession;
+  project_id: string;
+}
+
+export async function promoteAcceleratorSession(
+  sessionId: string,
+  payload: PromoteAcceleratorPayload,
+): Promise<PromoteAcceleratorResponse> {
+  const res = await apiFetch(`${API_BASE}/accelerators/sessions/${sessionId}/promote`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  return res.json();
+}
+
+export async function listCatalogIntents(
+  persona?: string,
+  options?: { forceRefresh?: boolean },
+): Promise<CatalogIntent[]> {
+  const key = (persona || "__default__").toLowerCase();
+  const entry = catalogCache.get(key);
+  const now = Date.now();
+  const expired = !entry || now - entry.fetchedAt > CATALOG_CACHE_TTL_MS;
+
+  if (!options?.forceRefresh && entry && !expired) {
+    return entry.data;
+  }
+
+  if (!options?.forceRefresh) {
+    const pending = catalogPending.get(key);
+    if (pending) return pending;
+  }
+
+  const query = persona ? `?persona=${encodeURIComponent(persona)}` : "";
+  const fetchPromise = (async () => {
+    const res = await apiFetch(`${API_BASE}/catalog/intents${query}`, {
+      cache: "no-store",
+    });
+    const data: CatalogIntent[] = await res.json();
+    catalogCache.set(key, { data, fetchedAt: Date.now() });
+    return data;
+  })();
+
+  catalogPending.set(key, fetchPromise);
+  try {
+    return await fetchPromise;
+  } finally {
+    catalogPending.delete(key);
+  }
+}
+
 export async function analyzeUploads(
   project_id: string,
   files: File[],
@@ -667,4 +867,157 @@ export async function applyUploadRequirements(
     },
   );
   return res.json();
+}
+
+// --- Telemetry (client-side only) ---
+export type TelemetryEvent = {
+  name: string;
+  properties?: Record<string, any>;
+};
+
+type TelemetrySink = (event: TelemetryEvent) => void;
+
+const telemetryListeners: TelemetrySink[] = [];
+const telemetryBuffer: TelemetryEvent[] = [];
+const TELEMETRY_BATCH_SIZE = 12;
+const TELEMETRY_FLUSH_INTERVAL_MS = 5000;
+let telemetryFlushTimer: number | null = null;
+let telemetrySinkRegistered = false;
+
+export function addTelemetryListener(listener: TelemetrySink) {
+  telemetryListeners.push(listener);
+}
+
+export function trackEvent(name: string, properties?: Record<string, any>) {
+  const payload = { name, properties: properties ?? {} };
+  if (typeof window !== "undefined" && (window as any).analytics?.track) {
+    try {
+      (window as any).analytics.track(name, properties ?? {});
+    } catch {
+      // fallthrough to local listeners
+    }
+  }
+  telemetryListeners.forEach((listener) => {
+    try {
+      listener(payload);
+    } catch {
+      // ignore listener failures
+    }
+  });
+}
+
+function enqueueTelemetry(event: TelemetryEvent) {
+  telemetryBuffer.push(event);
+  if (telemetryBuffer.length >= TELEMETRY_BATCH_SIZE) {
+    void flushTelemetryBuffer(true);
+    return;
+  }
+  if (typeof window !== "undefined") {
+    if (telemetryFlushTimer !== null) {
+      window.clearTimeout(telemetryFlushTimer);
+    }
+    telemetryFlushTimer = window.setTimeout(() => {
+      telemetryFlushTimer = null;
+      void flushTelemetryBuffer();
+    }, TELEMETRY_FLUSH_INTERVAL_MS);
+  }
+}
+
+async function flushTelemetryBuffer(forceImmediate = false) {
+  if (!telemetryBuffer.length) return;
+  const events = telemetryBuffer.splice(0, telemetryBuffer.length);
+  const payload = {
+    source: TELEMETRY_SOURCE,
+    events: events.map((event) => ({ name: event.name, properties: event.properties ?? {} })),
+  };
+
+  try {
+    if (
+      !forceImmediate &&
+      typeof navigator !== "undefined" &&
+      typeof navigator.sendBeacon === "function"
+    ) {
+      const blob = new Blob([JSON.stringify(payload)], {
+        type: "application/json",
+      });
+      if (navigator.sendBeacon(TELEMETRY_ENDPOINT, blob)) {
+        return;
+      }
+    }
+
+    await apiFetch(TELEMETRY_ENDPOINT, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+  } catch {
+    // Swallow errors; telemetry should never block UX.
+  }
+}
+
+function ensureTelemetrySink() {
+  if (telemetrySinkRegistered) return;
+  if (typeof window === "undefined") return;
+  telemetrySinkRegistered = true;
+  addTelemetryListener(enqueueTelemetry);
+  window.addEventListener("beforeunload", () => {
+    void flushTelemetryBuffer(true);
+  });
+}
+
+if (typeof window !== "undefined") {
+  ensureTelemetrySink();
+}
+
+function getStoredPersonaOverride(): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const override = window.localStorage.getItem("opnxt_persona_override");
+    return override || null;
+  } catch {
+    return null;
+  }
+}
+
+type PersonaHints = {
+  email?: string | null;
+};
+
+export function derivePersonaFromRoles(
+  roles?: string[],
+  hints?: PersonaHints,
+): string | null {
+  const stored = getStoredPersonaOverride();
+  if (stored) return stored.toLowerCase();
+
+  const normalized = (roles || []).map((role) => role.toLowerCase());
+
+  const heuristics: Array<{ match: RegExp; persona: string }> = [
+    { match: /(architect|admin|platform|systems?)/, persona: "architect" },
+    { match: /(approver|govern|compliance|review)/, persona: "approver" },
+    { match: /(engineer|developer|dev|qa|quality|tester|sdet|contributor)/, persona: "engineer" },
+    { match: /(analyst|research|insight|data)/, persona: "analyst" },
+    { match: /(auditor|risk|security)/, persona: "auditor" },
+    { match: /(product|project|manager|pm|lead)/, persona: "pm" },
+  ];
+
+  for (const role of normalized) {
+    for (const rule of heuristics) {
+      if (rule.match.test(role)) {
+        return rule.persona;
+      }
+    }
+  }
+
+  if (hints?.email) {
+    const email = hints.email.toLowerCase();
+    if (email.includes("qa") || email.includes("dev") || email.includes("eng")) return "engineer";
+    if (email.includes("product") || email.includes("pm")) return "pm";
+  }
+
+  if (normalized.length > 0) {
+    return normalized[0];
+  }
+
+  return null;
 }
