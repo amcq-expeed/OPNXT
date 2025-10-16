@@ -3,6 +3,7 @@ from fastapi.testclient import TestClient
 
 from src.orchestrator.api.main import app
 from src.orchestrator.infrastructure.repository import get_repo
+from .utils import otp_login
 
 
 client = TestClient(app)
@@ -14,13 +15,7 @@ def test_get_repo_fallback_mongo(monkeypatch):
     repo = get_repo()
 
     # Create through API to exercise dependency path and RBAC
-    r = client.post(
-        "/auth/login",
-        json={"email": "adam.thacker@expeed.com", "password": "Password#1"},
-    )
-    assert r.status_code == 200
-    token = r.json()["access_token"]
-    headers = {"Authorization": f"Bearer {token}"}
+    headers, _ = otp_login(client, "adam.thacker@expeed.com")
 
     payload = {"name": "Repo Test", "description": "Fallback works"}
     r = client.post("/projects", json=payload, headers=headers)

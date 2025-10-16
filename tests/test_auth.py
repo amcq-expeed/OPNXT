@@ -1,37 +1,44 @@
 from fastapi.testclient import TestClient
 
 from src.orchestrator.api.main import app
+from .utils import otp_login
 
 
 client = TestClient(app)
 
 
 def test_login_success_and_me():
-    r = client.post(
-        "/auth/login",
-        json={"email": "adam.thacker@expeed.com", "password": "Password#1"},
-    )
+    headers, payload = otp_login(client, "adam.thacker@expeed.com")
+    assert payload["user"]["email"].lower() == "adam.thacker@expeed.com"
+    assert "admin" in payload["user"]["roles"]
+
+    r = client.get("/auth/me", headers=headers)
     assert r.status_code == 200
-    data = r.json()
-    assert "access_token" in data
-    assert data["token_type"] == "bearer"
-    assert data["user"]["email"] == "adam.thacker@expeed.com"
-
-    token = data["access_token"]
-    r2 = client.get("/auth/me", headers={"Authorization": f"Bearer {token}"})
-    assert r2.status_code == 200
-    me = r2.json()
-    assert me["email"] == "adam.thacker@expeed.com"
+    me = r.json()
+    assert me["email"].lower() == "adam.thacker@expeed.com"
+    assert "admin" in (me.get("roles") or [])
 
 
-def test_login_failure_wrong_password():
+def test_login_failure_wrong_code():
+    r = client.post("/auth/request-otp", json={"email": "adam.thacker@expeed.com"})
+    assert r.status_code == 200
     r = client.post(
-        "/auth/login",
-        json={"email": "adam.thacker@expeed.com", "password": "WrongPass"},
+        "/auth/verify-otp",
+        json={"email": "adam.thacker@expeed.com", "code": "000000"},
     )
-    assert r.status_code == 401
+    assert r.status_code == 400
+    assert "Invalid code" in r.json()["detail"]
 
 
-def test_me_unauthorized_without_token():
-    r = client.get("/auth/me")
-    assert r.status_code == 401
+def test_login_failure_unknown_user_without_name():
+    r = client.post("/auth/request-otp", json={"email": "missing@example.com"})
+    assert r.status_code == 200
+    payload = r.json()
+    otp = payload.get("code")
+    assert otp
+    r = client.post(
+        "/auth/verify-otp",
+        json={"email": "missing@example.com", "code": otp},
+    )
+    assert r.status_code == 400
+    assert "Name required" in r.json()["detail"]

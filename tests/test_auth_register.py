@@ -1,40 +1,40 @@
 from fastapi.testclient import TestClient
 
 from src.orchestrator.api.main import app
+from .utils import otp_login
 
 
 client = TestClient(app)
 
 
-def test_register_then_me_and_login():
-    # Register a new viewer user
+def test_verify_otp_creates_new_user_and_returns_me():
     email = "viewer@test.com"
-    password = "Password#1"
-    r = client.post(
-        "/auth/register",
-        json={
-            "email": email,
-            "name": "Viewer Test",
-            "password": password,
-        },
-    )
+    name = "Viewer Test"
+
+    # Request OTP
+    r = client.post("/auth/request-otp", json={"email": email})
     assert r.status_code == 200
     data = r.json()
-    assert "access_token" in data
+    code = data.get("code")
+    assert code
 
-    # Call /auth/me with returned token
-    token = data["access_token"]
-    headers = {"Authorization": f"Bearer {token}"}
+    # Verify OTP with name to create account
+    r = client.post(
+        "/auth/verify-otp",
+        json={"email": email, "code": code, "name": name},
+    )
+    assert r.status_code == 200
+    token_payload = r.json()
+    headers = {"Authorization": f"Bearer {token_payload['access_token']}"}
+
+    # Call /auth/me to confirm user
     r = client.get("/auth/me", headers=headers)
     assert r.status_code == 200
     me = r.json()
     assert me["email"].lower() == email
     assert "viewer" in (me.get("roles") or [])
 
-    # Login using same credentials should work
-    r = client.post(
-        "/auth/login",
-        json={"email": email, "password": password},
-    )
-    assert r.status_code == 200
-    assert "access_token" in r.json()
+    # Reuse helper for subsequent logins
+    headers2, payload2 = otp_login(client, email, name=name)
+    assert payload2["user"]["email"].lower() == email
+    assert headers2["Authorization"].startswith("Bearer ")

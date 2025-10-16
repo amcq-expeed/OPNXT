@@ -3,40 +3,42 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException, status, Depends
 
 from ...security.auth import (
-    LoginRequest,
-    RegisterRequest,
+    OTPRequest,
+    OTPVerifyRequest,
     TokenResponse,
-    authenticate,
     create_access_token,
     JwtConfig,
     get_current_user,
     User,
-    register_user,
+    issue_otp,
+    verify_otp,
+    OTP_EXP_MINUTES,
+    INCLUDE_OTP_IN_RESPONSE,
 )
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
-@router.post("/login", response_model=TokenResponse)
-def login(req: LoginRequest) -> TokenResponse:
-    user = authenticate(req.email, req.password)
-    if not user:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
-    cfg = JwtConfig.from_env()
-    token = create_access_token(user, cfg)
-    return TokenResponse(access_token=token, expires_in=cfg.expires_min * 60, user=user)
+@router.post("/request-otp")
+def request_otp(req: OTPRequest) -> dict:
+    code = issue_otp(req.email)
+    payload = {
+        "status": "sent",
+        "expires_in": OTP_EXP_MINUTES * 60,
+    }
+    if INCLUDE_OTP_IN_RESPONSE:
+        payload["code"] = code
+    return payload
 
 
-@router.post("/register", response_model=TokenResponse)
-def register(req: RegisterRequest) -> TokenResponse:
-    """Open registration for development/demo.
-
-    Assigns the 'viewer' role by default to avoid privilege escalation in open flows.
-    """
+@router.post("/verify-otp", response_model=TokenResponse)
+def verify(req: OTPVerifyRequest) -> TokenResponse:
     try:
-        user = register_user(req.email, req.name, req.password, roles=["viewer"])  # force viewer by default
-    except ValueError as e:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+        user = verify_otp(req.email, req.code, name=req.name)
+    except HTTPException:
+        raise
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
     cfg = JwtConfig.from_env()
     token = create_access_token(user, cfg)
     return TokenResponse(access_token=token, expires_in=cfg.expires_min * 60, user=user)

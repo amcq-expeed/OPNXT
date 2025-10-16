@@ -4,22 +4,14 @@ import json
 import shutil
 
 from src.orchestrator.api.main import app
+from .utils import admin_headers
 
 
 client = TestClient(app)
 
 
 def _auth_headers():
-    r = client.post(
-        "/auth/login",
-        json={
-            "email": "adam.thacker@expeed.com",
-            "password": "Password#1",
-        },
-    )
-    assert r.status_code == 200
-    token = r.json()["access_token"]
-    return {"Authorization": f"Bearer {token}"}
+    return admin_headers(client)
 
 
 def test_ai_docs_returns_503_when_llm_unavailable(monkeypatch):

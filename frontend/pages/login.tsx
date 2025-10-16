@@ -3,7 +3,7 @@ import Link from "next/link";
 import { FormEvent, useMemo, useState } from "react";
 import { useRouter } from "next/router";
 import Image from "next/image";
-import { login } from "../lib/api";
+import { requestOtp, verifyOtp } from "../lib/api";
 import logoFull from "../public/logo-full.svg";
 
 type SocialProvider = {
@@ -30,10 +30,11 @@ const heroHighlights = [
 export default function LoginPage() {
   const router = useRouter();
   const [email, setEmail] = useState("adam.thacker@expeed.com");
-  const [password, setPassword] = useState("");
-  const [showPassword, setShowPassword] = useState(false);
+  const [code, setCode] = useState("");
+  const [codeSent, setCodeSent] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [socialError, setSocialError] = useState<string | null>(null);
 
   const socialProviders = useMemo<SocialProvider[]>(
@@ -80,16 +81,38 @@ export default function LoginPage() {
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
     setError(null);
+    setNotice(null);
     try {
       setLoading(true);
-      await login(email, password);
-      redirectAfterAuth();
+      if (!codeSent) {
+        await requestOtp(email);
+        setCodeSent(true);
+        setNotice(`We sent a six-digit code to ${email}. Enter it below to continue.`);
+      } else {
+        await verifyOtp(email, code.trim());
+        redirectAfterAuth();
+      }
     } catch (e: any) {
       setError(e?.message || String(e));
     } finally {
       setLoading(false);
     }
   }
+
+  const onResend = async () => {
+    if (loading) return;
+    setError(null);
+    setNotice(null);
+    try {
+      setLoading(true);
+      await requestOtp(email);
+      setNotice(`We sent a fresh code to ${email}.`);
+    } catch (e: any) {
+      setError(e?.message || String(e));
+    } finally {
+      setLoading(false);
+    }
+  };
 
   return (
     <div className="auth-page auth-page--login" aria-live="polite">
@@ -133,6 +156,11 @@ export default function LoginPage() {
               {error}
             </div>
           )}
+          {notice && !error && (
+            <div className="auth-alert auth-alert--info" role="status">
+              {notice}
+            </div>
+          )}
           {socialError && (
             <div className="auth-alert auth-alert--info" role="status">
               {socialError}
@@ -150,51 +178,39 @@ export default function LoginPage() {
                 onChange={(e) => setEmail(e.target.value)}
                 required
                 autoComplete="email"
-                disabled={loading}
+                disabled={loading || codeSent}
               />
             </label>
-            <label className="auth-field" htmlFor="password">
-              <span>Password</span>
-              <div className="auth-field__control">
+            {codeSent ? (
+              <label className="auth-field" htmlFor="otp">
+                <span>Six-digit code</span>
                 <input
-                  id="password"
-                  type={showPassword ? "text" : "password"}
-                  placeholder="Enter your password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
+                  id="otp"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  placeholder="Enter the code"
+                  value={code}
+                  onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))}
                   required
-                  autoComplete="current-password"
+                  autoComplete="one-time-code"
                   disabled={loading}
+                  maxLength={6}
                 />
-                <button
-                  type="button"
-                  className="auth-toggle"
-                  onClick={() => setShowPassword((prev) => !prev)}
-                  aria-pressed={showPassword}
-                  aria-label={showPassword ? "Hide password" : "Show password"}
-                >
-                  {showPassword ? "Hide" : "Show"}
-                </button>
-              </div>
-            </label>
+              </label>
+            ) : null}
 
             <button type="submit" className="auth-submit" disabled={loading}>
-              {loading ? "Signing in…" : "Sign in"}
+              {loading ? "Working…" : codeSent ? "Verify code" : "Send sign-in code"}
             </button>
           </form>
 
           <div className="auth-page__meta">
-            <button
-              type="button"
-              className="auth-link"
-              onClick={() => router.push("/reset-password")}
-              disabled={loading}
-            >
-              Forgot your password?
-            </button>
-            <span>
-              Need an account? <Link href="/signup">Create one</Link>
-            </span>
+            {codeSent ? (
+              <button type="button" className="auth-link" onClick={onResend} disabled={loading}>
+                Resend code
+              </button>
+            ) : null}
+            <span>Need an account? <Link href="/signup">Create one</Link></span>
           </div>
         </section>
         <aside className="auth-panel__aside" aria-label="Highlights">

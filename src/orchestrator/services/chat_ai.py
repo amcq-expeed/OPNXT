@@ -272,24 +272,22 @@ def _fallback_structured_reply(
     questions = _suggest_questions(convo_text)
 
     lines: List[str] = []
-    strategy_line = (
-        f"Maya – Product Strategy: I'm hearing that {summary_line}."
-    )
+    summary_intro = f"I'm hearing that {summary_line}."
     if gaps:
-        strategy_line += f" To refine this and sharpen the vision, let's fill in details on {', '.join(gaps[:2])}."
-    lines.append(strategy_line)
+        summary_intro += f" To refine this and sharpen the vision, let's fill in details on {', '.join(gaps[:2])}."
+    lines.append(summary_intro)
 
-    engineering_parts: List[str] = ["Priya – Engineering Lead: from a build perspective I want to ensure feasibility stays clear."]
+    engineering_sentence = "From an engineering standpoint, let's keep feasibility clear and phase the build sensibly."
     if persona:
-        engineering_parts.append(f"I'll keep the `{persona}` perspective in mind as we shape interfaces and flows.")
+        engineering_sentence += f" We'll keep the `{persona}` perspective in mind as we shape interfaces and flows."
     if attachments:
-        engineering_parts.append("I reviewed the material you shared and will thread any critical constraints into our plan.")
+        engineering_sentence += " I reviewed the material you shared and will weave any hard constraints into the plan."
     if not gaps:
-        engineering_parts.append("Technically this seems on-track; let's validate integrations and data paths next.")
-    lines.append(" ".join(engineering_parts))
+        engineering_sentence += " Technically this seems on-track; let's validate integrations and data paths next."
+    lines.append(engineering_sentence)
 
-    delivery_line = "Luis – Delivery Coach: I'll map the next moves so we can keep momentum without overloading the first release."
-    lines.append(delivery_line)
+    delivery_sentence = "On delivery, I'll map the next moves so we keep momentum without overloading the first release."
+    lines.append(delivery_sentence)
 
     if questions:
         lines.append("Questions we're holding:")

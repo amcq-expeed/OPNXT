@@ -3,7 +3,7 @@ import Link from "next/link";
 import { FormEvent, useMemo, useState } from "react";
 import { useRouter } from "next/router";
 import Image from "next/image";
-import { register } from "../lib/api";
+import { requestOtp, verifyOtp } from "../lib/api";
 import logoFull from "../public/logo-full.svg";
 
 type SocialProvider = {
@@ -30,11 +30,12 @@ const heroHighlights = [
 export default function SignupPage() {
   const router = useRouter();
   const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [confirmPassword, setConfirmPassword] = useState("");
-  const [showPassword, setShowPassword] = useState(false);
+  const [name, setName] = useState("");
+  const [code, setCode] = useState("");
+  const [codeSent, setCodeSent] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [socialError, setSocialError] = useState<string | null>(null);
 
   const socialProviders = useMemo<SocialProvider[]>(
@@ -73,22 +74,44 @@ export default function SignupPage() {
   async function onSubmit(event: FormEvent) {
     event.preventDefault();
     setError(null);
+    setNotice(null);
 
-    if (password !== confirmPassword) {
-      setError("Passwords do not match.");
+    if (!email || !name) {
+      setError("Provide your name and email to continue.");
       return;
     }
 
     try {
       setLoading(true);
-      await register(email, password);
-      redirectAfterAuth();
+      if (!codeSent) {
+        await requestOtp(email);
+        setCodeSent(true);
+        setNotice(`We sent a six-digit code to ${email}. Enter it below to create your workspace.`);
+      } else {
+        await verifyOtp(email, code.trim(), name.trim());
+        redirectAfterAuth();
+      }
     } catch (err: any) {
       setError(err?.message || String(err));
     } finally {
       setLoading(false);
     }
   }
+
+  const onResend = async () => {
+    if (loading || !email) return;
+    setError(null);
+    setNotice(null);
+    try {
+      setLoading(true);
+      await requestOtp(email);
+      setNotice(`We sent a fresh code to ${email}.`);
+    } catch (err: any) {
+      setError(err?.message || String(err));
+    } finally {
+      setLoading(false);
+    }
+  };
 
   return (
     <div className="auth-page auth-page--signup" aria-live="polite">
@@ -132,6 +155,11 @@ export default function SignupPage() {
               {error}
             </div>
           )}
+          {notice && !error && (
+            <div className="auth-alert auth-alert--info" role="status">
+              {notice}
+            </div>
+          )}
           {socialError && (
             <div className="auth-alert auth-alert--info" role="status">
               {socialError}
@@ -139,6 +167,19 @@ export default function SignupPage() {
           )}
 
           <form className="auth-form" onSubmit={onSubmit}>
+            <label className="auth-field" htmlFor="name">
+              <span>Full name</span>
+              <input
+                id="name"
+                type="text"
+                placeholder="Your name"
+                value={name}
+                onChange={(event) => setName(event.target.value)}
+                required
+                autoComplete="name"
+                disabled={loading || codeSent}
+              />
+            </label>
             <label className="auth-field" htmlFor="email">
               <span>Email address</span>
               <input
@@ -149,53 +190,38 @@ export default function SignupPage() {
                 onChange={(event) => setEmail(event.target.value)}
                 required
                 autoComplete="email"
-                disabled={loading}
+                disabled={loading || codeSent}
               />
             </label>
-            <label className="auth-field" htmlFor="password">
-              <span>Password</span>
-              <div className="auth-field__control">
+            {codeSent ? (
+              <label className="auth-field" htmlFor="otp">
+                <span>Six-digit code</span>
                 <input
-                  id="password"
-                  type={showPassword ? "text" : "password"}
-                  placeholder="Create a secure password"
-                  value={password}
-                  onChange={(event) => setPassword(event.target.value)}
+                  id="otp"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  placeholder="Enter the code"
+                  value={code}
+                  onChange={(event) => setCode(event.target.value.replace(/\D/g, ""))}
                   required
-                  autoComplete="new-password"
+                  autoComplete="one-time-code"
                   disabled={loading}
+                  maxLength={6}
                 />
-                <button
-                  type="button"
-                  className="auth-toggle"
-                  onClick={() => setShowPassword((prev) => !prev)}
-                  aria-pressed={showPassword}
-                  aria-label={showPassword ? "Hide password" : "Show password"}
-                >
-                  {showPassword ? "Hide" : "Show"}
-                </button>
-              </div>
-            </label>
-            <label className="auth-field" htmlFor="confirm-password">
-              <span>Confirm password</span>
-              <input
-                id="confirm-password"
-                type={showPassword ? "text" : "password"}
-                placeholder="Re-enter password"
-                value={confirmPassword}
-                onChange={(event) => setConfirmPassword(event.target.value)}
-                required
-                autoComplete="new-password"
-                disabled={loading}
-              />
-            </label>
+              </label>
+            ) : null}
 
             <button type="submit" className="auth-submit" disabled={loading}>
-              {loading ? "Creating account…" : "Create account"}
+              {loading ? "Working…" : codeSent ? "Verify code" : "Send sign-up code"}
             </button>
           </form>
 
           <div className="auth-page__meta">
+            {codeSent ? (
+              <button type="button" className="auth-link" onClick={onResend} disabled={loading}>
+                Resend code
+              </button>
+            ) : null}
             <span>
               Already have an account? <Link href="/login">Sign in</Link>
             </span>

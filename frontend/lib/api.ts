@@ -77,6 +77,12 @@ export interface TokenResponse {
   user: User;
 }
 
+export interface OTPRequestResponse {
+  status: string;
+  expires_in: number;
+  code?: string;
+}
+
 // --- Token storage (dev: localStorage + in-memory) ---
 let accessToken: string | null = null;
 try {
@@ -259,14 +265,14 @@ export function documentDocxUrl(
   return `${base}/projects/${encodeURIComponent(project_id)}/documents/${encodeURIComponent(filename)}/docx${v}`;
 }
 
-export async function login(email: string, password: string): Promise<User> {
-  const res = await fetch(`${API_BASE}/auth/login`, {
+export async function requestOtp(email: string): Promise<OTPRequestResponse> {
+  const res = await fetch(`${API_BASE}/auth/request-otp`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ email, password }),
+    body: JSON.stringify({ email }),
   });
   if (!res.ok) {
-    const err = new ApiError(`Login failed (${res.status})`);
+    const err = new ApiError(`OTP request failed (${res.status})`);
     try {
       const data = await res.json();
       if (data?.detail) {
@@ -283,19 +289,17 @@ export async function login(email: string, password: string): Promise<User> {
     } catch {}
     throw err;
   }
-  const data: TokenResponse = await res.json();
-  setAccessToken(data.access_token);
-  return data.user;
+  return res.json();
 }
 
-export async function register(email: string, password: string): Promise<User> {
-  const res = await fetch(`${API_BASE}/auth/register`, {
+export async function verifyOtp(email: string, code: string, name?: string): Promise<User> {
+  const res = await fetch(`${API_BASE}/auth/verify-otp`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ email, password }),
+    body: JSON.stringify({ email, code, ...(name ? { name } : {}) }),
   });
   if (!res.ok) {
-    const err = new ApiError(`Registration failed (${res.status})`);
+    const err = new ApiError(`OTP verification failed (${res.status})`);
     try {
       const data = await res.json();
       if (data?.detail) {

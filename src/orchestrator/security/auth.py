@@ -15,17 +15,21 @@ Env vars (for production readiness):
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+from email.message import EmailMessage
 from typing import Dict, Optional
 
 import os
+import logging
 import jwt
+import secrets
+import smtplib
+import ssl
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from passlib.context import CryptContext
 from pydantic import BaseModel, EmailStr
 
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+logger = logging.getLogger(__name__)
 bearer_scheme = HTTPBearer(auto_error=False)
 
 
@@ -55,16 +59,14 @@ class User(BaseModel):
     roles: list[str]
 
 
-class LoginRequest(BaseModel):
+class OTPRequest(BaseModel):
     email: EmailStr
-    password: str
 
 
-class RegisterRequest(BaseModel):
+class OTPVerifyRequest(BaseModel):
     email: EmailStr
-    name: str
-    password: str
-    roles: list[str] | None = None  # ignored for open registration; default to ["viewer"]
+    code: str
+    name: Optional[str] = None
 
 
 class TokenResponse(BaseModel):
@@ -74,32 +76,86 @@ class TokenResponse(BaseModel):
     user: User
 
 
-def _hash_password(plain: str) -> str:
-    return pwd_context.hash(plain)
-
-
-def _verify_password(plain: str, hashed: str) -> bool:
-    try:
-        return pwd_context.verify(plain, hashed)
-    except Exception:
-        return False
-
-
-# In-memory dev users (email -> {name, roles, password_hash})
-_DEV_ADMIN_PASSWORD = os.getenv("DEV_ADMIN_PASSWORD", "Password#1")
-_DEV_CONTRIB_PASSWORD = os.getenv("DEV_CONTRIB_PASSWORD", "Password#1")
+# In-memory dev users (email -> {name, roles})
 USERS: Dict[str, Dict[str, object]] = {
     "adam.thacker@expeed.com": {
         "name": "Adam Thacker",
         "roles": ["admin"],
-        "password_hash": _hash_password(_DEV_ADMIN_PASSWORD),
     },
     "contrib@example.com": {
         "name": "Contributor User",
         "roles": ["contributor"],
-        "password_hash": _hash_password(_DEV_CONTRIB_PASSWORD),
     },
 }
+
+
+@dataclass
+class OTPEntry:
+    code: str
+    expires_at: datetime
+    attempts: int = 0
+
+
+OTP_STORE: Dict[str, OTPEntry] = {}
+OTP_EXP_MINUTES = int(os.getenv("OTP_EXPIRES_MIN", "10"))
+OTP_MAX_ATTEMPTS = int(os.getenv("OTP_MAX_ATTEMPTS", "5"))
+INCLUDE_OTP_IN_RESPONSE = os.getenv("OPNXT_INCLUDE_OTP_IN_RESPONSE", "1").lower() in ("1", "true", "yes")
+
+
+def _smtp_configured() -> bool:
+    host = os.getenv("OPNXT_SMTP_HOST")
+    user = os.getenv("OPNXT_SMTP_USER")
+    password = os.getenv("OPNXT_SMTP_PASSWORD")
+    sender = os.getenv("OPNXT_SMTP_SENDER") or user
+    if not host or not user or not password or not sender:
+        return False
+    try:
+        int(os.getenv("OPNXT_SMTP_PORT", "587"))
+    except ValueError:
+        return False
+    return True
+
+
+def _send_otp_email(recipient: str, code: str) -> None:
+    if not _smtp_configured():
+        logger.info("SMTP not fully configured; skipping OTP email send")
+        return
+    host = os.getenv("OPNXT_SMTP_HOST")
+    port = int(os.getenv("OPNXT_SMTP_PORT", "587"))
+    user = os.getenv("OPNXT_SMTP_USER")
+    password = os.getenv("OPNXT_SMTP_PASSWORD")
+    sender = os.getenv("OPNXT_SMTP_SENDER") or user
+    use_tls = os.getenv("OPNXT_SMTP_USE_TLS", "1").lower() in ("1", "true", "yes")
+    use_ssl = os.getenv("OPNXT_SMTP_USE_SSL", "0").lower() in ("1", "true", "yes")
+    timeout = int(os.getenv("OPNXT_SMTP_TIMEOUT", "10"))
+
+    message = EmailMessage()
+    message["Subject"] = "Your OPNXT verification code"
+    message["From"] = sender
+    message["To"] = recipient
+    message.set_content(
+        f"Your one-time passcode is {code}.\n\n"
+        f"It expires in {OTP_EXP_MINUTES} minutes."
+    )
+
+    try:
+        context = ssl.create_default_context()
+        if use_ssl:
+            with smtplib.SMTP_SSL(host, port, timeout=timeout, context=context) as client:
+                client.login(user, password)
+                client.send_message(message)
+                logger.info("Sent OTP email to %s via %s:%s (SSL)", recipient, host, port)
+        else:
+            with smtplib.SMTP(host, port, timeout=timeout) as client:
+                client.ehlo()
+                if use_tls:
+                    client.starttls(context=context)
+                    client.ehlo()
+                client.login(user, password)
+                client.send_message(message)
+                logger.info("Sent OTP email to %s via %s:%s", recipient, host, port)
+    except Exception:
+        logger.exception("Failed to send OTP email to %s", recipient)
 
 
 def create_access_token(user: User, cfg: Optional[JwtConfig] = None) -> str:
@@ -127,16 +183,11 @@ def decode_token(token: str, cfg: Optional[JwtConfig] = None) -> User:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
 
 
-def authenticate(email: str, password: str) -> Optional[User]:
-    rec = USERS.get(email.lower())
-    if not rec:
-        return None
-    if not _verify_password(password, rec.get("password_hash", "")):
-        return None
-    return User(email=email.lower(), name=str(rec.get("name", email)), roles=list(rec.get("roles", [])))
+def _get_user_record(email: str) -> Optional[Dict[str, object]]:
+    return USERS.get(email.lower())
 
 
-def register_user(email: str, name: str, password: str, roles: Optional[list[str]] = None) -> User:
+def register_user(email: str, name: str, roles: Optional[list[str]] = None) -> User:
     """Register a new in-memory user for development/demo environments.
 
     For open registration flows, the role is forced to ["viewer"] to avoid privilege escalation.
@@ -149,9 +200,56 @@ def register_user(email: str, name: str, password: str, roles: Optional[list[str
     USERS[email_l] = {
         "name": name,
         "roles": effective_roles,
-        "password_hash": _hash_password(password),
     }
     return User(email=email_l, name=name, roles=effective_roles)
+
+
+def _generate_otp_code(length: int = 6) -> str:
+    return "".join(secrets.choice("0123456789") for _ in range(length))
+
+
+def issue_otp(email: str) -> str:
+    email_l = email.lower()
+    code = _generate_otp_code()
+    expires = datetime.now(timezone.utc) + timedelta(minutes=OTP_EXP_MINUTES)
+    OTP_STORE[email_l] = OTPEntry(code=code, expires_at=expires)
+    logger.info("Issued OTP for %s expiring at %s", email_l, expires.isoformat())
+    _send_otp_email(email, code)
+    return code
+
+
+def verify_otp(email: str, code: str, name: Optional[str] = None) -> User:
+    email_l = email.lower()
+    entry = OTP_STORE.get(email_l)
+    if not entry:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="OTP not requested")
+
+    now = datetime.now(timezone.utc)
+    if entry.expires_at < now:
+        OTP_STORE.pop(email_l, None)
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="OTP expired")
+
+    entry.attempts += 1
+    if entry.attempts > OTP_MAX_ATTEMPTS:
+        OTP_STORE.pop(email_l, None)
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Too many invalid attempts")
+
+    if entry.code != code:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid code")
+
+    OTP_STORE.pop(email_l, None)
+
+    rec = _get_user_record(email_l)
+    if rec is None:
+        if not name:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Name required to create account")
+        user = register_user(email_l, name, roles=["viewer"])
+    else:
+        if name and rec.get("name") != name:
+            rec["name"] = name
+        user = User(email=email_l, name=str(rec.get("name", email_l)), roles=list(rec.get("roles", [])))
+
+    return user
 
 
 def _public_mode_enabled() -> bool:

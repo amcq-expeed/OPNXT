@@ -70,10 +70,10 @@ class ModelRouter:
     }
 
     ROUTING_POLICY: Dict[str, tuple[str, ...]] = {
-        # Everyday conversation should prefer the more cost-effective model.
-        "conversation": ("local", "gemini", "openai", "xai"),
+        # Everyday conversation should prefer cost-effective hosted models first.
+        "conversation": ("gemini", "openai", "xai", "local"),
         # Traceable artifacts (charter, SRS, etc.) prioritise the premium model.
-        "governance_artifact": ("openai", "local", "gemini", "xai"),
+        "governance_artifact": ("openai", "gemini", "xai", "local"),
         # Retrieval augmented or real-time lookups use the search pipeline first.
         "realtime_grounding": ("search", "openai"),
     }
@@ -86,7 +86,13 @@ class ModelRouter:
         self._env = env or os.environ
         self._allowed: Optional[Set[str]] = set(allowed_providers) if allowed_providers else None
         preferred = (self._env.get("OPNXT_MODEL_PROVIDER") or "").strip().lower()
-        self._forced_provider = preferred if preferred else None
+        force_flag = (self._env.get("OPNXT_FORCE_MODEL_PROVIDER") or "").strip().lower() in ("1", "true", "yes")
+        if env is None and preferred and force_flag:
+            self._forced_provider = preferred
+        else:
+            # When a custom env dict is supplied (e.g., unit tests) or force flag not set, ignore forced overrides
+            self._forced_provider = None
+        self._preferred_provider = preferred if preferred else None
 
     # ------------------------------------------------------------------
     # Provider resolution helpers
@@ -103,6 +109,17 @@ class ModelRouter:
             if not api_key_env:
                 return False
             return bool(self._env.get(api_key_env))
+
+        if provider == "local":
+            enforced = self._forced_provider == "local"
+            enabled_flag = (self._env.get("OPNXT_ENABLE_LOCAL_PROVIDER") or "").strip() == "1"
+            if not (enforced or enabled_flag):
+                return False
+            base_url_env = cfg.get("base_url_env")
+            api_key_env = cfg.get("api_key_env")
+            has_base = bool(base_url_env and self._env.get(base_url_env))
+            has_key = bool(api_key_env and self._env.get(api_key_env))
+            return has_base or has_key
 
         base_url_env = cfg.get("base_url_env") or ""
         base_url = self._env.get(base_url_env, cfg.get("default_base_url") or "")
@@ -122,6 +139,7 @@ class ModelRouter:
             with socket.create_connection((host, port), timeout=1.5):
                 return True
         except OSError:
+            # Treat network failures as unavailable to encourage fallback.
             return False
 
     def _resolve_selection(self, provider: str) -> ProviderSelection:
@@ -150,7 +168,9 @@ class ModelRouter:
             currently available.
         """
 
-        priority = self.ROUTING_POLICY.get(purpose, self.ROUTING_POLICY["conversation"])
+        priority = list(self.ROUTING_POLICY.get(purpose, self.ROUTING_POLICY["conversation"]))
+        if self._preferred_provider and self._preferred_provider in self.PROVIDER_CONFIG:
+            priority = [self._preferred_provider] + [p for p in priority if p != self._preferred_provider]
         if self._forced_provider:
             if self._allowed is not None and self._forced_provider not in self._allowed:
                 pass

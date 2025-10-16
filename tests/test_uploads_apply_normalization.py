@@ -1,22 +1,15 @@
 from fastapi.testclient import TestClient
 
 from src.orchestrator.api.main import app
+from .utils import otp_login
 
 
 client = TestClient(app)
 
 
 def _auth_headers():
-    r = client.post(
-        "/auth/login",
-        json={
-            "email": "adam.thacker@expeed.com",
-            "password": "Password#1",
-        },
-    )
-    assert r.status_code == 200
-    token = r.json()["access_token"]
-    return {"Authorization": f"Bearer {token}"}
+    headers, _ = otp_login(client, "adam.thacker@expeed.com")
+    return headers
 
 
 def test_apply_upload_requirements_normalizes_shall():

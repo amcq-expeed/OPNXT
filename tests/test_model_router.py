@@ -16,7 +16,16 @@ def clean_env():
     """Ensure each test starts with a clean slate of credentials."""
 
     original_env = dict(os.environ)
-    for key in ["OPENAI_API_KEY", "GEMINI_API_KEY", "GOOGLE_SEARCH_API_KEY"]:
+    for key in [
+        "OPENAI_API_KEY",
+        "GEMINI_API_KEY",
+        "GOOGLE_SEARCH_API_KEY",
+        "LOCAL_API_KEY",
+        "LOCAL_BASE_URL",
+        "OPNXT_ENABLE_LOCAL_PROVIDER",
+        "OPNXT_MODEL_PROVIDER",
+        "OPNXT_FORCE_MODEL_PROVIDER",
+    ]:
         os.environ.pop(key, None)
     try:
         yield

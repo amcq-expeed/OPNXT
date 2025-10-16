@@ -2,30 +2,18 @@ import os
 from fastapi.testclient import TestClient
 
 from src.orchestrator.api.main import app
+from .utils import admin_headers, contrib_headers
 
 
 client = TestClient(app)
 
 
-def _auth_headers(email: str, password: str):
-    r = client.post(
-        "/auth/login",
-        json={
-            "email": email,
-            "password": password,
-        },
-    )
-    assert r.status_code == 200
-    token = r.json()["access_token"]
-    return {"Authorization": f"Bearer {token}"}
-
-
 def _admin_headers():
-    return _auth_headers("adam.thacker@expeed.com", "Password#1")
+    return admin_headers(client)
 
 
 def _contrib_headers():
-    return _auth_headers("contrib@example.com", "Password#1")
+    return contrib_headers(client)
 
 
 def test_api_prefixed_health_and_metrics():

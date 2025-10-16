@@ -2,22 +2,14 @@ from fastapi.testclient import TestClient
 
 from src.orchestrator.api.main import app
 from src.orchestrator.infrastructure.doc_store import get_doc_store
+from .utils import admin_headers
 
 
 client = TestClient(app)
 
 
 def _auth_headers():
-    r = client.post(
-        "/auth/login",
-        json={
-            "email": "adam.thacker@expeed.com",
-            "password": "Password#1",
-        },
-    )
-    assert r.status_code == 200
-    token = r.json()["access_token"]
-    return {"Authorization": f"Bearer {token}"}
+    return admin_headers(client)
 
 
 def test_missing_project_routes_return_404():
