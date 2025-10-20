@@ -1,37 +1,42 @@
+import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/router";
 import { useEffect, useMemo, useRef, useState } from "react";
 import styles from "./SideNav.module.css";
-import type { User } from "../lib/api";
+import type { User, WorkspaceSummary, ChatSession } from "../lib/api";
+import { getWorkspaceSummary, listRecentChatSessions } from "../lib/api";
 
-const navItems = [
+type NavItem = {
+  href: string;
+  label: string;
+  match: (path: string) => boolean;
+  icon: string;
+};
+
+const baseNavItems: NavItem[] = [
   {
     href: "/dashboard",
     label: "Chats",
     match: (path: string) => path.startsWith("/dashboard"),
     icon: "💬",
-    count: 0,
   },
   {
     href: "/projects",
     label: "Documents",
     match: (path: string) => path.startsWith("/projects"),
     icon: "📄",
-    count: 0,
   },
   {
     href: "/start",
     label: "Projects",
     match: (path: string) => path.startsWith("/start"),
     icon: "🧭",
-    count: undefined,
   },
   {
     href: "/templates",
     label: "Templates",
     match: (path: string) => path.startsWith("/templates"),
     icon: "📦",
-    count: undefined,
   },
 ];
 
@@ -46,9 +51,50 @@ export default function SideNav({ collapsed = false, onToggle, user }: SideNavPr
   const activeHref = router.pathname;
   const [accountOpen, setAccountOpen] = useState(false);
   const accountRef = useRef<HTMLDivElement | null>(null);
-  const recentChats: { id: string; title: string; subtitle: string }[] = [];
+  const [summary, setSummary] = useState<WorkspaceSummary | null>(null);
+  const [recentChats, setRecentChats] = useState<ChatSession[]>([]);
+  const [summaryError, setSummaryError] = useState<string | null>(null);
+  const [loadingSummary, setLoadingSummary] = useState<boolean>(false);
+  const [loadingRecents, setLoadingRecents] = useState<boolean>(false);
 
-  const items = useMemo(() => navItems, []);
+  const items = useMemo(() => baseNavItems, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoadingSummary(true);
+    setSummaryError(null);
+    getWorkspaceSummary()
+      .then((data) => {
+        if (!cancelled) setSummary(data);
+      })
+      .catch((error: any) => {
+        if (!cancelled) setSummaryError(error?.message || "Unable to load workspace summary.");
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingSummary(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoadingRecents(true);
+    listRecentChatSessions(6)
+      .then((sessions) => {
+        if (!cancelled) setRecentChats(sessions ?? []);
+      })
+      .catch(() => {
+        if (!cancelled) setRecentChats([]);
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingRecents(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     if (!accountOpen) return;
@@ -73,7 +119,14 @@ export default function SideNav({ collapsed = false, onToggle, user }: SideNavPr
     >
       <div className={styles.topRow}>
         <Link href="/" className={styles.brand} aria-label="OPNXT home">
-          <img src="/logo-full.svg" alt="Expeed Software" className={styles.brandLogo} />
+          <Image
+            src="/logo-full.svg"
+            alt="Expeed Software"
+            className={styles.brandLogo}
+            width={132}
+            height={28}
+            priority
+          />
         </Link>
       </div>
       <div className={styles.workspaceSelect}>
@@ -101,8 +154,12 @@ export default function SideNav({ collapsed = false, onToggle, user }: SideNavPr
                     {item.icon}
                   </span>
                   <span className={styles.navLabel}>{item.label}</span>
-                  {typeof item.count === "number" ? (
-                    <span className={styles.navBadge}>{item.count}</span>
+                  {summary ? (
+                    item.href === "/dashboard" ? (
+                      <span className={styles.navBadge}>{summary.chat_sessions}</span>
+                    ) : item.href === "/projects" ? (
+                      <span className={styles.navBadge}>{summary.documents}</span>
+                    ) : null
                   ) : null}
                 </Link>
               </li>
@@ -113,10 +170,16 @@ export default function SideNav({ collapsed = false, onToggle, user }: SideNavPr
       <div className={styles.usageCard}>
         <div className={styles.usageHeader}>
           <span className={styles.usageLabel}>Chats used</span>
-          <span className={styles.usageValue}>0 / 3</span>
+          <span className={styles.usageValue}>
+            {summary ? `${Math.min(summary.chat_sessions, 3)} / 3` : loadingSummary ? "Loading…" : "—"}
+          </span>
         </div>
         <div className={styles.usageMeter}>
-          <span style={{ width: "0%" }} />
+          <span
+            style={{
+              width: summary ? `${Math.min((summary.chat_sessions / 3) * 100, 100)}%` : "0%",
+            }}
+          />
         </div>
         <Link href="/billing" className={styles.usageUpgrade}>
           Upgrade for unlimited
@@ -135,13 +198,27 @@ export default function SideNav({ collapsed = false, onToggle, user }: SideNavPr
           Press <kbd>⌘</kbd>
           <kbd>K</kbd> to search
         </div>
-        {recentChats.length ? (
+        {loadingRecents ? (
+          <p className={styles.recentsEmpty}>Loading…</p>
+        ) : recentChats.length ? (
           <ul className={styles.recentsList}>
             {recentChats.map((chat) => (
-              <li key={chat.id}>
-                <button type="button" className={styles.recentsItem}>
+              <li key={chat.session_id}>
+                <button
+                  type="button"
+                  className={styles.recentsItem}
+                  onClick={() => {
+                    if (chat.kind === "project" && chat.project_id) {
+                      router.push(`/projects/${chat.project_id}?session=${chat.session_id}`);
+                      return;
+                    }
+                    router.push(`/dashboard?session=${chat.session_id}`);
+                  }}
+                >
                   <span className={styles.recentsTitle}>{chat.title}</span>
-                  <span className={styles.recentsSubtitle}>{chat.subtitle}</span>
+                  <span className={styles.recentsSubtitle}>
+                    {chat.persona ? chat.persona.toUpperCase() : chat.kind === "guest" ? "Guest" : "Project"}
+                  </span>
                 </button>
               </li>
             ))}
@@ -149,6 +226,7 @@ export default function SideNav({ collapsed = false, onToggle, user }: SideNavPr
         ) : (
           <p className={styles.recentsEmpty}>No chats yet.</p>
         )}
+        {summaryError && <p className={styles.recentsEmpty}>{summaryError}</p>}
       </div>
       <div
         className={`${styles.account} ${accountOpen ? styles.accountOpen : ""}`.trim()}

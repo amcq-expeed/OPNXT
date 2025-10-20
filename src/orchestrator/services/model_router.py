@@ -63,7 +63,16 @@ class ModelRouter:
             "api_key_env": "LOCAL_API_KEY",
             "base_url_env": "LOCAL_BASE_URL",
             "model_env": "LOCAL_MODEL",
-            "default_model": "gpt-oss:120b",
+            "fallbacks_env": "LOCAL_MODEL_FALLBACKS",
+            "model_fallbacks": (
+                "mixtral:8x22b",
+                "qwen2.5:72b-instruct",
+                "llama3.1:70b",
+                "gpt-oss:120b",
+                "mistral:latest",
+                "llama3.2:latest",
+            ),
+            "default_model": "mixtral:8x22b",
             "default_base_url": "http://127.0.0.1:11434",
             "requires_api_key": False,
         },
@@ -145,7 +154,26 @@ class ModelRouter:
     def _resolve_selection(self, provider: str) -> ProviderSelection:
         cfg = self.PROVIDER_CONFIG[provider]
         model_env = cfg.get("model_env") or ""
-        model = self._env.get(model_env, cfg.get("default_model") or "")
+        model = (self._env.get(model_env) or "").strip()
+        if not model:
+            fallback_env_key = cfg.get("fallbacks_env") or ""
+            if fallback_env_key:
+                fallback_env_value = (self._env.get(fallback_env_key) or "").strip()
+                if fallback_env_value:
+                    for candidate in fallback_env_value.split(","):
+                        candidate = candidate.strip()
+                        if candidate:
+                            model = candidate
+                            break
+        if not model:
+            fallback_cfg = cfg.get("model_fallbacks")
+            if isinstance(fallback_cfg, (tuple, list)):
+                for candidate in fallback_cfg:
+                    if candidate:
+                        model = str(candidate)
+                        break
+        if not model:
+            model = str(cfg.get("default_model") or "")
         return ProviderSelection(
             name=provider,
             model=model,
@@ -158,6 +186,14 @@ class ModelRouter:
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
+    def provider_available(self, provider: str) -> bool:
+        return self._provider_available(provider)
+
+    def resolve_provider(self, provider: str) -> ProviderSelection:
+        if provider not in self.PROVIDER_CONFIG:
+            raise KeyError(provider)
+        return self._resolve_selection(provider)
+
     def select_provider(self, purpose: str) -> ProviderSelection:
         """Return the provider selected for the supplied purpose.
 

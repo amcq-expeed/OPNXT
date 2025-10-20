@@ -135,7 +135,7 @@ export default function ProjectDetailsPage() {
         setChipPrefill(p);
       }
     }
-  }, [router.query.prefill]);
+  }, [router.query.prefill, chipPrefill]);
 
   // Derived overview metrics
   const answers = useMemo(() => (ctx as any)?.data?.answers || {}, [ctx]);
@@ -667,27 +667,30 @@ export default function ProjectDetailsPage() {
     }
   }
 
-  async function updateApproval(filename: string, approved: boolean) {
-    if (!id) return;
-    try {
-      setApprovalBusy(true);
-      const current = await getProjectContext(id);
-      const data: any = current && current.data ? { ...current.data } : {};
-      const aps: Record<string, { approved: boolean; approved_at?: string }> =
-        data.approvals && typeof data.approvals === "object"
-          ? { ...data.approvals }
-          : {};
-      aps[filename] = { approved, approved_at: new Date().toISOString() };
-      const payload = { data: { ...data, approvals: aps } } as any;
-      await putProjectContext(id, payload);
-      setApprovals(aps);
-      setNotice(approved ? `Approved ${filename}` : `Unapproved ${filename}`);
-    } catch (e: any) {
-      setError(e?.message || String(e));
-    } finally {
-      setApprovalBusy(false);
-    }
-  }
+  const updateApproval = useCallback(
+    async (filename: string, approved: boolean) => {
+      if (!id) return;
+      try {
+        setApprovalBusy(true);
+        const current = await getProjectContext(id);
+        const data: any = current && current.data ? { ...current.data } : {};
+        const aps: Record<string, { approved: boolean; approved_at?: string }> =
+          data.approvals && typeof data.approvals === "object"
+            ? { ...data.approvals }
+            : {};
+        aps[filename] = { approved, approved_at: new Date().toISOString() };
+        const payload = { data: { ...data, approvals: aps } } as any;
+        await putProjectContext(id, payload);
+        setApprovals(aps);
+        setNotice(approved ? `Approved ${filename}` : `Unapproved ${filename}`);
+      } catch (e: any) {
+        setError(e?.message || String(e));
+      } finally {
+        setApprovalBusy(false);
+      }
+    },
+    [id],
+  );
 
   const ensureArtifactContent = useCallback(
     async (fname: string) => {

@@ -227,6 +227,14 @@
   gap: 16px;
 }
 
+.support-thread__messages {
+  max-height: 280px;
+  overflow-y: auto;
+  display: grid;
+  gap: 12px;
+  padding-right: 4px;
+}
+
 .support-thread__bubble {
   padding: 14px 16px;
   border-radius: 18px;

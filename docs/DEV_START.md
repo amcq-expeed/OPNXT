@@ -76,6 +76,28 @@ docker compose down
 - PDF/WeasyPrint: PDF export is optional. The app runs even if WeasyPrint isn’t installed on Windows.
 - CORS: Already enabled for `http://localhost:3000` in `src/orchestrator/api/main.py`.
 
+## MCP integration (preview)
+
+Bring the chat capabilities into MCP-compatible IDEs (Cursor, Windsurf, Claude Desktop, etc.). With the dev stack running locally:
+
+1. Add the following snippet to your IDE’s MCP configuration (for Cursor this lives in `settings.json`):
+
+```json
+{
+  "mcpServers": {
+    "OPNXT": {
+      "url": "http://localhost:8000/mcp"
+    }
+  }
+}
+```
+
+2. Restart the IDE and connect to the `OPNXT` server. The IDE should expose tools mirroring the `/chat` API (`list_chats`, `search_chat_messages`, `list_chat_templates`, etc.).
+
+3. Verify connectivity by invoking a simple tool call (for example, list chat sessions for an active project). If the IDE cannot reach the URL, ensure the FastAPI app is running and that any proxy/VPN is disabled.
+
+> **Note:** The MCP adapter shares your local authentication context. Use it only on trusted machines and networks.
+
 ## Directory Map
 - Backend API: `src/orchestrator/api/main.py`
 - Projects router: `src/orchestrator/api/routers/projects.py`

@@ -29,3 +29,4 @@ class AcceleratorMessage:
     role: str
     content: str
     created_at: str
+    metadata: Optional[dict] = None

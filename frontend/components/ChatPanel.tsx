@@ -1,21 +1,31 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   CatalogIntent,
   ChatMessage,
+  ChatModelOption,
   ChatSession,
   ChatSessionWithMessages,
+  ChatTemplate,
+  ChatSearchHit,
   createChatSession,
   formatCatalogIntentPrompt,
   getChatSession,
   getProjectContext,
   listCatalogIntents,
   listChatMessages,
+  listChatModels,
   listChatSessions,
+  listChatTemplates,
   postChatMessage,
   putProjectContext,
+  searchChatMessages,
   trackEvent,
 } from "../lib/api";
 import { useUserContext } from "../lib/user-context";
+import {
+  getModelPreference,
+  setModelPreference,
+} from "../lib/modelPreference";
 
 interface ChatPanelProps {
   projectId: string;
@@ -64,13 +74,27 @@ export default function ChatPanel({
   } | null>(null);
   const [controlsOpen, setControlsOpen] = useState<boolean>(false);
   const [toolsOpen, setToolsOpen] = useState<boolean>(false);
+  const [capabilitiesOpen, setCapabilitiesOpen] = useState<boolean>(false);
   const [catalogIntents, setCatalogIntents] = useState<CatalogIntent[]>([]);
   const [catalogLoading, setCatalogLoading] = useState<boolean>(false);
   const [catalogError, setCatalogError] = useState<string | null>(null);
+  const [models, setModels] = useState<ChatModelOption[]>([]);
+  const [modelLoading, setModelLoading] = useState<boolean>(false);
+  const [modelError, setModelError] = useState<string | null>(null);
+  const [selectedModel, setSelectedModel] = useState<string>("adaptive:auto");
+  const [templates, setTemplates] = useState<ChatTemplate[]>([]);
+  const [templatesLoading, setTemplatesLoading] = useState<boolean>(false);
+  const [templatesError, setTemplatesError] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState<string>("");
+  const [searching, setSearching] = useState<boolean>(false);
+  const [searchResults, setSearchResults] = useState<ChatSearchHit[]>([]);
+  const [searchError, setSearchError] = useState<string | null>(null);
 
   const bottomRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const toolsInitialized = useRef<boolean>(false);
+
+  const serializeModelKey = (opt: ChatModelOption) => `${opt.provider}:${opt.model}`;
 
   const pushGenerationStage = (label: string, progress?: number) => {
     setGenerationStages((prev) => [...prev, label]);
@@ -87,36 +111,54 @@ export default function ChatPanel({
     el.style.height = Math.min(el.scrollHeight, max) + "px";
   }
 
-  async function ensureSession(): Promise<string> {
-    // If a session is already selected, return it
+  const refreshSessions = useCallback(async () => {
+    if (!projectId) return;
+    try {
+      setError(null);
+      const list = await listChatSessions(projectId);
+      setSessions(list);
+      setSelected((prev) => {
+        if (!list.length) return null;
+        if (prev && list.some((item) => item.session_id === prev)) {
+          return prev;
+        }
+        return list[0].session_id;
+      });
+    } catch (e: any) {
+      setError(e?.message || String(e));
+    }
+  }, [projectId]);
+
+  const ensureSession = useCallback(async (): Promise<string> => {
     if (selected) return selected;
-    // If sessions exist, pick the most recent
     if (sessions.length > 0) {
       const sid = sessions[0].session_id;
       setSelected(sid);
       return sid;
     }
-    // Otherwise, create a new session
-    const created = await createChatSession(
-      projectId,
-      titleDraft || "Refinement Chat",
-    );
+    if (!projectId) {
+      throw new Error("projectId is required to create a chat session");
+    }
+    const created = await createChatSession(projectId, titleDraft || "Refinement Chat");
     await refreshSessions();
     setSelected(created.session_id);
     return created.session_id;
-  }
+  }, [selected, sessions, projectId, titleDraft, refreshSessions]);
 
-  async function refreshSessions() {
-    try {
-      setError(null);
-      const list = await listChatSessions(projectId);
-      setSessions(list);
-      if (list.length > 0 && !selected) {
-        setSelected(list[0].session_id);
-      }
-    } catch (e: any) {
-      setError(e?.message || String(e));
-    }
+  function onTemplateSelect(template: ChatTemplate) {
+    if (!template) return;
+    setDraft((prev) =>
+      prev && prev.trim() ? `${prev.trim()}
+
+${template.prompt}` : template.prompt,
+    );
+    trackEvent("chat_template_selected", {
+      templateId: template.template_id,
+      title: template.title,
+    });
+    setCapabilitiesOpen(true);
+    requestAnimationFrame(autoResize);
+    requestAnimationFrame(() => inputRef.current?.focus());
   }
 
   async function applyAllFromChat() {
@@ -261,7 +303,19 @@ export default function ChatPanel({
             }
           : prev,
       );
-      const assistant = await postChatMessage(sid, draft.trim());
+      const [providerOverride, modelOverride] = (() => {
+        if (!selectedModel) return [null, null];
+        const [provider, ...rest] = selectedModel.split(":");
+        const model = rest.join(":") || null;
+        if (!provider || provider === "adaptive") {
+          return [null, null];
+        }
+        return [provider, model];
+      })();
+      const assistant = await postChatMessage(sid, draft.trim(), {
+        provider: providerOverride,
+        model: modelOverride,
+      });
       // Fetch full list to include the user message as persisted + assistant response
       const msgs = await listChatMessages(sid);
       setCurrent((prev) => (prev ? { ...prev, messages: msgs } : prev));
@@ -295,18 +349,40 @@ export default function ChatPanel({
     }
   }
 
+  async function runSearch(e?: React.FormEvent) {
+    if (e) e.preventDefault();
+    const term = searchQuery.trim();
+    if (term.length < 2) {
+      setSearchError("Enter at least 2 characters.");
+      setSearchResults([]);
+      return;
+    }
+    try {
+      setSearching(true);
+      setSearchError(null);
+      const hits = await searchChatMessages(term, projectId, 20);
+      setSearchResults(hits ?? []);
+      if (hits && hits.length > 0) {
+        setCapabilitiesOpen(true);
+      }
+    } catch (err: any) {
+      setSearchError(err?.message || String(err));
+      setSearchResults([]);
+    } finally {
+      setSearching(false);
+    }
+  }
+
   useEffect(() => {
     if (!projectId) return;
     refreshSessions();
-  }, [projectId]);
+  }, [projectId, refreshSessions]);
 
   // Auto-ensure a session exists after sessions load, to remove friction for first-time users
   useEffect(() => {
-    if (!projectId) return;
-    if (!selected) {
-      ensureSession().catch(() => {});
-    }
-  }, [projectId, sessions.length]);
+    if (!projectId || selected) return;
+    ensureSession().catch(() => {});
+  }, [projectId, selected, ensureSession]);
 
   // Allow external components to prefill the chat input (e.g., scenario chips)
   useEffect(() => {
@@ -314,7 +390,47 @@ export default function ChatPanel({
     setDraft(prefill);
     onPrefillConsumed && onPrefillConsumed();
     requestAnimationFrame(autoResize);
-  }, [prefill]);
+  }, [prefill, onPrefillConsumed]);
+
+  useEffect(() => {
+    if (!projectId) return;
+    let cancelled = false;
+    setModelLoading(true);
+    setModelError(null);
+    listChatModels()
+      .then((options) => {
+        if (cancelled) return;
+        const filtered = Array.isArray(options)
+          ? options.filter((opt) => !opt.provider.startsWith("search"))
+          : [];
+        setModels(filtered);
+        const persisted = getModelPreference();
+        if (persisted) {
+          const match = filtered.find(
+            (opt) =>
+              opt.provider === persisted.provider &&
+              opt.model === persisted.model,
+          );
+          if (match) {
+            setSelectedModel(serializeModelKey(match));
+          } else if (persisted.provider === "adaptive") {
+            setSelectedModel("adaptive:auto");
+          }
+        } else if (filtered.length > 0) {
+          setSelectedModel(serializeModelKey(filtered[0]));
+        }
+      })
+      .catch((error: any) => {
+        if (cancelled) return;
+        setModelError(error?.message || "Unable to load model catalog right now.");
+      })
+      .finally(() => {
+        if (!cancelled) setModelLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [projectId]);
 
   useEffect(() => {
     if (!projectId) return;
@@ -339,6 +455,27 @@ export default function ChatPanel({
   }, [projectId, persona]);
 
   useEffect(() => {
+    let cancelled = false;
+    setTemplatesLoading(true);
+    setTemplatesError(null);
+    listChatTemplates()
+      .then((items) => {
+        if (cancelled) return;
+        setTemplates(items ?? []);
+      })
+      .catch((error: any) => {
+        if (cancelled) return;
+        setTemplatesError(error?.message || "Unable to load chat templates right now.");
+      })
+      .finally(() => {
+        if (!cancelled) setTemplatesLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [projectId]);
+
+  useEffect(() => {
     if (!selected) return;
     loadSession(selected);
   }, [selected]);
@@ -348,7 +485,7 @@ export default function ChatPanel({
     requestAnimationFrame(() =>
       bottomRef.current?.scrollIntoView({ behavior: "smooth" }),
     );
-  }, [current?.messages?.length]);
+  }, [current?.messages]);
 
   // Auto-extract candidate requirements whenever messages change
   useEffect(() => {
@@ -373,7 +510,7 @@ export default function ChatPanel({
     const map: Record<string, boolean> = {};
     uniq.forEach((r) => (map[r] = true));
     setSelectedMap(map);
-  }, [current?.messages?.length]);
+  }, [current?.messages]);
 
   function extractShallFromText(text: string): string[] {
     const out: string[] = [];
@@ -642,7 +779,7 @@ export default function ChatPanel({
     const msgs = current?.messages || [];
     const shalls = extractShallFromText(msgs.map((m) => m.content).join("\n"));
     return computeReadinessFromMessages(msgs as any, shalls);
-  }, [current?.messages?.length]);
+  }, [current?.messages]);
 
   const readinessPercent = Math.round(readyInfo.score || 0);
   const readinessBadgeClass = readyInfo.ready
@@ -738,6 +875,138 @@ export default function ChatPanel({
 
         <div className="chat-shell__utility">
           <details
+            className="chat-shell__drawer"
+            open={capabilitiesOpen}
+            onToggle={(event) => setCapabilitiesOpen(event.currentTarget.open)}
+          >
+            <summary className="chat-shell__summary">Chat capabilities & history</summary>
+            <div className="chat-shell__drawer-body" style={{ display: "grid", gap: 12 }}>
+              <div className="chat-shell__recipes" aria-live="polite">
+                <div className="chat-shell__recipes-header">
+                  <strong>Suggested starters</strong>
+                  <span className="muted">Use a template to steer the assistant.</span>
+                </div>
+                {templatesError && (
+                  <div className="chat-shell__recipes-status" role="alert">
+                    {templatesError}
+                  </div>
+                )}
+                <div className="chat-shell__recipes-chips">
+                  {templatesLoading && (
+                    <span className="chat-shell__recipes-chip" aria-busy="true">
+                      Loading…
+                    </span>
+                  )}
+                  {templates.map((template) => (
+                    <button
+                      key={template.template_id}
+                      type="button"
+                      className="chat-shell__recipes-chip"
+                      onClick={() => onTemplateSelect(template)}
+                    >
+                      <span>{template.title}</span>
+                    </button>
+                  ))}
+                  {!templatesLoading && !templatesError && templates.length === 0 && (
+                    <span className="chat-shell__recipes-status">Templates coming soon.</span>
+                  )}
+                </div>
+              </div>
+
+              <form
+                onSubmit={runSearch}
+                style={{ display: "grid", gap: 8 }}
+                aria-label="Search past chat messages"
+              >
+                <label style={{ display: "grid", gap: 4 }}>
+                  <span className="muted">Search past chats</span>
+                  <input
+                    className="input"
+                    value={searchQuery}
+                    onChange={(event) => setSearchQuery(event.target.value)}
+                    placeholder="Find sessions or answers"
+                  />
+                </label>
+                <div
+                  style={{
+                    display: "flex",
+                    gap: 8,
+                    alignItems: "center",
+                    flexWrap: "wrap",
+                  }}
+                >
+                  <button className="btn" type="submit" disabled={searching}>
+                    {searching ? "Searching…" : "Search"}
+                  </button>
+                  {searchError && (
+                    <span className="error" role="alert">
+                      {searchError}
+                    </span>
+                  )}
+                  {searchResults.length > 0 && (
+                    <span className="muted">{searchResults.length} result(s)</span>
+                  )}
+                </div>
+              </form>
+
+              {searchResults.length > 0 && (
+                <ul
+                  style={{
+                    margin: 0,
+                    padding: 0,
+                    listStyle: "none",
+                    display: "grid",
+                    gap: 8,
+                  }}
+                >
+                  {searchResults.map((hit) => (
+                    <li
+                      key={`${hit.session.session_id}-${hit.message.message_id}`}
+                      style={{
+                        border: "1px solid var(--border)",
+                        borderRadius: 8,
+                        padding: 12,
+                        background: "var(--surface)",
+                      }}
+                    >
+                      <div
+                        style={{
+                          display: "flex",
+                          justifyContent: "space-between",
+                          gap: 12,
+                          alignItems: "flex-start",
+                          flexWrap: "wrap",
+                        }}
+                      >
+                        <div>
+                          <strong>{hit.session.title}</strong>
+                          <span className="muted" style={{ marginLeft: 8 }}>
+                            {new Date(hit.message.created_at).toLocaleString()}
+                          </span>
+                        </div>
+                        <button
+                          className="btn"
+                          type="button"
+                          onClick={() => {
+                            setSelected(hit.session.session_id);
+                            void loadSession(hit.session.session_id);
+                            setCapabilitiesOpen(false);
+                          }}
+                        >
+                          Open chat
+                        </button>
+                      </div>
+                      <p className="muted" style={{ marginTop: 8, whiteSpace: "pre-wrap" }}>
+                        {hit.snippet}
+                      </p>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </details>
+
+          <details
             className="chat-shell__drawer chat-shell__drawer--compact"
             open={controlsOpen}
             onToggle={(event) => setControlsOpen(event.currentTarget.open)}
@@ -774,6 +1043,43 @@ export default function ChatPanel({
                     </option>
                   ))}
                 </select>
+                <select
+                  className="select"
+                  value={selectedModel}
+                  onChange={(e) => {
+                    const next = e.target.value;
+                    setSelectedModel(next);
+                    const choice = models.find(
+                      (opt) => serializeModelKey(opt) === next,
+                    );
+                    if (choice) {
+                      setModelPreference(choice.provider, choice.model);
+                    } else if (next.startsWith("adaptive")) {
+                      setModelPreference("adaptive", "auto");
+                    }
+                  }}
+                  aria-label="Select model"
+                  disabled={modelLoading || models.length === 0}
+                >
+                  {models.map((opt) => {
+                    const key = serializeModelKey(opt);
+                    return (
+                      <option
+                        key={key}
+                        value={key}
+                        disabled={!opt.available && !opt.adaptive}
+                      >
+                        {opt.label}
+                        {opt.available ? "" : " (unavailable)"}
+                      </option>
+                    );
+                  })}
+                </select>
+                {modelError && (
+                  <span className="chat-shell__recipes-status" role="alert">
+                    {modelError}
+                  </span>
+                )}
               </div>
             </div>
           </details>

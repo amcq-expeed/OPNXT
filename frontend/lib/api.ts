@@ -21,6 +21,17 @@ export async function enrichProject(
   return res.json();
 }
 
+export async function createGuestChatSession(
+  payload: GuestChatSessionRequest,
+): Promise<GuestChatSessionResponse> {
+  const res = await apiFetch(`${API_BASE}/chat/guest/sessions`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload || {}),
+  });
+  return res.json();
+}
+
 export interface ProjectCreate {
   name: string;
   description: string;
@@ -55,6 +66,7 @@ export interface EnrichResponse {
 
 const API_BASE =
   process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+export const API_BASE_URL = API_BASE;
 const PUBLIC_MODE =
   process.env.NEXT_PUBLIC_PUBLIC_MODE === "1" ||
   process.env.NEXT_PUBLIC_PUBLIC_MODE === "true";
@@ -581,11 +593,13 @@ export async function updateLLMSettings(
 // --- Chat ---
 export interface ChatSession {
   session_id: string;
-  project_id: string;
+  project_id?: string | null;
   title: string;
   created_at: string;
   updated_at: string;
   created_by: string;
+  persona?: string | null;
+  kind: "project" | "guest";
 }
 
 export interface ChatMessage {
@@ -601,6 +615,79 @@ export interface ChatSessionWithMessages {
   messages: ChatMessage[];
 }
 
+export interface ChatModelOption {
+  provider: string;
+  model: string;
+  label: string;
+  description?: string;
+  available: boolean;
+  adaptive?: boolean;
+}
+
+export interface ChatTemplate {
+  template_id: string;
+  title: string;
+  description: string;
+  prompt: string;
+  tags: string[];
+}
+
+export interface ChatSearchHit {
+  session: ChatSession;
+  message: ChatMessage;
+  snippet: string;
+}
+
+// --- Accelerators ---
+export interface AcceleratorSession {
+  session_id: string;
+  accelerator_id: string;
+  created_by: string;
+  created_at: string;
+  persona?: string | null;
+  project_id?: string | null;
+  promoted_at?: string | null;
+  metadata?: Record<string, any>;
+}
+
+export interface AcceleratorMessage {
+  message_id: string;
+  session_id: string;
+  role: "system" | "user" | "assistant";
+  content: string;
+  created_at: string;
+}
+
+export interface LaunchAcceleratorResponse {
+  session: AcceleratorSession;
+  intent: CatalogIntent;
+  messages: AcceleratorMessage[];
+}
+
+export interface PromoteAcceleratorRequest {
+  project_id?: string | null;
+  name?: string | null;
+  description?: string | null;
+}
+
+export interface PromoteAcceleratorResponse {
+  session: AcceleratorSession;
+  project_id: string;
+}
+
+export interface GuestChatSessionRequest {
+  title?: string;
+  initial_message?: string;
+  persona?: string;
+  provider?: string | null;
+  model?: string | null;
+}
+
+export interface GuestChatSessionResponse {
+  session: ChatSession;
+  messages: ChatMessage[];
+}
+
 export async function listChatSessions(
   project_id: string,
 ): Promise<ChatSession[]> {
@@ -611,9 +698,34 @@ export async function listChatSessions(
   return res.json();
 }
 
+export async function listChatModels(): Promise<ChatModelOption[]> {
+  const res = await apiFetch(`${API_BASE}/chat/models`, { cache: "no-store" });
+  return res.json();
+}
+
+export async function listChatTemplates(): Promise<ChatTemplate[]> {
+  const res = await apiFetch(`${API_BASE}/chat/templates`, { cache: "no-store" });
+  return res.json();
+}
+
+export async function searchChatMessages(
+  query: string,
+  projectId?: string,
+  limit = 20,
+): Promise<ChatSearchHit[]> {
+  const params = new URLSearchParams({ query, limit: String(limit) });
+  if (projectId) params.set("project_id", projectId);
+  const res = await apiFetch(
+    `${API_BASE}/chat/search?${params.toString()}`,
+    { cache: "no-store" },
+  );
+  return res.json();
+}
+
 export async function createChatSession(
   project_id: string,
   title?: string,
+  persona?: string,
 ): Promise<ChatSession> {
   const res = await apiFetch(`${API_BASE}/chat/sessions`, {
     method: "POST",
@@ -646,14 +758,97 @@ export async function listChatMessages(
 export async function postChatMessage(
   session_id: string,
   content: string,
+  opts?: { provider?: string | null; model?: string | null },
 ): Promise<ChatMessage> {
+  const res = await apiFetch(`${API_BASE}/chat/sessions/${encodeURIComponent(session_id)}/messages`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      content,
+      ...(opts?.provider ? { provider: opts.provider } : {}),
+      ...(opts?.model ? { model: opts.model } : {}),
+    }),
+  });
+  return res.json();
+}
+
+export async function launchAcceleratorSession(
+  intentId: string,
+  params?: { persona?: string | null },
+): Promise<LaunchAcceleratorResponse> {
+  const search = new URLSearchParams();
+  if (params?.persona) {
+    search.set("persona", params.persona);
+  }
+  const query = search.toString();
   const res = await apiFetch(
-    `${API_BASE}/chat/sessions/${encodeURIComponent(session_id)}/messages`,
+    `${API_BASE}/accelerators/${encodeURIComponent(intentId)}/sessions${query ? `?${query}` : ""}`,
+    {
+      method: "POST",
+    },
+  );
+  return res.json();
+}
+
+export async function getAcceleratorSession(
+  sessionId: string,
+): Promise<LaunchAcceleratorResponse> {
+  const res = await apiFetch(
+    `${API_BASE}/accelerators/sessions/${encodeURIComponent(sessionId)}`,
+    { cache: "no-store" },
+  );
+  return res.json();
+}
+
+export async function postAcceleratorMessage(
+  sessionId: string,
+  content: string,
+): Promise<AcceleratorMessage> {
+  const res = await apiFetch(
+    `${API_BASE}/accelerators/sessions/${encodeURIComponent(sessionId)}/messages`,
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ content }),
     },
+  );
+  return res.json();
+}
+
+export async function promoteAcceleratorSession(
+  sessionId: string,
+  payload: PromoteAcceleratorRequest,
+): Promise<PromoteAcceleratorResponse> {
+  const res = await apiFetch(
+    `${API_BASE}/accelerators/sessions/${encodeURIComponent(sessionId)}/promote`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload || {}),
+    },
+  );
+  return res.json();
+}
+
+// --- Workspace ---
+export interface WorkspaceSummary {
+  projects: number;
+  documents: number;
+  chat_sessions: number;
+  accelerator_sessions: number;
+  accelerator_artifacts: number;
+}
+
+export async function getWorkspaceSummary(): Promise<WorkspaceSummary> {
+  const res = await apiFetch(`${API_BASE}/workspace/summary`, { cache: "no-store" });
+  return res.json();
+}
+
+export async function listRecentChatSessions(limit = 10): Promise<ChatSession[]> {
+  const params = new URLSearchParams({ limit: String(limit) });
+  const res = await apiFetch(
+    `${API_BASE}/workspace/chats/recent?${params.toString()}`,
+    { cache: "no-store" },
   );
   return res.json();
 }
@@ -725,85 +920,6 @@ const catalogPending = new Map<string, Promise<CatalogIntent[]>>();
 export function clearCatalogCache() {
   catalogCache.clear();
   catalogPending.clear();
-}
-
-// --- Accelerator sessions ---
-export interface AcceleratorSession {
-  session_id: string;
-  accelerator_id: string;
-  created_by: string;
-  created_at: string;
-  persona?: string | null;
-  project_id?: string | null;
-  promoted_at?: string | null;
-  metadata?: Record<string, any>;
-}
-
-export interface AcceleratorMessage {
-  message_id: string;
-  session_id: string;
-  role: "assistant" | "user" | "system";
-  content: string;
-  created_at: string;
-}
-
-export interface LaunchAcceleratorResponse {
-  session: AcceleratorSession;
-  intent: CatalogIntent;
-  messages: AcceleratorMessage[];
-}
-
-export async function launchAcceleratorSession(
-  intentId: string,
-): Promise<LaunchAcceleratorResponse> {
-  const res = await apiFetch(`${API_BASE}/accelerators/${intentId}/sessions`, {
-    method: "POST",
-  });
-  return res.json();
-}
-
-export async function getAcceleratorSession(
-  sessionId: string,
-): Promise<LaunchAcceleratorResponse> {
-  const res = await apiFetch(`${API_BASE}/accelerators/sessions/${sessionId}`, {
-    cache: "no-store",
-  });
-  return res.json();
-}
-
-export async function postAcceleratorMessage(
-  sessionId: string,
-  content: string,
-): Promise<AcceleratorMessage> {
-  const res = await apiFetch(`${API_BASE}/accelerators/sessions/${sessionId}/messages`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ content }),
-  });
-  return res.json();
-}
-
-export interface PromoteAcceleratorPayload {
-  project_id?: string;
-  name?: string;
-  description?: string;
-}
-
-export interface PromoteAcceleratorResponse {
-  session: AcceleratorSession;
-  project_id: string;
-}
-
-export async function promoteAcceleratorSession(
-  sessionId: string,
-  payload: PromoteAcceleratorPayload,
-): Promise<PromoteAcceleratorResponse> {
-  const res = await apiFetch(`${API_BASE}/accelerators/sessions/${sessionId}/promote`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-  });
-  return res.json();
 }
 
 export async function listCatalogIntents(

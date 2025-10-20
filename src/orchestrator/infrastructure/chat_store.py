@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from threading import RLock
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 import uuid
 
 from ..domain.chat_models import ChatSession, ChatMessage
@@ -12,7 +12,7 @@ from ..domain.chat_models import ChatSession, ChatMessage
 @dataclass
 class _Session:
     session_id: str
-    project_id: str
+    project_id: Optional[str]
     title: str
     created_at: str
     updated_at: str
@@ -27,24 +27,51 @@ class _Message:
     role: str
     content: str
     created_at: str
+    metadata: Dict[str, Any] | None = None
 
 
 class InMemoryChatStore:
     def __init__(self) -> None:
         self._sessions: Dict[str, _Session] = {}
         self._by_project: Dict[str, List[str]] = {}
+        self._guest_sessions: List[str] = []
         self._messages: Dict[str, List[_Message]] = {}
         self._lock = RLock()
 
     def _now_iso(self) -> str:
         return datetime.now(UTC).isoformat().replace("+00:00", "Z")
 
+    def _session_kind(self, sess: _Session) -> str:
+        return "guest" if not sess.project_id else "project"
+
+    def _session_model(self, sess: _Session) -> ChatSession:
+        return ChatSession(**sess.__dict__, kind=self._session_kind(sess))
+
+    def _message_model(self, message: _Message) -> ChatMessage:
+        return ChatMessage(**message.__dict__)
+
+    def _build_snippet(self, text: str, needle: str, radius: int = 60) -> str:
+        lowered = text.lower()
+        idx = lowered.find(needle)
+        if idx == -1:
+            snippet = text[: radius * 2].strip()
+            return snippet + ("…" if len(text) > len(snippet) else "")
+        start = max(0, idx - radius)
+        end = min(len(text), idx + len(needle) + radius)
+        snippet = text[start:end].strip()
+        if start > 0:
+            snippet = "…" + snippet
+        if end < len(text):
+            snippet += "…"
+        return snippet
+
     def create_session(
         self,
-        project_id: str,
+        project_id: Optional[str],
         created_by: str,
         title: Optional[str] = None,
         persona: Optional[str] = None,
+        kind: str = "project",
     ) -> ChatSession:
         with self._lock:
             sid = uuid.uuid4().hex
@@ -59,9 +86,12 @@ class InMemoryChatStore:
                 persona=persona,
             )
             self._sessions[sid] = sess
-            self._by_project.setdefault(project_id, []).append(sid)
+            if project_id:
+                self._by_project.setdefault(project_id, []).append(sid)
+            else:
+                self._guest_sessions.append(sid)
             self._messages[sid] = []
-            return ChatSession(**sess.__dict__)
+            return self._session_model(sess)
 
     def list_sessions(self, project_id: str) -> List[ChatSession]:
         with self._lock:
@@ -70,14 +100,39 @@ class InMemoryChatStore:
                 sess = self._sessions.get(sid)
                 if not sess:
                     continue
-                out.append(ChatSession(**sess.__dict__))
+                out.append(self._session_model(sess))
             # Newest first
-            return out
+            return sorted(out, key=lambda s: s.updated_at, reverse=True)
+
+    def list_recent_sessions(self, limit: int = 10) -> List[ChatSession]:
+        with self._lock:
+            sessions = [
+                self._session_model(sess)
+                for sess in self._sessions.values()
+            ]
+            sessions.sort(key=lambda s: s.updated_at, reverse=True)
+            return sessions[: max(0, limit)]
+
+    def list_guest_sessions(self) -> List[ChatSession]:
+        with self._lock:
+            out: List[ChatSession] = []
+            for sid in self._guest_sessions:
+                sess = self._sessions.get(sid)
+                if not sess:
+                    continue
+                out.append(self._session_model(sess))
+            return sorted(out, key=lambda s: s.updated_at, reverse=True)
+
+    def count_sessions(self) -> int:
+        with self._lock:
+            return len(self._sessions)
 
     def get_session(self, session_id: str) -> Optional[ChatSession]:
         with self._lock:
             sess = self._sessions.get(session_id)
-            return ChatSession(**sess.__dict__) if sess else None
+            if not sess:
+                return None
+            return self._session_model(sess)
 
     def update_session_persona(self, session_id: str, persona: Optional[str]) -> ChatSession:
         with self._lock:
@@ -86,26 +141,71 @@ class InMemoryChatStore:
                 raise KeyError("Session not found")
             sess.persona = persona
             self._sessions[session_id] = sess
-            return ChatSession(**sess.__dict__)
+            kind = "guest" if not sess.project_id else "project"
+            return ChatSession(**sess.__dict__, kind=kind)
 
-    def add_message(self, session_id: str, role: str, content: str) -> ChatMessage:
+    def add_message(
+        self,
+        session_id: str,
+        role: str,
+        content: str,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> ChatMessage:
         with self._lock:
             if session_id not in self._sessions:
                 raise KeyError("Session not found")
             mid = uuid.uuid4().hex
             now = self._now_iso()
-            msg = _Message(message_id=mid, session_id=session_id, role=role, content=content, created_at=now)
+            msg = _Message(
+                message_id=mid,
+                session_id=session_id,
+                role=role,
+                content=content,
+                created_at=now,
+                metadata=dict(metadata) if metadata else None,
+            )
             self._messages.setdefault(session_id, []).append(msg)
             # bump session updated_at
             self._sessions[session_id].updated_at = now
-            return ChatMessage(**msg.__dict__)
+            return self._message_model(msg)
 
     def list_messages(self, session_id: str) -> List[ChatMessage]:
         with self._lock:
             out: List[ChatMessage] = []
             for m in self._messages.get(session_id, []):
-                out.append(ChatMessage(**m.__dict__))
+                out.append(self._message_model(m))
             return out
+
+    def search_messages(
+        self,
+        query: str,
+        project_id: Optional[str] = None,
+        limit: int = 20,
+    ) -> List[Tuple[ChatSession, ChatMessage, str]]:
+        needle = query.strip().lower()
+        if not needle:
+            return []
+        capped = max(1, min(limit, 50))
+        with self._lock:
+            matches: List[Tuple[ChatSession, ChatMessage, str]] = []
+            if project_id:
+                session_ids = list(self._by_project.get(project_id, []))
+            else:
+                session_ids = list(self._messages.keys())
+            for sid in session_ids:
+                sess_obj = self._sessions.get(sid)
+                if not sess_obj:
+                    continue
+                msgs = self._messages.get(sid, [])
+                for message in reversed(msgs):
+                    if needle in message.content.lower():
+                        session_model = self._session_model(sess_obj)
+                        message_model = self._message_model(message)
+                        snippet = self._build_snippet(message.content, needle)
+                        matches.append((session_model, message_model, snippet))
+                        if len(matches) >= capped:
+                            return matches
+            return matches
 
 
 _store: InMemoryChatStore | None = None

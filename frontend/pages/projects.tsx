@@ -245,7 +245,7 @@ export default function ProjectsPage() {
           className="launch-hero--spotlight launch-hero--wide"
           badgeLabel="Projects Hub"
           title="Concept → Delivery projects"
-          subtitle="Capture initiatives, seed requirements, and jump straight into the AI workspace. Every project keeps documents, readiness, and approvals synchronized."
+          subtitle="Capture initiatives, seed requirements, and jump straight into the chat capability palette with history search so every document, readiness signal, and approval stays synchronized."
           value={quickText}
           onChange={setQuickText}
           disabled={startingQuick}
@@ -273,6 +273,10 @@ export default function ProjectsPage() {
                 {
                   title: "Quick starts today",
                   description: startingQuick ? "Launching…" : "Ready",
+                },
+                {
+                  title: "Chat insight library",
+                  description: "Templates & history search available",
                 },
               ].map((stat) => (
                 <li key={stat.title}>

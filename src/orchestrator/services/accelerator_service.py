@@ -1,8 +1,13 @@
 from __future__ import annotations
 
 from collections import Counter, defaultdict
+import json
+import asyncio
 import logging
-from typing import Optional, Tuple, List
+import textwrap
+import time
+from threading import Thread
+from typing import Optional, Tuple, List, Dict, Any, AsyncGenerator
 
 from ..domain.chat_intents import ChatIntent
 from ..domain.accelerator_session import AcceleratorSession, AcceleratorMessage
@@ -11,8 +16,9 @@ from ..infrastructure.accelerator_store import get_accelerator_store
 from ..infrastructure.repository import get_repo
 from ..services.catalog_service import get_intent
 from ..services.chat_ai import reply_with_chat_ai
-from ..services.telemetry_sink import record_event, TelemetryEvent
+from ..services.telemetry_sink import record_event, TelemetryEvent, record_metric
 from ..security.auth import User
+from ..infrastructure.doc_store import get_doc_store
 
 
 logger = logging.getLogger("opnxt.accelerator")
@@ -64,6 +70,273 @@ def _build_intro_message(intent: ChatIntent, user: Optional[User], persona: Opti
 
     return "\n".join(lines)
 
+
+def _collect_workspace_snapshot() -> Dict[str, Any]:
+    repo = get_repo()
+    doc_store = get_doc_store()
+    projects: List[Dict[str, Any]] = []
+    try:
+        project_list = repo.list()
+    except Exception:  # pragma: no cover - defensive
+        project_list = []
+
+    for project in project_list[:5]:
+        try:
+            docs = doc_store.list_documents(project.project_id) or {}
+        except Exception:  # pragma: no cover - defensive
+            docs = {}
+        recent_docs: List[Dict[str, Any]] = []
+        for fname, versions in list(docs.items())[:5]:
+            if not versions:
+                continue
+            latest = versions[-1]
+            recent_docs.append(
+                {
+                    "filename": fname,
+                    "version": latest.get("version"),
+                    "created_at": latest.get("created_at"),
+                }
+            )
+        projects.append(
+            {
+                "project_id": project.project_id,
+                "name": project.name,
+                "documents": recent_docs,
+            }
+        )
+    return {"projects": projects}
+
+
+def _default_api_templates(intent: ChatIntent) -> List[Dict[str, Any]]:
+    examples = [
+        {
+            "label": "Order validation (SAP ERP)",
+            "description": "Validates proof-of-purchase details and returns eligibility flags.",
+            "example": textwrap.dedent(
+                """
+{
+  "method": "POST",
+  "url": "https://sap.example.com/api/v1/claims/validate",
+  "headers": {
+    "Authorization": "Bearer <client-credential-token>",
+    "Content-Type": "application/json"
+  },
+  "body": {
+    "receiptNumber": "A1234-5678",
+    "sku": "TV-55-UHD",
+    "purchaseDate": "2025-02-10",
+    "channel": "in-store"
+  }
+}
+                """
+            ).strip(),
+        },
+        {
+            "label": "Shipping label creation (FedEx API)",
+            "description": "Creates a prepaid label and returns tracking details.",
+            "example": textwrap.dedent(
+                """
+{
+  "method": "POST",
+  "url": "https://apis.fedex.com/ship/v21/shipments",
+  "headers": {
+    "X-FedEx-Api-Key": "<key>",
+    "X-FedEx-Api-Secret": "<secret>",
+    "Content-Type": "application/json"
+  },
+  "body": {
+    "serviceType": "FEDEX_GROUND",
+    "shipper": {"postalCode": "43004", "countryCode": "US"},
+    "recipient": {"postalCode": "78701", "countryCode": "US"},
+    "packages": [{"weight": {"units": "LB", "value": 8}}]
+  }
+}
+                """
+            ).strip(),
+        },
+        {
+            "label": "Refund settlement (Stripe)",
+            "description": "Issues a partial refund tied to the original payment.",
+            "example": textwrap.dedent(
+                """
+{
+  "method": "POST",
+  "url": "https://api.stripe.com/v1/refunds",
+  "headers": {
+    "Authorization": "Bearer sk_live_xxx",
+    "Content-Type": "application/x-www-form-urlencoded"
+  },
+  "form": {
+    "payment_intent": "pi_3P123456",
+    "amount": 12999,
+    "metadata[claim_id]": "RET-2048"
+  }
+}
+                """
+            ).strip(),
+        },
+    ]
+
+    if intent and intent.deliverables:
+        deliverable_preview = "\n".join(f"- {d}" for d in intent.deliverables)
+        examples.append(
+            {
+                "label": "Deliverable checklist",
+                "description": "Catalog deliverables referenced in this accelerator.",
+                "example": deliverable_preview,
+            }
+        )
+
+    return examples
+
+
+def _suggested_prompts(intent: ChatIntent, snapshot: Dict[str, Any]) -> List[Dict[str, str]]:
+    prompts: List[Dict[str, str]] = []
+    focus = intent.requirement_area or intent.title
+    prompts.append(
+        {
+            "id": "flows",
+            "label": "Outline customer & associate flows",
+            "body": textwrap.dedent(
+                f"""
+Here are the journeys to cover for {focus}:
+• Customer submits request, uploads proof, selects pickup/drop-off, tracks approval
+• Associate triages eligibility, issues instant credit, prints shipping label
+• Finance & merchandising teams review dashboards for trends, fraud, SLA compliance
+Flag any corrections or extra steps we should capture.
+                """
+            ).strip(),
+        }
+    )
+    prompts.append(
+        {
+            "id": "nfr",
+            "label": "Confirm non-functional guardrails",
+            "body": textwrap.dedent(
+                """
+Non-functional targets we plan to bake into the docs:
+• Availability 99.7% with Azure Front Door active-active failover
+• Performance <2s median API latency, <3s p95 page load @ 400 sessions
+• Compliance: PCI-DSS for refunds, SOC2 logging, encrypted PII at rest, Azure AD SSO with MFA
+• Observability: OpenTelemetry tracing, Azure Monitor dashboards, synthetic probes every 5 minutes
+Let us know if these align or require adjustments.
+                """
+            ).strip(),
+        }
+    )
+
+    if snapshot.get("projects"):
+        prompts.append(
+            {
+                "id": "reuse",
+                "label": "Reuse existing artifacts",
+                "body": textwrap.dedent(
+                    """
+We spotted existing workspace documents. Highlight anything we should repurpose so the new drafts stay aligned with prior deliverables.
+                    """
+                ).strip(),
+            }
+        )
+    return prompts
+
+
+def _schedule_background_generation(session_id: str, intent: ChatIntent, latest_input: str) -> None:
+    store = get_accelerator_store()
+    doc_store = get_doc_store()
+
+    def worker():
+        time.sleep(1.0)
+        try:
+            start = time.perf_counter()
+            session = store.get_session(session_id)
+            if not session:
+                return
+            artifacts, revision = store.artifact_snapshot(session_id)
+            version = revision + 1
+            history = [
+                {"role": msg.role, "content": msg.content}
+                for msg in store.list_messages(session_id)[-12:]
+            ]
+            prompt = textwrap.dedent(
+                f"""
+Draft a concise documentation snippet for the accelerator "{intent.title}" based on the latest discussion.
+Include key requirements, assumptions, and next steps in markdown.
+Latest user input:
+{latest_input}
+                """
+            ).strip()
+            draft = reply_with_chat_ai(
+                project_name=intent.title,
+                user_message=prompt,
+                history=history,
+                attachments=None,
+                persona=session.persona,
+            )
+            filename = f"{intent.title.lower().replace(' ', '-')}-draft-v{version}.md"
+            store.add_artifact(
+                session_id,
+                filename=filename,
+                project_id=session.project_id,
+                meta={
+                    "version": version,
+                    "summary": draft[:240],
+                },
+            )
+            doc_store.save_accelerator_preview(session_id, filename, draft)
+            metadata = session.metadata or {}
+            metadata.setdefault("artifacts", store.list_artifacts(session_id))
+            metadata["last_generated_at"] = time.time()
+            store.update_session_metadata(session_id, metadata)
+            duration_ms = (time.perf_counter() - start) * 1000.0
+            record_metric(
+                name="accelerator_artifact_generation_ms",
+                value=duration_ms,
+                properties={
+                    "intent_id": intent.intent_id,
+                    "session_id": session_id,
+                },
+            )
+        except Exception:  # pragma: no cover - background guard
+            logger.exception("background_generation_failed session=%s", session_id)
+
+    Thread(target=worker, daemon=True).start()
+
+
+async def stream_accelerator_artifacts(session_id: str, start_revision: int = 0) -> AsyncGenerator[Dict[str, Any], None]:
+    store = get_accelerator_store()
+    active_counter_name = "accelerator_artifact_stream_active"
+    record_metric(
+        name=active_counter_name,
+        value=1,
+        properties={
+            "session_id": session_id,
+        },
+        metric_type="gauge_delta",
+    )
+    try:
+        artifacts, revision = store.artifact_snapshot(session_id)
+        yield {
+            "revision": revision,
+            "artifacts": artifacts,
+        }
+        while True:
+            await asyncio.sleep(1.0)
+            artifacts, current_revision = store.artifact_snapshot(session_id)
+            if current_revision > revision:
+                revision = current_revision
+                yield {
+                    "revision": revision,
+                    "artifacts": artifacts,
+                }
+    finally:
+        record_metric(
+            name=active_counter_name,
+            value=-1,
+            properties={
+                "session_id": session_id,
+            },
+            metric_type="gauge_delta",
+        )
 
 def _infer_persona(text: str) -> Tuple[Optional[str], List[str]]:
     haystack = (text or "").lower()
@@ -120,12 +393,16 @@ def launch_accelerator_session(intent_id: str, user: User, persona: Optional[str
         raise ValueError("Unknown accelerator intent")
 
     store = get_accelerator_store()
+    snapshot = _collect_workspace_snapshot()
     metadata = {
         "intent_id": intent.intent_id,
         "intent_title": intent.title,
         "requirement_area": intent.requirement_area,
         "core_functionality": intent.core_functionality,
         "opnxt_benefit": intent.opnxt_benefit,
+        "workspace_snapshot": snapshot,
+        "api_templates": _default_api_templates(intent),
+        "suggested_prompts": _suggested_prompts(intent, snapshot),
     }
     session = store.create_session(
         accelerator_id=intent.intent_id,
@@ -141,16 +418,32 @@ def launch_accelerator_session(intent_id: str, user: User, persona: Optional[str
         synthetic_prompt = prefill
         user_message = store.add_message(session.session_id, role="user", content=synthetic_prompt)
         message_batch.append(user_message)
-        assistant_text = reply_with_chat_ai(
+        assistant_reply = reply_with_chat_ai(
             project_name=intent.title,
             user_message=synthetic_prompt,
             history=[{"role": "user", "content": synthetic_prompt}],
             attachments=None,
             persona=persona,
         )
+        if isinstance(assistant_reply, dict):
+            assistant_text = str(assistant_reply.get("text", ""))
+            assistant_provider = assistant_reply.get("provider")
+            assistant_model = assistant_reply.get("model")
+        else:
+            assistant_text = str(assistant_reply)
+            assistant_provider = None
+            assistant_model = None
         if not assistant_text.strip():
             assistant_text = _build_intro_message(intent, user, persona)
-        intro_message = store.add_message(session.session_id, role="assistant", content=assistant_text)
+        intro_message = store.add_message(
+            session.session_id,
+            role="assistant",
+            content=assistant_text,
+            metadata={
+                "provider": assistant_provider,
+                "model": assistant_model,
+            },
+        )
         message_batch.append(intro_message)
     else:
         intro = _build_intro_message(intent, user, persona)
@@ -224,14 +517,52 @@ def post_accelerator_message(session_id: str, content: str, user: User) -> Accel
         {"role": msg.role, "content": msg.content}
         for msg in store.list_messages(session_id)[-8:]
     ]
-    assistant_text = reply_with_chat_ai(
+    assistant_reply = reply_with_chat_ai(
         project_name=title,
         user_message=trimmed,
         history=history,
         attachments=None,
         persona=session.persona,
     )
-    assistant = store.add_message(session_id, role="assistant", content=assistant_text)
+    if isinstance(assistant_reply, dict):
+        assistant_text = str(assistant_reply.get("text", ""))
+        assistant_provider = assistant_reply.get("provider")
+        assistant_model = assistant_reply.get("model")
+    else:
+        assistant_text = str(assistant_reply)
+        assistant_provider = None
+        assistant_model = None
+    assistant = store.add_message(
+        session_id,
+        role="assistant",
+        content=assistant_text,
+        metadata={
+            "provider": assistant_provider,
+            "model": assistant_model,
+        },
+    )
+
+    doc_store = get_doc_store()
+    project_id = session.project_id
+    if project_id:
+        listing = doc_store.list_documents(project_id)
+        latest_artifacts = []
+        for fname, versions in listing.items():
+            if not versions:
+                continue
+            latest = versions[-1]
+            latest_artifacts.append({
+                "filename": fname,
+                "version": latest.get("version"),
+                "created_at": latest.get("created_at"),
+            })
+        metadata = session.metadata or {}
+        metadata["artifacts"] = latest_artifacts
+        store.update_session_metadata(session_id, metadata)
+
+    intent = get_intent(metadata.get("intent_id") or session.accelerator_id)
+    if intent:
+        _schedule_background_generation(session_id, intent, trimmed)
 
     record_event(
         TelemetryEvent(
@@ -241,6 +572,8 @@ def post_accelerator_message(session_id: str, content: str, user: User) -> Accel
                 "session_id": session_id,
                 "intent_id": metadata.get("intent_id"),
                 "persona": session.persona,
+                "model_provider": assistant_provider,
+                "model_name": assistant_model,
             },
         )
     )

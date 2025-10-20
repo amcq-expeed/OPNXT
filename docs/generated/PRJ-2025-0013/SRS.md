@@ -1,2 +1,2 @@
-# SRS
-The system SHALL support testing.
+# SRS v2
+Requirement v2

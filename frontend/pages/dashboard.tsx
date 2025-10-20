@@ -1,13 +1,25 @@
 import Link from "next/link";
-import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/router";
 import {
   CatalogIntent,
+  ChatMessage,
+  ChatModelOption,
+  ChatSession,
+  createGuestChatSession,
   formatCatalogIntentPrompt,
+  getChatSession,
   listCatalogIntents,
+  listChatMessages,
+  listChatModels,
+  postChatMessage,
   trackEvent,
 } from "../lib/api";
 import { useUserContext } from "../lib/user-context";
+import {
+  getModelPreference,
+  setModelPreference,
+} from "../lib/modelPreference";
 
 type QuickIntent = {
   intentId: string | null;
@@ -88,6 +100,20 @@ export default function DashboardPage() {
   const [catalogLoading, setCatalogLoading] = useState<boolean>(false);
   const [catalogError, setCatalogError] = useState<string | null>(null);
   const [catalogIntentMap, setCatalogIntentMap] = useState<Map<string, CatalogIntent>>(new Map());
+  const [modelOptions, setModelOptions] = useState<ChatModelOption[]>([]);
+  const [modelLoading, setModelLoading] = useState<boolean>(false);
+  const [modelError, setModelError] = useState<string | null>(null);
+  const [selectedModel, setSelectedModel] = useState<string>("adaptive");
+  const [guestSession, setGuestSession] = useState<ChatSession | null>(null);
+  const [guestMessages, setGuestMessages] = useState<ChatMessage[]>([]);
+  const [guestLoading, setGuestLoading] = useState<boolean>(false);
+  const [guestSending, setGuestSending] = useState<boolean>(false);
+  const [guestError, setGuestError] = useState<string | null>(null);
+  const [chatNotice, setChatNotice] = useState<string | null>(null);
+  const [deepLinkError, setDeepLinkError] = useState<string | null>(null);
+
+  const composerRef = useRef<HTMLTextAreaElement | null>(null);
+  const askBottomRef = useRef<HTMLDivElement | null>(null);
 
   const heroHeadline = useMemo(
     () => ({
@@ -122,15 +148,122 @@ export default function DashboardPage() {
     };
   }, [persona]);
 
+  useEffect(() => {
+    let cancelled = false;
+    setModelLoading(true);
+    setModelError(null);
+    listChatModels()
+      .then((options) => {
+        if (cancelled) return;
+        const filtered = Array.isArray(options)
+          ? options.filter((opt) => !opt.provider.startsWith("search"))
+          : [];
+        setModelOptions(filtered);
+        const persisted = getModelPreference();
+        if (persisted) {
+          if (persisted.provider === "adaptive") {
+            setSelectedModel("adaptive");
+          } else {
+            const match = filtered.find(
+              (opt) =>
+                opt.provider === persisted.provider &&
+                opt.model === persisted.model,
+            );
+            if (match) {
+              setSelectedModel(`${match.provider}:${match.model}`);
+            }
+          }
+        }
+      })
+      .catch((error: any) => {
+        if (cancelled) return;
+        setModelError(error?.message || "Unable to load model catalog right now.");
+      })
+      .finally(() => {
+        if (!cancelled) setModelLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const resetAskExperience = useCallback(() => {
+    setGuestSession(null);
+    setGuestMessages([]);
+    setGuestError(null);
+    setChatNotice(null);
+    setDeepLinkError(null);
+    void router.replace({ pathname: router.pathname }, undefined, { shallow: true });
+  }, []);
+
+  const resolveModelOverrides = useCallback(() => {
+    if (!selectedModel || selectedModel === "adaptive") {
+      return { provider: null as string | null, model: null as string | null };
+    }
+    const [provider, ...rest] = selectedModel.split(":");
+    const model = rest.join(":") || null;
+    if (!provider || provider === "adaptive") {
+      return { provider: null, model: null };
+    }
+    return { provider, model };
+  }, [selectedModel]);
+
   const quickStarts = useMemo(() => intents.slice(0, 4), [intents]);
   const additionalIntents = useMemo(() => intents.slice(4), [intents]);
   const supportingIntents = useMemo(() => additionalIntents.slice(0, 6), [additionalIntents]);
 
-  const launchChat = (prefill: string) => {
-    const message = prefill.trim();
-    const query = encodeURIComponent(message || "Outline a new initiative");
-    router.push(`/start?prefill=${query}`);
-  };
+  useEffect(() => {
+    const sessionId = typeof router.query.session === "string" ? router.query.session : null;
+    if (!sessionId || guestSession) return;
+    let cancelled = false;
+    setGuestLoading(true);
+    setGuestError(null);
+    setChatNotice("Loading chat history…");
+    getChatSession(sessionId)
+      .then((payload) => {
+        if (cancelled) return;
+        const session = payload?.session;
+        const messages = payload?.messages || [];
+        if (!session) {
+          throw new Error("Session not found");
+        }
+        setGuestSession(session);
+        setGuestMessages(messages);
+        setChatNotice(null);
+        setDeepLinkError(null);
+        trackEvent("dashboard_chat_session_loaded", { sessionId });
+      })
+      .catch((error: any) => {
+        if (cancelled) return;
+        const detail = error?.message || "Unable to load that chat session.";
+        setDeepLinkError(detail);
+        setGuestSession(null);
+        setGuestMessages([]);
+        setChatNotice(null);
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setGuestLoading(false);
+          setChatNotice(null);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [router.query.session, guestSession]);
+
+  const launchChat = useCallback(
+    (prefill: string) => {
+      const message = prefill.trim();
+      if (!message) return;
+      resetAskExperience();
+      setDraft(message);
+      setErrorMessage(null);
+      setStatusMessage(null);
+      requestAnimationFrame(() => composerRef.current?.focus());
+    },
+    [resetAskExperience],
+  );
 
   const launchQuickStart = useCallback(
     async (idea: QuickIntent) => {
@@ -165,14 +298,88 @@ export default function DashboardPage() {
         setActiveCard(null);
       }
     },
-    [pendingCard, router, persona, catalogIntentMap],
+    [pendingCard, router, catalogIntentMap, launchChat],
   );
 
-  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
+  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    launchChat(draft);
+    const message = draft.trim();
+    if (!message) return;
+    const { provider, model } = resolveModelOverrides();
+
+    if (!guestSession) {
+      setGuestLoading(true);
+      setChatNotice("Launching Ask OPNXT…");
+      setGuestError(null);
+      try {
+        const payload: {
+          title: string;
+          initial_message: string;
+          persona?: string;
+          provider?: string | null;
+          model?: string | null;
+        } = {
+          title: "Ask OPNXT",
+          initial_message: message,
+        };
+        if (persona) payload.persona = persona;
+        if (provider) payload.provider = provider;
+        if (model) payload.model = model;
+        const sessionWithMessages = await createGuestChatSession(payload);
+        setGuestSession(sessionWithMessages.session);
+        setGuestMessages(sessionWithMessages.messages || []);
+        setDraft("");
+        setErrorMessage(null);
+        trackEvent("dashboard_ask_started", { source: "dashboard", provider: provider ?? "adaptive" });
+      } catch (error: any) {
+        const detail = error?.message || "Unable to start Ask OPNXT right now.";
+        setGuestError(detail);
+        setErrorMessage(detail);
+      } finally {
+        setGuestLoading(false);
+        setChatNotice(null);
+      }
+      return;
+    }
+
+    setGuestSending(true);
+    setChatNotice("Waiting for assistant response…");
+    setGuestError(null);
+    const optimistic: ChatMessage = {
+      message_id: `local-${Date.now()}`,
+      session_id: guestSession.session_id,
+      role: "user",
+      content: message,
+      created_at: new Date().toISOString(),
+    };
+    setGuestMessages((prev) => prev.concat(optimistic));
     setDraft("");
+    try {
+      await postChatMessage(guestSession.session_id, message, {
+        provider: provider ?? undefined,
+        model: model ?? undefined,
+      });
+      const latest = await listChatMessages(guestSession.session_id);
+      setGuestMessages(latest ?? []);
+      trackEvent("dashboard_ask_message_sent", {
+        sessionId: guestSession.session_id,
+        provider: provider ?? "adaptive",
+      });
+    } catch (error: any) {
+      const detail = error?.message || "Unable to send message right now.";
+      setGuestError(detail);
+      setGuestMessages((prev) => prev.filter((msg) => msg.message_id !== optimistic.message_id));
+      setDraft(message);
+    } finally {
+      setGuestSending(false);
+      setChatNotice(null);
+    }
   };
+
+  useEffect(() => {
+    if (!guestMessages.length) return;
+    requestAnimationFrame(() => askBottomRef.current?.scrollIntoView({ behavior: "smooth" }));
+  }, [guestMessages.length]);
 
   return (
     <div className="dashboard-shell" aria-live="polite">
@@ -307,12 +514,52 @@ export default function DashboardPage() {
             placeholder="Send a message..."
             value={draft}
             onChange={(event) => setDraft(event.target.value)}
+            ref={composerRef}
             rows={1}
+            disabled={guestLoading || guestSending}
           />
           <div className="dashboard-composer__footer">
             <div className="dashboard-composer__meta">
-              <span className="dashboard-composer__status">No project selected</span>
-              <span className="dashboard-composer__model">Adaptive model: Auto (OPNXT)</span>
+              <span className="dashboard-composer__status">
+                {guestSession ? "Ask OPNXT session active" : "No project selected"}
+              </span>
+              <label className="dashboard-composer__model-select">
+                <span>Model</span>
+                <select
+                  value={selectedModel}
+                  onChange={(event) => {
+                    const value = event.target.value;
+                    setSelectedModel(value);
+                    const choice = modelOptions.find(
+                      (opt) => `${opt.provider}:${opt.model}` === value,
+                    );
+                    if (choice && !choice.adaptive) {
+                      setModelPreference(choice.provider, choice.model);
+                    } else if (value === "adaptive") {
+                      setModelPreference("adaptive", "auto");
+                    }
+                  }}
+                  disabled={modelLoading || modelOptions.length === 0}
+                  className="select"
+                >
+                  <option value="adaptive">Adaptive model: Auto (OPNXT)</option>
+                  {modelOptions.map((opt) => (
+                    <option
+                      key={`${opt.provider}:${opt.model}`}
+                      value={`${opt.provider}:${opt.model}`}
+                      disabled={!opt.available && !opt.adaptive}
+                    >
+                      {opt.label}
+                      {opt.available ? "" : " (unavailable)"}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              {modelError && (
+                <span className="dashboard-composer__model-error" role="alert">
+                  {modelError}
+                </span>
+              )}
               <Link href="/templates" className="dashboard-composer__link">
                 Browse OPNXT templates
               </Link>
@@ -335,7 +582,7 @@ export default function DashboardPage() {
                 </svg>
               </button>
               <button className="dashboard-composer__send" type="submit">
-                <span>Send</span>
+                <span>{guestSession ? "Send" : "Ask OPNXT"}</span>
                 <svg viewBox="0 0 20 20" aria-hidden="true" focusable="false">
                   <path
                     d="M3.5 9.5l12-5-5 12-1.5-4.5-4.5-1.5z"
@@ -349,6 +596,69 @@ export default function DashboardPage() {
             </div>
           </div>
         </form>
+        {(guestSession || guestMessages.length > 0 || guestError || chatNotice) && (
+          <div style={{ marginTop: 20 }} aria-live="polite" aria-label="Ask OPNXT conversation">
+            {guestError && (
+              <div className="dashboard-status dashboard-status--error" role="alert">
+                {guestError}
+              </div>
+            )}
+            {deepLinkError && !guestError && (
+              <div className="dashboard-status dashboard-status--error" role="alert">
+                {deepLinkError}
+              </div>
+            )}
+            {chatNotice && !guestError && !deepLinkError && (
+              <div className="dashboard-status" role="status">
+                {chatNotice}
+              </div>
+            )}
+            <div
+              style={{
+                display: "grid",
+                gap: 12,
+                marginTop: 12,
+                maxHeight: 320,
+                overflowY: "auto",
+                padding: 12,
+                borderRadius: 12,
+                border: "1px solid var(--border, #e0e0e0)",
+                background: "var(--surface, #f8f9fb)",
+              }}
+            >
+              {guestMessages.map((msg) => (
+                <div
+                  key={msg.message_id}
+                  style={{
+                    background: msg.role === "assistant" ? "#fff" : "var(--base, #edf2ff)",
+                    borderRadius: 10,
+                    padding: "10px 12px",
+                    boxShadow: "var(--shadow-sm, 0 1px 2px rgba(15, 23, 42, 0.08))",
+                  }}
+                >
+                  <strong>{msg.role === "assistant" ? "Assistant" : "You"}</strong>
+                  <div style={{ marginTop: 6, whiteSpace: "pre-wrap" }}>{msg.content}</div>
+                </div>
+              ))}
+              <div ref={askBottomRef} />
+            </div>
+            {guestSession && (
+              <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 12 }}>
+                <button
+                  type="button"
+                  className="dashboard-composer__link"
+                  onClick={() => {
+                    resetAskExperience();
+                    setDraft("");
+                    requestAnimationFrame(() => composerRef.current?.focus());
+                  }}
+                >
+                  Start a new Ask OPNXT
+                </button>
+              </div>
+            )}
+          </div>
+        )}
       </section>
     </div>
   );

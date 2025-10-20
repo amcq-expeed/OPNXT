@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { useRouter } from "next/router";
-import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   LaunchAcceleratorResponse,
   getAcceleratorSession,
@@ -8,6 +8,8 @@ import {
   postAcceleratorMessage,
   promoteAcceleratorSession,
   trackEvent,
+  API_BASE_URL,
+  getAccessToken,
 } from "../../lib/api";
 import { useUserContext } from "../../lib/user-context";
 import MarkdownMessage from "../../components/MarkdownMessage";
@@ -27,6 +29,10 @@ const PERSONA_LABELS: Record<string, string> = {
   people: "People / HR",
 };
 
+type SimplifiedArtifact = { filename: string; created_at?: string; version?: number; summary?: string };
+
+type SuggestedPrompt = { id: string; label: string; body: string };
+
 function formatPersonaLabel(code: string | null | undefined): string | null {
   if (!code) return null;
   const normalized = code.toLowerCase();
@@ -45,6 +51,7 @@ export default function AcceleratorChatPage() {
   const [promotionError, setPromotionError] = useState<string | null>(null);
   const [promotionProjectId, setPromotionProjectId] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
+  const [liveArtifacts, setLiveArtifacts] = useState<SimplifiedArtifact[]>([]);
 
   const intentId = useMemo(() => {
     const raw = router.query.intentId;
@@ -112,12 +119,47 @@ export default function AcceleratorChatPage() {
     return () => {
       cancelled = true;
     };
-  }, [router.isReady, intentId, sessionId, persona, source]);
+  }, [router, router.isReady, intentId, sessionId, source]);
 
   const session = data?.session;
   const intent = data?.intent;
   const messages = data?.messages ?? [];
   const personaLabel = useMemo(() => formatPersonaLabel(session?.persona), [session?.persona]);
+  const normalizeArtifacts = useCallback((list: any): SimplifiedArtifact[] => {
+    if (!Array.isArray(list)) return [];
+    return list.map((item) => ({
+      filename: String(item?.filename ?? ""),
+      created_at: typeof item?.created_at === "string" ? item.created_at : undefined,
+      version:
+        typeof item?.meta?.version === "number"
+          ? item.meta.version
+          : typeof item?.meta?.version === "string"
+          ? Number(item.meta.version)
+          : undefined,
+      summary: typeof item?.meta?.summary === "string" ? item.meta.summary : undefined,
+    }));
+  }, []);
+
+  const artifacts = useMemo(() => {
+    const meta = session?.metadata;
+    const list = (meta as any)?.artifacts;
+    return normalizeArtifacts(list);
+  }, [session?.metadata, normalizeArtifacts]);
+
+  const suggestedPrompts = useMemo(() => {
+    const meta = session?.metadata;
+    const raw = (meta as any)?.suggested_prompts;
+    if (!Array.isArray(raw)) return [] as SuggestedPrompt[];
+    return raw
+      .map((item, index) => ({
+        id: String(item?.id ?? index),
+        label: String(item?.label ?? `Prompt ${index + 1}`),
+        body: String(item?.body ?? ""),
+      }))
+      .filter((prompt) => prompt.body.trim().length > 0);
+  }, [session?.metadata]);
+
+  const displayArtifacts = liveArtifacts.length ? liveArtifacts : artifacts;
 
   function formatAssistantPreview(content: string) {
     const lines = content.split(/\n+/).filter((line) => line.trim().length > 0);
@@ -138,6 +180,75 @@ export default function AcceleratorChatPage() {
     requestAnimationFrame(() => messagesEndRef.current?.scrollIntoView({ behavior: "smooth" }));
   }, [messages.length]);
 
+  useEffect(() => {
+    if (!session?.session_id) {
+      setLiveArtifacts([]);
+      return;
+    }
+    setLiveArtifacts(artifacts);
+  }, [session?.session_id, artifacts]);
+
+  useEffect(() => {
+    if (!session?.session_id) return;
+    let cancelled = false;
+    const controller = new AbortController();
+
+    const connect = async () => {
+      const token = getAccessToken();
+      try {
+        const res = await fetch(
+          `${API_BASE_URL}/accelerators/sessions/${session.session_id}/artifacts/stream`,
+          {
+            headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+            signal: controller.signal,
+          },
+        );
+        if (!res.ok || !res.body) return;
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+        while (!cancelled) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          let boundary = buffer.indexOf("\n\n");
+          while (boundary !== -1) {
+            const chunk = buffer.slice(0, boundary);
+            buffer = buffer.slice(boundary + 2);
+            const dataLine = chunk
+              .split("\n")
+              .map((line) => line.trim())
+              .find((line) => line.startsWith("data:"));
+            if (dataLine) {
+              const payloadRaw = dataLine.replace(/^data:\s*/, "");
+              if (payloadRaw) {
+                try {
+                  const payload = JSON.parse(payloadRaw);
+                  const nextArtifacts = normalizeArtifacts(payload?.artifacts ?? []);
+                  setLiveArtifacts(nextArtifacts);
+                } catch (err) {
+                  console.error("Failed to parse artifact stream", err);
+                }
+              }
+            }
+            boundary = buffer.indexOf("\n\n");
+          }
+        }
+      } catch (err) {
+        if (!cancelled) {
+          console.error("Artifact stream error", err);
+        }
+      }
+    };
+
+    void connect();
+
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
+  }, [session?.session_id, normalizeArtifacts]);
+
   async function refreshSession(id: string) {
     try {
       const fresh = await getAcceleratorSession(id);
@@ -148,12 +259,15 @@ export default function AcceleratorChatPage() {
     }
   }
 
-  async function handleSend(event?: FormEvent) {
+  async function handleSend(event?: FormEvent, override?: string) {
     event?.preventDefault();
     if (!session || sending) return;
-    const content = draft.trim();
+    const content = (override ?? draft).trim();
     if (!content) return;
-    setDraft("");
+    const messageToSend = content;
+    if (!override) {
+      setDraft("");
+    }
     setSending(true);
     setError(null);
 
@@ -164,14 +278,29 @@ export default function AcceleratorChatPage() {
         length: content.length,
       });
       await postAcceleratorMessage(session.session_id, content);
-      await refreshSession(session.session_id);
+      void refreshSession(session.session_id);
     } catch (e: any) {
       setError(e?.message || "Unable to send message right now.");
-      setDraft(content);
+      if (!override) {
+        setDraft(messageToSend);
+      }
     } finally {
       setSending(false);
     }
   }
+
+  const handleQuickPrompt = useCallback(
+    (prompt: SuggestedPrompt) => {
+      if (!prompt?.body || !session || sending) return;
+      trackEvent("accelerator_prompt_prefill", {
+        sessionId: session.session_id,
+        intentId: intent?.intent_id,
+        promptId: prompt.id,
+      });
+      void handleSend(undefined, prompt.body);
+    },
+    [intent?.intent_id, session, sending],
+  );
 
   async function handlePromote() {
     if (!session || !intent) return;
@@ -248,6 +377,61 @@ export default function AcceleratorChatPage() {
       )}
 
       <main className="accelerator-chat" aria-live="polite">
+        <aside
+          style={{
+            border: "1px solid var(--border, #e0e0e0)",
+            borderRadius: 12,
+            padding: 16,
+            marginBottom: 16,
+            background: "var(--surface, #f8f9fb)",
+          }}
+          aria-label="Generated artifacts"
+        >
+          <h2 style={{ margin: 0, fontSize: "1rem" }}>Artifacts</h2>
+          <p style={{ marginTop: 8, marginBottom: 12, color: "var(--muted, #5f6a84)", fontSize: "0.875rem" }}>
+            {artifacts.length
+              ? "Latest documents captured for this accelerator session."
+              : "Documents will appear here once generated."}
+          </p>
+          {artifacts.length > 0 && (
+            <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "grid", gap: 8 }}>
+              {displayArtifacts.map((artifact) => (
+                <li
+                  key={`${artifact.filename}-${artifact.version ?? "v"}`}
+                  style={{
+                    border: "1px solid var(--border, #e0e0e0)",
+                    borderRadius: 10,
+                    padding: "8px 12px",
+                    background: "#fff",
+                    display: "grid",
+                    gap: 6,
+                  }}
+                >
+                  <div style={{ fontWeight: 600 }}>{artifact.filename || "Untitled"}</div>
+                  <div style={{ fontSize: "0.8rem", color: "var(--muted, #5f6a84)" }}>
+                    {artifact.version ? `Version ${artifact.version}` : null}
+                    {artifact.version && artifact.created_at ? " • " : ""}
+                    {artifact.created_at ? new Date(artifact.created_at).toLocaleString() : null}
+                  </div>
+                  {artifact.summary ? (
+                    <div
+                      style={{
+                        fontSize: "0.85rem",
+                        color: "var(--text, #27324b)",
+                        background: "#f5f7fb",
+                        borderRadius: 6,
+                        padding: "6px 8px",
+                        lineHeight: 1.4,
+                      }}
+                    >
+                      {artifact.summary}
+                    </div>
+                  ) : null}
+                </li>
+              ))}
+            </ul>
+          )}
+        </aside>
         {loading && !session && <div className="accelerator-status">Loading accelerator…</div>}
         {!loading && session && (
           <>
@@ -271,6 +455,49 @@ export default function AcceleratorChatPage() {
 
       <footer className="accelerator-composer">
         <form onSubmit={handleSend} className="accelerator-form">
+          {suggestedPrompts.length > 0 && (
+            <div
+              className="accelerator-quick-prompts"
+              role="group"
+              aria-label="Suggested prompts"
+              style={{
+                display: "flex",
+                flexWrap: "wrap",
+                gap: 8,
+                marginBottom: 12,
+              }}
+            >
+              {suggestedPrompts.map((prompt) => (
+                <button
+                  key={prompt.id}
+                  type="button"
+                  className="accelerator-quick-prompt"
+                  onClick={() => handleQuickPrompt(prompt)}
+                  disabled={sending || !session}
+                  style={{
+                    border: "1px solid var(--border, #d6dbe7)",
+                    background: "#eef2ff",
+                    color: "#3341a0",
+                    borderRadius: 999,
+                    padding: "6px 14px",
+                    fontSize: "0.85rem",
+                    fontWeight: 600,
+                    cursor: "pointer",
+                    transition: "background 0.2s ease, color 0.2s ease",
+                    opacity: sending || !session ? 0.6 : 1,
+                  }}
+                  onMouseEnter={(event) => {
+                    (event.currentTarget as HTMLButtonElement).style.background = "#dce4ff";
+                  }}
+                  onMouseLeave={(event) => {
+                    (event.currentTarget as HTMLButtonElement).style.background = "#eef2ff";
+                  }}
+                >
+                  {prompt.label}
+                </button>
+              ))}
+            </div>
+          )}
           <label className="sr-only" htmlFor="accelerator-input">
             Send a message
           </label>

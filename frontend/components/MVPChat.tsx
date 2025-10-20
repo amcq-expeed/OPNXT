@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  ChatModelOption,
   ChatMessage,
   createChatSession,
   listChatMessages,
+  listChatModels,
   postChatMessage,
   putProjectContext,
   aiGenerateDocuments,
@@ -23,6 +25,10 @@ import {
   signOut,
   User as FirebaseUser,
 } from "firebase/auth";
+import {
+  getModelPreference,
+  setModelPreference,
+} from "../lib/modelPreference";
 
 function defaultFirebaseConfig(): Record<string, string> | null {
   if (typeof window !== "undefined") {
@@ -124,6 +130,12 @@ export default function MVPChat({
   const [docFile, setDocFile] = useState<string>("");
   const [docVer, setDocVer] = useState<number | null>(null);
   const [docContent, setDocContent] = useState<string>("");
+  const [modelOptions, setModelOptions] = useState<ChatModelOption[]>([]);
+  const [modelLoading, setModelLoading] = useState<boolean>(false);
+  const [modelError, setModelError] = useState<string | null>(null);
+  const [selectedModel, setSelectedModel] = useState<string>("adaptive:auto");
+
+  const serializeModelKey = (opt: ChatModelOption) => `${opt.provider}:${opt.model}`;
 
   const loadDoc = useCallback(
     async (fname: string, version: number) => {
@@ -208,6 +220,47 @@ export default function MVPChat({
     if (typeof initialPrompt !== "string") return;
     setDraft(initialPrompt);
   }, [initialPrompt]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setModelLoading(true);
+    setModelError(null);
+    listChatModels()
+      .then((items) => {
+        if (cancelled) return;
+        const filtered = Array.isArray(items)
+          ? items.filter((opt) => !opt.provider.startsWith("search"))
+          : [];
+        setModelOptions(filtered);
+        const persisted = getModelPreference();
+        if (persisted) {
+          const match = filtered.find(
+            (opt) =>
+              opt.provider === persisted.provider &&
+              opt.model === persisted.model,
+          );
+          if (match) {
+            setSelectedModel(serializeModelKey(match));
+          } else if (persisted.provider === "adaptive") {
+            setSelectedModel("adaptive:auto");
+          }
+        } else if (filtered.length > 0) {
+          setSelectedModel(serializeModelKey(filtered[0]));
+        }
+      })
+      .catch((error: any) => {
+        if (cancelled) return;
+        setModelError(
+          error?.message || "Unable to load available models right now.",
+        );
+      })
+      .finally(() => {
+        if (!cancelled) setModelLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -302,7 +355,19 @@ export default function MVPChat({
           },
         ] as any),
       );
-      await postChatMessage(sid, text);
+      const [providerOverride, modelOverride] = (() => {
+        if (!selectedModel) return [null, null];
+        const [provider, ...rest] = selectedModel.split(":");
+        const model = rest.join(":") || null;
+        if (!provider || provider === "adaptive") {
+          return [null, null];
+        }
+        return [provider, model];
+      })();
+      await postChatMessage(sid, text, {
+        provider: providerOverride,
+        model: modelOverride,
+      });
       const msgs = await listChatMessages(sid);
       setMessages(msgs);
       setNotice("Assistant replied.");
@@ -759,6 +824,44 @@ export default function MVPChat({
             ref={textareaRef}
             autoFocus
           />
+          <div className={styles.modelSelectorRow}>
+            <label className="muted" style={{ fontSize: 12 }}>
+              Model
+              <select
+                className="select"
+                value={selectedModel}
+                onChange={(event) => {
+                  const value = event.target.value;
+                  setSelectedModel(value);
+                  const choice = modelOptions.find(
+                    (opt) => serializeModelKey(opt) === value,
+                  );
+                  if (choice) {
+                    setModelPreference(choice.provider, choice.model);
+                  } else if (value.startsWith("adaptive")) {
+                    setModelPreference("adaptive", "auto");
+                  }
+                }}
+                disabled={modelLoading || modelOptions.length === 0}
+              >
+                {modelOptions.map((opt) => (
+                  <option
+                    key={serializeModelKey(opt)}
+                    value={serializeModelKey(opt)}
+                    disabled={!opt.available && !opt.adaptive}
+                  >
+                    {opt.label}
+                    {opt.available ? "" : " (unavailable)"}
+                  </option>
+                ))}
+              </select>
+            </label>
+            {modelError && (
+              <span className="muted" style={{ fontSize: 12 }} role="alert">
+                {modelError}
+              </span>
+            )}
+          </div>
           <button
             type="submit"
             className={`btn btn-primary mvp-chat__send ${styles.send}`}

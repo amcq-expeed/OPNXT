@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 _logger = logging.getLogger("opnxt.telemetry")
+_metric_logger = logging.getLogger("opnxt.metrics")
 
 
 @dataclass
@@ -44,3 +45,37 @@ def list_recent_events(limit: int = 50) -> List[TelemetryEvent]:
     if limit <= 0:
         return []
     return list(_RECENT_EVENTS[-limit:])
+
+
+def record_metric(
+    *,
+    name: str,
+    value: float,
+    properties: Optional[Dict[str, Any]] = None,
+    metric_type: str = "gauge",
+) -> None:
+    """Emit a telemetry metric.
+
+    Parameters
+    ----------
+    name: str
+        Metric identifier (snake_case preferred).
+    value: float
+        Numeric gauge/counter value.
+    properties: dict[str, Any] | None
+        Additional dimensions (e.g., intent_id, session_id).
+    metric_type: str
+        "gauge" (default), "counter", or "gauge_delta" for +/- adjustments.
+    """
+
+    payload = {
+        "metric_name": name,
+        "metric_value": value,
+        "metric_properties": dict(properties or {}),
+        "metric_type": metric_type,
+    }
+
+    try:
+        _metric_logger.info("metric_event", extra=payload)
+    except Exception:
+        pass

@@ -1,4 +1,11 @@
-import { useMemo, useRef, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  ChatMessage,
+  ChatSession,
+  createGuestChatSession,
+  listChatMessages,
+  postChatMessage,
+} from "../lib/api";
 
 interface SupportWidgetProps {
   userName?: string | null;
@@ -27,6 +34,16 @@ export default function SupportWidget({
   const [open, setOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<"home" | "messages" | "tasks">("home");
   const dialogRef = useRef<HTMLDivElement | null>(null);
+  const bottomRef = useRef<HTMLDivElement | null>(null);
+  const transcriptRef = useRef<HTMLDivElement | null>(null);
+
+  const [session, setSession] = useState<ChatSession | null>(null);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [draft, setDraft] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [sending, setSending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
 
   const firstStep = steps[0];
 
@@ -38,7 +55,99 @@ export default function SupportWidget({
     return `${parts[0][0]}${parts[1][0]}`.toUpperCase();
   }, [userName]);
 
-  const toggle = () => setOpen((prev) => !prev);
+  const ensureSession = useCallback(async () => {
+    if (session) return session.session_id;
+    setLoading(true);
+    setNotice("Connecting to support…");
+    setError(null);
+    try {
+      const created = await createGuestChatSession({
+        title: "Support Assistant Chat",
+        persona: "support",
+      });
+      setSession(created.session);
+      setMessages(created.messages || []);
+      setNotice(null);
+      return created.session.session_id;
+    } catch (err: any) {
+      const detail = err?.message || "Unable to connect to support.";
+      setError(detail);
+      setNotice(null);
+      throw err;
+    } finally {
+      setLoading(false);
+    }
+  }, [session]);
+
+  useEffect(() => {
+    if (!open) return;
+    if (activeTab !== "messages") return;
+    if (session || loading) return;
+    ensureSession().catch(() => {});
+  }, [open, activeTab, session, loading, ensureSession]);
+
+  useEffect(() => {
+    if (!open || activeTab !== "messages") return;
+    const container = transcriptRef.current;
+    requestAnimationFrame(() => {
+      if (container) {
+        container.scrollTo({ top: container.scrollHeight, behavior: "smooth" });
+      }
+      bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+    });
+  }, [messages.length, open, activeTab, notice, error]);
+
+  const toggle = () => {
+    setOpen((prev) => !prev);
+    if (open) {
+      setNotice(null);
+    }
+  };
+
+  const handleSend = useCallback(
+    async (event: FormEvent<HTMLFormElement>) => {
+      event.preventDefault();
+      if (sending || loading) return;
+      const text = draft.trim();
+      if (!text) return;
+      let optimistic: ChatMessage | null = null;
+      try {
+        const sessionId = session?.session_id ?? (await ensureSession());
+        if (!sessionId) return;
+        setSending(true);
+        setError(null);
+        setNotice("Waiting for support assistant…");
+        const userMessage: ChatMessage = {
+          message_id: `local-${Date.now()}`,
+          session_id: sessionId,
+          role: "user",
+          content: text,
+          created_at: new Date().toISOString(),
+        };
+        optimistic = userMessage;
+        setMessages((prev) => prev.concat(userMessage));
+        setDraft("");
+        const assistant = await postChatMessage(sessionId, text);
+        setMessages((prev) => prev.concat(assistant));
+        setNotice(null);
+        const latest = await listChatMessages(sessionId);
+        if (latest && latest.length) {
+          setMessages(latest);
+        }
+      } catch (err: any) {
+        const detail = err?.message || "Unable to send message.";
+        setError(detail);
+        setNotice(null);
+        if (optimistic) {
+          setMessages((prev) => prev.filter((msg) => msg.message_id !== optimistic!.message_id));
+        }
+        setDraft(text);
+      } finally {
+        setSending(false);
+      }
+    },
+    [draft, sending, loading, session, ensureSession],
+  );
 
   return (
     <div className="support-widget" aria-live="polite">
@@ -119,12 +228,65 @@ export default function SupportWidget({
                 </p>
                 <p>How can I assist today?</p>
               </div>
-              <form className="support-thread__composer">
+              <div className="support-thread__messages" ref={transcriptRef}>
+                {messages.map((msg) => (
+                  <div
+                    key={msg.message_id}
+                    className="support-thread__bubble"
+                    style={{
+                      background: msg.role === "assistant" ? "rgb(236 240 255)" : "rgb(255 244 239)",
+                      justifySelf: msg.role === "assistant" ? "start" : "end",
+                    }}
+                  >
+                    <strong>{msg.role === "assistant" ? "Assistant" : "You"}</strong>
+                    <div style={{ marginTop: 6, whiteSpace: "pre-wrap" }}>{msg.content}</div>
+                  </div>
+                ))}
+                {error ? (
+                  <div
+                    role="alert"
+                    style={{
+                      background: "rgb(255 235 238)",
+                      color: "#8a1c1c",
+                      padding: "10px 12px",
+                      borderRadius: 12,
+                    }}
+                  >
+                    {error}
+                  </div>
+                ) : null}
+                {!error && notice ? (
+                  <div
+                    role="status"
+                    style={{
+                      background: "rgb(236 240 255)",
+                      color: "#1b2a5a",
+                      padding: "10px 12px",
+                      borderRadius: 12,
+                    }}
+                  >
+                    {notice}
+                  </div>
+                ) : null}
+                <div ref={bottomRef} aria-hidden="true" />
+              </div>
+              <form className="support-thread__composer" onSubmit={handleSend}>
                 <label htmlFor="support-message" className="sr-only">
                   Ask a question
                 </label>
-                <input id="support-message" type="text" placeholder="Ask a question…" />
-                <button type="submit" aria-label="Send message">
+                <input
+                  id="support-message"
+                  type="text"
+                  placeholder={loading ? "Connecting to support…" : "Ask a question…"}
+                  value={draft}
+                  onChange={(event) => setDraft(event.target.value)}
+                  disabled={loading || sending}
+                />
+                <button
+                  type="submit"
+                  aria-label="Send message"
+                  disabled={loading || sending || !draft.trim()}
+                >
                   ↗
                 </button>
               </form>

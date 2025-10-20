@@ -1,2 +1,1 @@
-# Test Plan
-Scope TBD.
+# TestPlan

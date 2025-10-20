@@ -22,6 +22,8 @@ def clean_env():
         "GOOGLE_SEARCH_API_KEY",
         "LOCAL_API_KEY",
         "LOCAL_BASE_URL",
+        "LOCAL_MODEL",
+        "LOCAL_MODEL_FALLBACKS",
         "OPNXT_ENABLE_LOCAL_PROVIDER",
         "OPNXT_MODEL_PROVIDER",
         "OPNXT_FORCE_MODEL_PROVIDER",
@@ -96,3 +98,28 @@ def test_generate_metadata_exposes_non_secret_fields():
     assert metadata["model"] == "gpt-4o-mini"
     assert metadata["api_key_env"] == "OPENAI_API_KEY"
     assert metadata["grounding_query"] == "status"
+
+
+def test_router_uses_local_fallbacks_when_enabled():
+    router = _with_env(
+        {
+            "OPNXT_ENABLE_LOCAL_PROVIDER": "1",
+            "LOCAL_BASE_URL": "http://127.0.0.1:11434",
+            "LOCAL_MODEL_FALLBACKS": "llama3.2:latest, mixtral:8x22b",
+        }
+    )
+    selection = router.select_provider("conversation")
+    assert selection.name == "local"
+    assert selection.model == "llama3.2:latest"
+
+
+def test_router_defaults_to_curated_local_model_when_no_env_models():
+    router = _with_env(
+        {
+            "OPNXT_ENABLE_LOCAL_PROVIDER": "1",
+            "LOCAL_BASE_URL": "http://127.0.0.1:11434",
+        }
+    )
+    selection = router.select_provider("conversation")
+    assert selection.name == "local"
+    assert selection.model == "mixtral:8x22b"

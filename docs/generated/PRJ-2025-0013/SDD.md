@@ -1,2 +1,1 @@
-# SDD
-Architecture TBD.
+# SDD v2

@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import json
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from ...security.auth import User
@@ -12,6 +14,7 @@ from ...services.accelerator_service import (
     load_accelerator_context,
     post_accelerator_message,
     promote_accelerator_session,
+    stream_accelerator_artifacts,
 )
 from ...services.catalog_service import get_intent
 from .catalog import ChatIntentResponse
@@ -90,7 +93,7 @@ def _to_message_response(message) -> AcceleratorMessageResponse:
 def create_accelerator_session(
     intent_id: str = Path(..., description="Catalog intent identifier"),
     persona: Optional[str] = Query(default=None, description="Persona label (e.g., pm, engineer) to tailor accelerator copy"),
-    user: User = Depends(require_permission(Permission.PROJECT_WRITE)),
+    user: User = Depends(require_permission(Permission.PROJECT_READ)),
 ) -> LaunchAcceleratorResponse:
     try:
         session, seeded_messages, intent = launch_accelerator_session(intent_id, user, persona=persona)
@@ -132,13 +135,34 @@ def get_accelerator_session_with_messages(
 def create_accelerator_message(
     session_id: str,
     payload: AcceleratorMessageCreate,
-    user: User = Depends(require_permission(Permission.PROJECT_WRITE)),
+    user: User = Depends(require_permission(Permission.PROJECT_READ)),
 ) -> AcceleratorMessageResponse:
     try:
         assistant = post_accelerator_message(session_id, payload.content, user)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     return _to_message_response(assistant)
+
+
+@router.get(
+    "/sessions/{session_id}/artifacts/stream",
+    response_class=StreamingResponse,
+)
+async def stream_session_artifacts(
+    session_id: str,
+    starting_revision: int = Query(0, ge=0, description="Initial artifact revision"),
+    user: User = Depends(require_permission(Permission.PROJECT_READ)),
+):
+    try:
+        load_accelerator_context(session_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+    async def event_stream():
+        async for payload in stream_accelerator_artifacts(session_id, start_revision=starting_revision):
+            yield f"data: {json.dumps(payload)}\n\n"
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream")
 
 
 @router.post(

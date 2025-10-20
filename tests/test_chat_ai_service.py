@@ -5,6 +5,8 @@ def test_reply_with_chat_ai_fallback(monkeypatch):
     # Ensure no keys so the LLM path is disabled and fallback is used
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     monkeypatch.delenv("XAI_API_KEY", raising=False)
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.delenv("OPNXT_ENABLE_LOCAL_PROVIDER", raising=False)
 
     text = reply_with_chat_ai(
         project_name="Demo",

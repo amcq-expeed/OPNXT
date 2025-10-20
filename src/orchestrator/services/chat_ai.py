@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Tuple
 import os
 import re
 import requests
 import logging
 
-from .model_router import ModelRouter
+from .model_router import ModelRouter, ProviderSelection
 
 # Optional import: langchain-openai
 try:
@@ -138,9 +138,28 @@ class LocalLLMClient:
             raise
 
 
-def _get_llm(purpose: str):
+def _get_llm(
+    purpose: str,
+    provider: Optional[str] = None,
+    model_hint: Optional[str] = None,
+) -> Tuple[object, str, str]:
     router = ModelRouter()
-    selection = router.select_provider(purpose)
+    if provider:
+        try:
+            selection = router.resolve_provider(provider)
+        except KeyError:
+            raise RuntimeError(f"Unknown provider override: {provider}")
+        if model_hint:
+            selection = ProviderSelection(
+                name=selection.name,
+                model=model_hint,
+                api_key_env=selection.api_key_env,
+                base_url_env=selection.base_url_env,
+                default_base_url=selection.default_base_url,
+                requires_api_key=selection.requires_api_key,
+            )
+    else:
+        selection = router.select_provider(purpose)
 
     if selection.name == "search":
         raise RuntimeError("Search provider cannot handle conversational responses")
@@ -152,7 +171,7 @@ def _get_llm(purpose: str):
         elif selection.default_base_url:
             base_url = selection.default_base_url
         logger.info("Using local LLM provider base_url=%s model=%s", base_url, selection.model)
-        return LocalLLMClient(base_url=base_url, model=selection.model)
+        return LocalLLMClient(base_url=base_url, model=selection.model), selection.name, selection.model
 
     if not ChatOpenAI:
         raise RuntimeError("LLM client not available")
@@ -173,7 +192,8 @@ def _get_llm(purpose: str):
         selection.model,
         base_url,
     )
-    return ChatOpenAI(api_key=api_key, base_url=base_url, model=selection.model, temperature=0.2)
+    client = ChatOpenAI(api_key=api_key, base_url=base_url, model=selection.model, temperature=0.2)
+    return client, selection.name, selection.model
 
 
 def _attachment_block(attachments: Optional[Dict[str, str]]) -> str:
@@ -306,7 +326,9 @@ def reply_with_chat_ai(
     history: List[Dict[str, str]] | None = None,
     attachments: Optional[Dict[str, str]] = None,
     persona: Optional[str] = None,
-) -> str:
+    provider: Optional[str] = None,
+    model: Optional[str] = None,
+) -> Dict[str, Optional[str] | str]:
     """Return assistant reply using LLM if configured; otherwise a helpful deterministic fallback.
 
     history: list of {role, content} where role in {system,user,assistant}
@@ -317,7 +339,8 @@ def reply_with_chat_ai(
     intent = detect_user_intent(user_message, history)
     if intent == "troubleshooting":
         try:
-            llm = _get_llm("conversation")
+            selection = _get_llm("conversation", provider=provider, model_hint=model)
+            llm, selected_provider, selected_model = selection
             sys = (
                 "You are the OPNXT Support Guide. Provide clear, concise troubleshooting steps. "
                 "Acknowledge the issue, outline 2-3 actionable recommendations, and note any risks or escalation paths. "
@@ -332,7 +355,12 @@ def reply_with_chat_ai(
                 msgs.append({"role": r, "content": c})
             msgs.append({"role": "user", "content": user_message})
             res = llm.invoke(msgs)
-            return res.content if hasattr(res, "content") else str(res)
+            text = res.content if hasattr(res, "content") else str(res)
+            return {
+                "text": text,
+                "provider": selected_provider,
+                "model": selected_model,
+            }
         except Exception:
             text = (user_message or "").strip()
             lines = ["Let’s tackle this issue step-by-step."]
@@ -342,36 +370,51 @@ def reply_with_chat_ai(
             lines.append("1) Reproduce the issue and capture any exact error messages or codes.")
             lines.append("2) Check recent changes (deploys, password updates, configuration tweaks).")
             lines.append("3) If the problem persists, open a support ticket with logs/screenshots for escalation.")
-            return "\n".join(lines)
+            return {
+                "text": "\n".join(lines),
+                "provider": None,
+                "model": None,
+            }
 
     purpose = _determine_purpose(user_message)
 
     try:
-        llm = _get_llm(purpose)
-        persona_line = (
-            f"The primary stakeholder persona is `{persona}`. Tailor tone and guidance to help this persona make confident decisions. "
-            if persona
-            else ""
-        )
-        sys_lines = [
-            "You are the OPNXT Expert Circle: a collaborative trio of specialists (Maya – Product Strategy, Priya – Engineering Lead, Luis – Delivery Coach).",
-            "Respond like a cohesive roundtable, weaving short contributions from each expert so the user feels supported by a team rather than an automated script.",
-            "Open with a warm acknowledgement of the user's intent and reflect back the most relevant details they shared.",
-            "Anchor every reply in helping the user produce concrete SDLC artifacts (charters, BRDs, SRS, test plans, delivery roadmaps, or implementation builds).",
-            "State clearly what artifacts you can draft now, what information is missing, and how close the conversation is to document-ready.",
-            "Offer balanced guidance that blends product vision, technical feasibility, and delivery execution while highlighting gaps that would block artifact creation.",
-            "When prior context or attachments exist, reference the most pertinent insights and explain how they shape the upcoming documents.",
-            "Format every response using Markdown with the following sections in order: '### Executive Summary', '### Readiness & Gaps', '### Recommended Actions', and '### Questions for You'.",
-            "Within each section, use concise bullet lists (or numbered lists for questions) and keep sentences crisp and professional.",
-            "Do not prefix bullet items with individual persona names; speak as the Expert Circle collectively while indicating which capability is covering each point when relevant.",
-            "Each response must summarize what new information the user provided, update the document-readiness status, and either (a) commit to drafting specific artifacts or (b) request the precise next inputs needed.",
-            "Make explicit offers to generate the required documents or begin build scaffolding once the user confirms readiness.",
-            "Close with an inviting next action plus one or two focused questions that either capture missing requirements or confirm that you should start drafting. Always remind the user they can ask you to generate the documents or proceed to build support.",
-            "Avoid rigid templates—use natural paragraphs with short bullet lists when helpful—and keep the entire response under 12 sentences.",
-            "Maintain an expert, optimistic, and collaborative tone. Do not use canonical SHALL phrasing; keep it conversational.",
-        ]
-        if persona_line:
-            sys_lines.append(persona_line.strip())
+        selection = _get_llm(purpose, provider=provider, model_hint=model)
+        llm, selected_provider, selected_model = selection
+        support_mode = persona == "support"
+        if support_mode:
+            sys_lines = [
+                "You are Ava, a friendly OPNXT support specialist. Speak in the first person as a real teammate who is genuinely ready to help.",
+                "Start with a warm acknowledgement that mirrors the user's request and show empathy for their situation.",
+                "Respond in short paragraphs (2-3 sentences each) with natural phrasing—no headings, no numbered sections, and no corporate jargon.",
+                "Offer to partner on the next step, call out what you can do immediately, and invite the user to share any context you still need.",
+                "Keep the reply under 6 sentences, mix reassurance with clear actions, and end with an encouraging question to keep the chat going.",
+            ]
+        else:
+            persona_line = (
+                f"The primary stakeholder persona is `{persona}`. Tailor tone and guidance to help this persona make confident decisions. "
+                if persona
+                else ""
+            )
+            sys_lines = [
+                "You are the OPNXT Expert Circle: a collaborative trio of specialists (Maya – Product Strategy, Priya – Engineering Lead, Luis – Delivery Coach).",
+                "Respond like a cohesive roundtable, weaving short contributions from each expert so the user feels supported by a team rather than an automated script.",
+                "Open with a warm acknowledgement of the user's intent and reflect back the most relevant details they shared.",
+                "Anchor every reply in helping the user produce concrete SDLC artifacts (charters, BRDs, SRS, test plans, delivery roadmaps, or implementation builds).",
+                "State clearly what artifacts you can draft now, what information is missing, and how close the conversation is to document-ready.",
+                "Offer balanced guidance that blends product vision, technical feasibility, and delivery execution while highlighting gaps that would block artifact creation.",
+                "When prior context or attachments exist, reference the most pertinent insights and explain how they shape the upcoming documents.",
+                "Format every response using Markdown with the following sections in order: '### Executive Summary', '### Readiness & Gaps', '### Recommended Actions', and '### Questions for You'.",
+                "Within each section, use concise bullet lists (or numbered lists for questions) and keep sentences crisp and professional.",
+                "Do not prefix bullet items with individual persona names; speak as the Expert Circle collectively while indicating which capability is covering each point when relevant.",
+                "Each response must summarize what new information the user provided, update the document-readiness status, and either (a) commit to drafting specific artifacts or (b) request the precise next inputs needed.",
+                "Make explicit offers to generate the required documents or begin build scaffolding once the user confirms readiness.",
+                "Close with an inviting next action plus one or two focused questions that either capture missing requirements or confirm that you should start drafting. Always remind the user they can ask you to generate the documents or proceed to build support.",
+                "Avoid rigid templates—use natural paragraphs with short bullet lists when helpful—and keep the entire response under 12 sentences.",
+                "Maintain an expert, optimistic, and collaborative tone. Do not use canonical SHALL phrasing; keep it conversational.",
+            ]
+            if persona_line:
+                sys_lines.append(persona_line.strip())
         sys = "\n".join(sys_lines)
         msgs = [{"role": "system", "content": sys}]
         if attachments:
@@ -386,7 +429,16 @@ def reply_with_chat_ai(
             msgs.append({"role": r, "content": c})
         msgs.append({"role": "user", "content": user_message})
         res = llm.invoke(msgs)
-        return res.content if hasattr(res, "content") else str(res)
+        text = res.content if hasattr(res, "content") else str(res)
+        return {
+            "text": text,
+            "provider": selected_provider,
+            "model": selected_model,
+        }
     except Exception as exc:
         logger.exception("LLM invocation failed; falling back to deterministic prompts")
-        return _fallback_structured_reply(user_message, history, persona, attachments)
+        return {
+            "text": _fallback_structured_reply(user_message, history, persona, attachments),
+            "provider": None,
+            "model": None,
+        }

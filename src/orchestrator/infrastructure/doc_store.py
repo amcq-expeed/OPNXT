@@ -21,6 +21,8 @@ class DocumentStore(Protocol):
     def save_document(self, project_id: str, filename: str, content: str, meta: Optional[Dict[str, Any]] = None) -> int: ...
     def list_documents(self, project_id: str) -> Dict[str, List[Dict[str, Any]]]: ...
     def get_document(self, project_id: str, filename: str, version: Optional[int] = None) -> Optional[DocVersion]: ...
+    def save_accelerator_preview(self, session_id: str, filename: str, content: str, meta: Optional[Dict[str, Any]] = None) -> int: ...
+    def list_accelerator_previews(self, session_id: str) -> List[Dict[str, Any]]: ...
 
 
 def _utc_now() -> datetime:
@@ -43,6 +45,7 @@ def _isoformat_utc(value: Any) -> str:
 class InMemoryDocumentStore:
     def __init__(self) -> None:
         self._data: Dict[str, Dict[str, List[DocVersion]]] = {}
+        self._accelerator_data: Dict[str, List[Dict[str, Any]]] = {}
         self._lock = RLock()
 
     def save_document(self, project_id: str, filename: str, content: str, meta: Optional[Dict[str, Any]] = None) -> int:
@@ -91,6 +94,24 @@ class InMemoryDocumentStore:
                 if v.version == version:
                     return v
             return None
+
+    def save_accelerator_preview(self, session_id: str, filename: str, content: str, meta: Optional[Dict[str, Any]] = None) -> int:
+        with self._lock:
+            entries = self._accelerator_data.setdefault(session_id, [])
+            version = len(entries) + 1
+            entry = {
+                "version": version,
+                "filename": filename,
+                "created_at": _isoformat_utc(_utc_now()),
+                "meta": dict(meta or {}),
+                "content": content,
+            }
+            entries.append(entry)
+            return version
+
+    def list_accelerator_previews(self, session_id: str) -> List[Dict[str, Any]]:
+        with self._lock:
+            return list(self._accelerator_data.get(session_id, []))
 
 
 class MongoDocumentStore:
@@ -211,6 +232,12 @@ class MongoDocumentStore:
             meta=doc.get("meta") or {},
             content=content,
         )
+
+    def save_accelerator_preview(self, session_id: str, filename: str, content: str, meta: Optional[Dict[str, Any]] = None) -> int:
+        return self._fallback.save_accelerator_preview(session_id, filename, content, meta)
+
+    def list_accelerator_previews(self, session_id: str) -> List[Dict[str, Any]]:
+        return self._fallback.list_accelerator_previews(session_id)
 
 
 _doc_store_singleton: DocumentStore | None = None

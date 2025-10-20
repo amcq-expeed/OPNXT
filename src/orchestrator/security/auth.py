@@ -94,11 +94,13 @@ class OTPEntry:
     code: str
     expires_at: datetime
     attempts: int = 0
+    sent_at: Optional[datetime] = None
 
 
 OTP_STORE: Dict[str, OTPEntry] = {}
 OTP_EXP_MINUTES = int(os.getenv("OTP_EXPIRES_MIN", "10"))
 OTP_MAX_ATTEMPTS = int(os.getenv("OTP_MAX_ATTEMPTS", "5"))
+OTP_RESEND_DELAY_SECONDS = int(os.getenv("OTP_RESEND_DELAY_SECONDS", "180"))
 INCLUDE_OTP_IN_RESPONSE = os.getenv("OPNXT_INCLUDE_OTP_IN_RESPONSE", "1").lower() in ("1", "true", "yes")
 
 
@@ -210,9 +212,25 @@ def _generate_otp_code(length: int = 6) -> str:
 
 def issue_otp(email: str) -> str:
     email_l = email.lower()
-    code = _generate_otp_code()
-    expires = datetime.now(timezone.utc) + timedelta(minutes=OTP_EXP_MINUTES)
-    OTP_STORE[email_l] = OTPEntry(code=code, expires_at=expires)
+    now = datetime.now(timezone.utc)
+    existing = OTP_STORE.get(email_l)
+
+    if existing and existing.expires_at > now:
+        if existing.sent_at and (now - existing.sent_at).total_seconds() < OTP_RESEND_DELAY_SECONDS:
+            logger.info(
+                "OTP for %s already issued at %s; reusing existing code without resend",
+                email_l,
+                existing.sent_at.isoformat() if existing.sent_at else "unknown",
+            )
+            return existing.code
+        code = existing.code
+        expires = existing.expires_at
+    else:
+        code = _generate_otp_code()
+        expires = now + timedelta(minutes=OTP_EXP_MINUTES)
+
+    entry = OTPEntry(code=code, expires_at=expires, sent_at=now)
+    OTP_STORE[email_l] = entry
     logger.info("Issued OTP for %s expiring at %s", email_l, expires.isoformat())
     _send_otp_email(email, code)
     return code

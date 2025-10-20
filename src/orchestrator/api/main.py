@@ -17,6 +17,7 @@ from .routers.catalog import router as catalog_router
 from .routers.accelerators import router as accelerators_router
 from .routers.telemetry import router as telemetry_router
 from .routers.migration import router as migration_router
+from .routers.workspace import router as workspace_router
 from ..observability.metrics import metrics_middleware_factory
 
 load_dotenv()  # Load environment variables from .env if present (OPENAI_API_KEY, XAI_API_KEY, etc.)
@@ -39,6 +40,7 @@ app.include_router(catalog_router)
 app.include_router(accelerators_router)
 app.include_router(telemetry_router)
 app.include_router(migration_router)
+app.include_router(workspace_router)
 
 # Also expose the same routers under /api for alignment with architecture doc
 app.include_router(projects_router, prefix="/api")
@@ -50,6 +52,7 @@ app.include_router(catalog_router, prefix="/api")
 app.include_router(accelerators_router, prefix="/api")
 app.include_router(telemetry_router, prefix="/api")
 app.include_router(migration_router, prefix="/api")
+app.include_router(workspace_router, prefix="/api")
 
 # CORS (for Next.js dev server on localhost:3000)
 app.add_middleware(

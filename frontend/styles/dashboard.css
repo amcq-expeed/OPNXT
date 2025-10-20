@@ -300,6 +300,24 @@
   gap: 8px;
   font-size: 11px;
   color: rgba(47, 60, 118, 0.75);
+  flex-wrap: wrap;
+}
+
+.dashboard-composer__model-select {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+  color: inherit;
+}
+
+.dashboard-composer__model-select select {
+  font-size: 11px;
+}
+
+.dashboard-composer__model-error {
+  color: rgb(158 32 32);
+  font-size: 10px;
 }
 
 .dashboard-composer__actions {

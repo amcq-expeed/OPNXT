@@ -4,6 +4,9 @@ from src.orchestrator.services import chat_ai as ca
 def test_chat_ai_llm_path_truncates_attachments(monkeypatch):
     # Provide a fake API key to enable LLM branch
     monkeypatch.setenv("OPENAI_API_KEY", "dummy")
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.delenv("XAI_API_KEY", raising=False)
+    monkeypatch.delenv("OPNXT_ENABLE_LOCAL_PROVIDER", raising=False)
 
     captured = {}
 
