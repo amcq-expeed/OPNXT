@@ -12,13 +12,17 @@ import {
 } from "../lib/api";
 import { UserContext } from "../lib/user-context";
 
+const PUBLIC_MODE =
+  process.env.NEXT_PUBLIC_PUBLIC_MODE === "1" ||
+  process.env.NEXT_PUBLIC_PUBLIC_MODE === "true";
+
 export default function AppShell({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const path = router?.pathname || "";
   const authRoute =
     path.startsWith("/login") || path.startsWith("/signup") || path.startsWith("/logout");
   const minimal = path === "/" || path.startsWith("/mvp") || authRoute;
-  const guardEnabled = !(minimal || authRoute);
+  const guardEnabled = !(minimal || authRoute) && !PUBLIC_MODE;
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [user, setUser] = useState<User | null>(null);
   const [authChecked, setAuthChecked] = useState<boolean>(!guardEnabled);
@@ -74,6 +78,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
 
   const isDashboard = router.pathname.startsWith("/dashboard");
   const isAccelerator = router.pathname.startsWith("/accelerators");
+  const isProject = router.pathname.startsWith("/projects");
 
   const contentClass = useMemo(() => {
     const classes = ["app-shell__content"];
@@ -83,8 +88,16 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     if (isAccelerator) {
       classes.push("app-shell__content--accelerator");
     }
+    if (isProject) {
+      classes.push("app-shell__content--project");
+    }
     return classes.join(" ");
-  }, [isDashboard, isAccelerator]);
+  }, [isDashboard, isAccelerator, isProject]);
+
+  const mainClass = useMemo(
+    () => (isAccelerator ? "accelerator-container" : "container"),
+    [isAccelerator],
+  );
 
   if (!minimal && !authRoute && !authChecked) {
     return null;
@@ -163,7 +176,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
               </svg>
             </button>
           )}
-          <main id="main" role="main" className="container">
+          <main id="main" role="main" className={mainClass}>
             {children}
           </main>
         </div>

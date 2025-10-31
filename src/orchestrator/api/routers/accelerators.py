@@ -1,20 +1,28 @@
 from __future__ import annotations
 
+import io
 import json
-from typing import List, Optional
+from typing import List, Optional, Dict
 
-from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
-from fastapi.responses import StreamingResponse
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, Response, status, UploadFile, File
+from fastapi.responses import PlainTextResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 from ...security.auth import User
 from ...security.rbac import Permission, require_permission
 from ...services.accelerator_service import (
+    _enqueue_immediate_start,
     launch_accelerator_session,
     load_accelerator_context,
     post_accelerator_message,
     promote_accelerator_session,
     stream_accelerator_artifacts,
+    list_accelerator_previews,
+    list_accelerator_attachments,
+    add_accelerator_attachments,
+    remove_accelerator_attachment,
+    get_accelerator_asset_blob,
+    get_accelerator_preview_html,
 )
 from ...services.catalog_service import get_intent
 from .catalog import ChatIntentResponse
@@ -31,6 +39,8 @@ class AcceleratorSessionResponse(BaseModel):
     project_id: Optional[str]
     promoted_at: Optional[str]
     metadata: dict = Field(default_factory=dict)
+    attachments: List[dict] = Field(default_factory=list)
+    last_summary: Optional[str] = None
 
 
 class AcceleratorMessageResponse(BaseModel):
@@ -47,8 +57,27 @@ class LaunchAcceleratorResponse(BaseModel):
     messages: List[AcceleratorMessageResponse]
 
 
+class AcceleratorPreviewResponse(BaseModel):
+    version: int
+    filename: str
+    created_at: str
+    meta: dict = Field(default_factory=dict)
+    content: str | None = None
+
+
 class AcceleratorMessageCreate(BaseModel):
     content: str = Field(min_length=1)
+    attachments: List[str] = Field(default_factory=list)
+
+
+class AcceleratorAttachmentResponse(BaseModel):
+    id: str
+    filename: str
+    content_type: Optional[str] = None
+    size: Optional[int] = None
+    uploaded_at: Optional[str] = None
+    preview: Optional[str] = None
+    source: Optional[str] = None
 
 
 class PromoteAcceleratorRequest(BaseModel):
@@ -63,6 +92,9 @@ class PromoteAcceleratorResponse(BaseModel):
 
 
 def _to_session_response(session) -> AcceleratorSessionResponse:
+    metadata = dict(session.metadata or {})
+    attachments = metadata.pop("attachments", [])
+    last_summary = metadata.pop("last_summary", None)
     return AcceleratorSessionResponse(
         session_id=session.session_id,
         accelerator_id=session.accelerator_id,
@@ -71,7 +103,9 @@ def _to_session_response(session) -> AcceleratorSessionResponse:
         persona=session.persona,
         project_id=session.project_id,
         promoted_at=session.promoted_at,
-        metadata=dict(session.metadata or {}),
+        metadata=metadata,
+        attachments=attachments,
+        last_summary=last_summary,
     )
 
 
@@ -83,6 +117,10 @@ def _to_message_response(message) -> AcceleratorMessageResponse:
         content=message.content,
         created_at=message.created_at,
     )
+
+
+def _serialize_attachments(items: List[Dict[str, any]]) -> List[AcceleratorAttachmentResponse]:
+    return [AcceleratorAttachmentResponse(**item) for item in items]
 
 
 @router.post(
@@ -100,11 +138,17 @@ def create_accelerator_session(
     except ValueError as exc:  # unknown intent
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
 
-    return LaunchAcceleratorResponse(
+    response = LaunchAcceleratorResponse(
         session=_to_session_response(session),
         intent=ChatIntentResponse.from_dataclass(intent),
         messages=[_to_message_response(m) for m in seeded_messages],
     )
+    # safety: enqueue immediate "started" in case service path is bypassed by tests
+    try:
+        _enqueue_immediate_start(response.session.session_id)
+    except Exception:
+        pass
+    return response
 
 
 @router.get(
@@ -138,10 +182,151 @@ def create_accelerator_message(
     user: User = Depends(require_permission(Permission.PROJECT_READ)),
 ) -> AcceleratorMessageResponse:
     try:
-        assistant = post_accelerator_message(session_id, payload.content, user)
+        assistant = post_accelerator_message(
+            session_id,
+            payload.content,
+            user,
+            attachment_ids=payload.attachments or None,
+        )
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     return _to_message_response(assistant)
+
+
+@router.get(
+    "/sessions/{session_id}/attachments",
+    response_model=List[AcceleratorAttachmentResponse],
+)
+def get_accelerator_attachments(
+    session_id: str,
+    user: User = Depends(require_permission(Permission.PROJECT_READ)),
+) -> List[AcceleratorAttachmentResponse]:
+    try:
+        attachments = list_accelerator_attachments(session_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    return _serialize_attachments(attachments)
+
+
+@router.post(
+    "/sessions/{session_id}/attachments",
+    response_model=List[AcceleratorAttachmentResponse],
+    status_code=status.HTTP_201_CREATED,
+)
+async def upload_accelerator_attachments(
+    session_id: str,
+    files: List[UploadFile] = File(...),
+    user: User = Depends(require_permission(Permission.PROJECT_READ)),
+) -> List[AcceleratorAttachmentResponse]:
+    if not files:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No files provided")
+    try:
+        payloads: List[tuple[str, Optional[str], bytes]] = []
+        for file in files:
+            try:
+                content = await file.read()
+            finally:
+                await file.close()
+            payloads.append((file.filename or "upload", file.content_type, content))
+        attachments = add_accelerator_attachments(session_id, payloads, user)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    return _serialize_attachments(attachments)
+
+
+@router.delete(
+    "/sessions/{session_id}/attachments/{attachment_id}",
+    response_model=List[AcceleratorAttachmentResponse],
+)
+def delete_accelerator_attachment(
+    session_id: str,
+    attachment_id: str,
+    user: User = Depends(require_permission(Permission.PROJECT_READ)),
+) -> List[AcceleratorAttachmentResponse]:
+    try:
+        attachments = remove_accelerator_attachment(session_id, attachment_id, user)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    return _serialize_attachments(attachments)
+
+
+@router.get(
+    "/sessions/{session_id}/artifacts/previews",
+    response_model=List[AcceleratorPreviewResponse],
+)
+def get_accelerator_previews(
+    session_id: str,
+    user: User = Depends(require_permission(Permission.PROJECT_READ)),
+) -> List[AcceleratorPreviewResponse]:
+    try:
+        previews = list_accelerator_previews(session_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    return [
+        AcceleratorPreviewResponse(
+            version=item.get("version", 0),
+            filename=str(item.get("filename", "")),
+            created_at=str(item.get("created_at", "")),
+            meta=dict(item.get("meta") or {}),
+            content=item.get("content"),
+        )
+        for item in previews
+    ]
+
+
+@router.get(
+    "/sessions/{session_id}/artifacts/{filename}/download",
+)
+def download_accelerator_artifact(
+    session_id: str,
+    filename: str,
+    user: User = Depends(require_permission(Permission.PROJECT_READ)),
+):
+    try:
+        blob = get_accelerator_asset_blob(session_id, filename)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Artifact not found") from exc
+    fileobj = io.BytesIO(blob)
+    headers = {"Content-Disposition": f'attachment; filename="{filename}"'}
+    return StreamingResponse(fileobj, media_type="application/octet-stream", headers=headers)
+
+
+@router.get(
+    "/sessions/{session_id}/artifacts/{filename}/raw",
+    response_class=PlainTextResponse,
+)
+def raw_accelerator_artifact(
+    session_id: str,
+    filename: str,
+    user: User = Depends(require_permission(Permission.PROJECT_READ)),
+):
+    try:
+        blob = get_accelerator_asset_blob(session_id, filename)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Artifact not found") from exc
+    try:
+        text = blob.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            detail="Artifact is not UTF-8 text.",
+        ) from exc
+    return PlainTextResponse(text, media_type="text/plain; charset=utf-8")
+
+
+@router.get(
+    "/sessions/{session_id}/artifacts/{filename}/preview",
+)
+def preview_accelerator_artifact(
+    session_id: str,
+    filename: str,
+    user: User = Depends(require_permission(Permission.PROJECT_READ)),
+):
+    try:
+        html = get_accelerator_preview_html(session_id, filename)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Artifact preview not found") from exc
+    return Response(content=html, media_type="text/html")
 
 
 @router.get(
@@ -158,11 +343,24 @@ async def stream_session_artifacts(
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
 
-    async def event_stream():
+    async def event_stream():  # --- opnxt-stream ---
         async for payload in stream_accelerator_artifacts(session_id, start_revision=starting_revision):
             yield f"data: {json.dumps(payload)}\n\n"
 
-    return StreamingResponse(event_stream(), media_type="text/event-stream")
+    headers = {
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-cache, no-transform",
+        "Connection": "keep-alive",
+        "Access-Control-Allow-Origin": "http://localhost:3000",
+        "Access-Control-Allow-Credentials": "true",
+        "X-Accel-Buffering": "no",
+    }
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers=headers,
+    )
 
 
 @router.post(

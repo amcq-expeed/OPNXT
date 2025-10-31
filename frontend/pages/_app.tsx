@@ -8,6 +8,7 @@ import "../styles/auth.css";
 import "../styles/dashboard.css";
 import "../styles/support-widget.css";
 import "../styles/accelerator.css";
+import "../styles/chat-composer.css";
 import AppShell from "../components/AppShell";
 
 export default function MyApp({ Component, pageProps }: AppProps) {

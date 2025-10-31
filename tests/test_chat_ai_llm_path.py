@@ -26,7 +26,10 @@ def test_chat_ai_llm_path_truncates_attachments(monkeypatch):
         history=[{"role": "user", "content": "prev"}],
         attachments={"SRS.md": long_text},
     )
-    assert out == "OK"
+    assert isinstance(out, dict)
+    assert out["text"] == "OK"
+    assert out["provider"] == "openai"
+    assert out["model"]
 
     msgs = captured.get("msgs", [])
     # Ensure an attachments system message exists and is truncated

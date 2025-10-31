@@ -1,5 +1,6 @@
 import Link from "next/link";
-import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
+import ChatComposer from "../components/chat/ChatComposer";
 import { useRouter } from "next/router";
 import {
   CatalogIntent,
@@ -34,45 +35,49 @@ type QuickIntent = {
 const DEFAULT_ICON = "💡";
 
 const fallbackIntents: QuickIntent[] = [
+  // TILE 1: From Concept to Requirements
   {
-    intentId: null,
-    title: "Capture a new initiative",
-    description: "Map objectives, scope, and risks so every team aligns before kickoff.",
+    intentId: "requirements-baseline",
+    title: "From Concept to Requirements",
+    description: "Turn your idea into a scoped project with defined goals, requirements, and delivery plan.",
     prefill:
-      "We are kicking off a new initiative. Help capture objectives, key stakeholders, scope boundaries, primary flows, and top risks so that we can produce an audit-ready requirements package.",
-    group: "Capture & Plan",
+      "Welcome! I'm ready to turn your idea into a full engineering plan. As a **Senior Solutions Architect**, I need just a few details. In a sentence or two, please tell me: **What is the core problem your application solves, and who is the target user?** I will use this to automatically populate the entire **`SDLC_PLAN.md`** with requirements, success metrics, and a basic technology stack.",
+    group: "End-to-End",
     icon: "🧭",
-    deliverables: ["Project Charter", "Business Requirements"],
+    deliverables: [],
   },
+  // TILE 2: Auto-Generate SDLC Docs
   {
-    intentId: null,
-    title: "Strengthen an in-flight doc",
-    description: "Review an existing specification and close gaps with guided prompts.",
+    intentId: "generate-sdlc-doc",
+    title: "Auto-Generate SDLC Docs",
+    description: "Instantly create SRS, test plans, or architecture docs from project context or a short chat.",
     prefill:
-      "We have a draft requirements document that needs refinement. Ask clarifying questions, tighten acceptance criteria, and identify any missing non-functional requirements before sign-off.",
-    group: "Improve & Govern",
-    icon: "🛡️",
-    deliverables: ["Redline Suggestions"],
+      "Let's formalize your project's blueprint. I can generate any core SDLC document (e.g., **Software Architecture Document, Data Schema, or Detailed Test Plan**). Which specific document do you need me to generate right now, and what existing project file (like your plan or requirements) should I reference to ensure it's accurate?",
+    group: "SDLC Phase",
+    icon: "📄",
+    deliverables: [],
   },
+  // TILE 3: Design & Build Guidance
   {
-    intentId: null,
-    title: "Explore roadmap scenarios",
-    description: "Co-create a feature backlog with rationale, KPIs, and release framing.",
+    intentId: "design-build-guidance",
+    title: "Design & Build Guidance",
+    description: "Get coding suggestions, design patterns, and test scaffolding tailored to your project.",
     prefill:
-      "We need to brainstorm roadmap scenarios for an upcoming planning session. Help uncover user value, success metrics, and feature swimlanes so we can turn it into an actionable backlog.",
-    group: "Deliver & Execute",
-    icon: "🚀",
-    deliverables: ["Feature Backlog"],
+      "Time to build! As your **Pair Programmer**, I can accelerate a specific coding task. What specific feature (e.g., 'the user login component' or 'the API to save data') are you working on right now? Please mention the file name or component you need help with so I can provide the exact code or test scaffolding based on the approved design.",
+    group: "SDLC Phase",
+    icon: "🧑‍💻",
+    deliverables: [],
   },
+  // TILE 4: Enhance Existing Documentation
   {
-    intentId: null,
-    title: "Pressure-test a concept",
-    description: "Validate an idea against governance, compliance, and launch readiness.",
+    intentId: "enhance-documentation",
+    title: "Enhance Existing Documentation",
+    description: "Review and refine your current documents without starting over.",
     prefill:
-      "I have a product concept to validate. Help collect stakeholder feedback themes, map approval checkpoints, and highlight compliance or security risks we must address before green-lighting.",
-    group: "Improve & Govern",
-    icon: "🧪",
-    deliverables: ["Readiness Checklist"],
+      "Documentation is key to project health. I'm ready to review, refine, or update any existing document or code comment in your project. **Which file needs enhancement, and what is the specific change or improvement you want me to make (e.g., 'Add a risk analysis section,' or 'Simplify the explanation of the database schema')?**",
+    group: "Maintenance",
+    icon: "📝",
+    deliverables: [],
   },
 ];
 
@@ -104,6 +109,8 @@ export default function DashboardPage() {
   const [modelLoading, setModelLoading] = useState<boolean>(false);
   const [modelError, setModelError] = useState<string | null>(null);
   const [selectedModel, setSelectedModel] = useState<string>("adaptive");
+  const [extendedThinking, setExtendedThinking] = useState<boolean>(false);
+  const [webSearchEnabled, setWebSearchEnabled] = useState<boolean>(false);
   const [guestSession, setGuestSession] = useState<ChatSession | null>(null);
   const [guestMessages, setGuestMessages] = useState<ChatMessage[]>([]);
   const [guestLoading, setGuestLoading] = useState<boolean>(false);
@@ -114,6 +121,15 @@ export default function DashboardPage() {
 
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
   const askBottomRef = useRef<HTMLDivElement | null>(null);
+  const acceleratorSectionRef = useRef<HTMLDivElement | null>(null);
+
+  const autoResize = useCallback(() => {
+    const el = composerRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    const max = 200;
+    el.style.height = `${Math.min(el.scrollHeight, max)}px`;
+  }, []);
 
   const heroHeadline = useMemo(
     () => ({
@@ -194,7 +210,7 @@ export default function DashboardPage() {
     setChatNotice(null);
     setDeepLinkError(null);
     void router.replace({ pathname: router.pathname }, undefined, { shallow: true });
-  }, []);
+  }, [router]);
 
   const resolveModelOverrides = useCallback(() => {
     if (!selectedModel || selectedModel === "adaptive") {
@@ -301,8 +317,8 @@ export default function DashboardPage() {
     [pendingCard, router, catalogIntentMap, launchChat],
   );
 
-  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
+  const handleSubmit = async (event?: FormEvent<HTMLFormElement>) => {
+    event?.preventDefault();
     const message = draft.trim();
     if (!message) return;
     const { provider, model } = resolveModelOverrides();
@@ -329,6 +345,7 @@ export default function DashboardPage() {
         setGuestSession(sessionWithMessages.session);
         setGuestMessages(sessionWithMessages.messages || []);
         setDraft("");
+        requestAnimationFrame(autoResize);
         setErrorMessage(null);
         trackEvent("dashboard_ask_started", { source: "dashboard", provider: provider ?? "adaptive" });
       } catch (error: any) {
@@ -354,6 +371,7 @@ export default function DashboardPage() {
     };
     setGuestMessages((prev) => prev.concat(optimistic));
     setDraft("");
+    requestAnimationFrame(autoResize);
     try {
       await postChatMessage(guestSession.session_id, message, {
         provider: provider ?? undefined,
@@ -370,6 +388,7 @@ export default function DashboardPage() {
       setGuestError(detail);
       setGuestMessages((prev) => prev.filter((msg) => msg.message_id !== optimistic.message_id));
       setDraft(message);
+      requestAnimationFrame(autoResize);
     } finally {
       setGuestSending(false);
       setChatNotice(null);
@@ -380,6 +399,10 @@ export default function DashboardPage() {
     if (!guestMessages.length) return;
     requestAnimationFrame(() => askBottomRef.current?.scrollIntoView({ behavior: "smooth" }));
   }, [guestMessages.length]);
+
+  const composerPlaceholder = guestSession
+    ? "Share an update with the assistant…"
+    : "How can OPNXT help you today?";
 
   return (
     <div className="dashboard-shell" aria-live="polite">
@@ -405,7 +428,7 @@ export default function DashboardPage() {
       )}
 
       <main className="dashboard-main">
-        <section className="dashboard-actions" aria-label="Guided accelerators">
+        <section aria-label="Guided copilots" className="accelerator-grid" ref={acceleratorSectionRef}>
           <div className="dashboard-actions__panel" role="list">
             {quickStarts.map((idea) => {
               const isActive = activeCard === idea.title;
@@ -504,98 +527,85 @@ export default function DashboardPage() {
       </main>
 
       <section className="dashboard-composer" aria-label="Start a chat">
-        <form className="dashboard-composer__form" onSubmit={handleSubmit}>
-          <label className="sr-only" htmlFor="dashboard-chat-input">
-            Describe what you need help with
-          </label>
-          <textarea
-            id="dashboard-chat-input"
-            className="dashboard-composer__input"
-            placeholder="Send a message..."
-            value={draft}
-            onChange={(event) => setDraft(event.target.value)}
-            ref={composerRef}
-            rows={1}
-            disabled={guestLoading || guestSending}
-          />
-          <div className="dashboard-composer__footer">
-            <div className="dashboard-composer__meta">
-              <span className="dashboard-composer__status">
-                {guestSession ? "Ask OPNXT session active" : "No project selected"}
-              </span>
-              <label className="dashboard-composer__model-select">
-                <span>Model</span>
-                <select
-                  value={selectedModel}
-                  onChange={(event) => {
-                    const value = event.target.value;
-                    setSelectedModel(value);
-                    const choice = modelOptions.find(
-                      (opt) => `${opt.provider}:${opt.model}` === value,
-                    );
-                    if (choice && !choice.adaptive) {
-                      setModelPreference(choice.provider, choice.model);
-                    } else if (value === "adaptive") {
-                      setModelPreference("adaptive", "auto");
-                    }
-                  }}
-                  disabled={modelLoading || modelOptions.length === 0}
-                  className="select"
-                >
-                  <option value="adaptive">Adaptive model: Auto (OPNXT)</option>
-                  {modelOptions.map((opt) => (
-                    <option
-                      key={`${opt.provider}:${opt.model}`}
-                      value={`${opt.provider}:${opt.model}`}
-                      disabled={!opt.available && !opt.adaptive}
-                    >
-                      {opt.label}
-                      {opt.available ? "" : " (unavailable)"}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              {modelError && (
-                <span className="dashboard-composer__model-error" role="alert">
-                  {modelError}
-                </span>
-              )}
-              <Link href="/templates" className="dashboard-composer__link">
-                Browse OPNXT templates
-              </Link>
-            </div>
-            <div className="dashboard-composer__actions">
-              <button
-                type="button"
-                className="dashboard-composer__icon-btn"
-                aria-label="Add attachment"
-              >
-                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                  <path
-                    d="M8.5 12.75l4.95-4.95a2.5 2.5 0 113.54 3.54l-6.01 6.01a3.5 3.5 0 01-4.95-4.95l6.01-6.01"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="1.6"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  />
-                </svg>
-              </button>
-              <button className="dashboard-composer__send" type="submit">
-                <span>{guestSession ? "Send" : "Ask OPNXT"}</span>
-                <svg viewBox="0 0 20 20" aria-hidden="true" focusable="false">
-                  <path
-                    d="M3.5 9.5l12-5-5 12-1.5-4.5-4.5-1.5z"
-                    fill="currentColor"
-                    stroke="currentColor"
-                    strokeWidth="0.6"
-                    strokeLinejoin="round"
-                  />
-                </svg>
-              </button>
-            </div>
-          </div>
-        </form>
+        <ChatComposer
+          className="dashboard-composer__inner"
+          draft={draft}
+          onDraftChange={setDraft}
+          onDraftInput={() => requestAnimationFrame(autoResize)}
+          onSubmit={(event) => {
+            void handleSubmit(event);
+          }}
+          sending={guestSending || guestLoading}
+          sendDisabled={guestSending || guestLoading || !draft.trim()}
+          textareaDisabled={guestSending || guestLoading}
+          hasSession={Boolean(guestSession)}
+          textareaId="dashboard-ask-input"
+          textareaRef={composerRef}
+          placeholder={composerPlaceholder}
+          modelOptions={modelOptions}
+          modelLoading={modelLoading}
+          modelError={modelError}
+          selectedModelKey={selectedModel}
+          onModelChange={(value) => {
+            setSelectedModel(value);
+            if (value === "adaptive") {
+              setModelPreference("adaptive", "auto");
+              return;
+            }
+            const match = modelOptions.find(
+              (opt) => `${opt.provider}:${opt.model}` === value,
+            );
+            if (match) {
+              setModelPreference(match.provider, match.model);
+            }
+          }}
+          onTextareaKeyDown={(event) => {
+            if (event.key === "Enter" && !event.shiftKey) {
+              event.preventDefault();
+              void handleSubmit();
+            }
+          }}
+          resourceMenu={{
+            headerLabel: "Quick starts",
+            items: [
+              ...quickStarts.map((idea) => ({
+                id: idea.intentId || idea.title,
+                label: idea.title,
+                icon: idea.icon,
+                onSelect: () => {
+                  launchChat(idea.prefill);
+                },
+              })),
+              {
+                id: "browse-templates",
+                label: "Browse templates",
+                accessoryLabel: "→",
+                onSelect: () => {
+                  void router.push("/templates");
+                },
+              },
+            ],
+          }}
+          connectorsMenu={{
+            headerLabel: "Sources",
+            toggles: [
+              {
+                id: "web-search",
+                label: "Enable web search",
+                icon: "🌐",
+                value: webSearchEnabled,
+                onChange: setWebSearchEnabled,
+              },
+            ],
+          }}
+          extendedThinking={{
+            value: extendedThinking,
+            onToggle: setExtendedThinking,
+            icon: "🧠",
+            tooltip: "Allow extended thinking",
+          }}
+          sendIcon={<span aria-hidden="true">↑</span>}
+        />
         {(guestSession || guestMessages.length > 0 || guestError || chatNotice) && (
           <div style={{ marginTop: 20 }} aria-live="polite" aria-label="Ask OPNXT conversation">
             {guestError && (

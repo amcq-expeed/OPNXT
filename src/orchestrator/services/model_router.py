@@ -72,7 +72,7 @@ class ModelRouter:
                 "mistral:latest",
                 "llama3.2:latest",
             ),
-            "default_model": "mixtral:8x22b",
+            "default_model": "gpt-oss:120b",
             "default_base_url": "http://127.0.0.1:11434",
             "requires_api_key": False,
         },
@@ -83,6 +83,10 @@ class ModelRouter:
         "conversation": ("gemini", "openai", "xai", "local"),
         # Traceable artifacts (charter, SRS, etc.) prioritise the premium model.
         "governance_artifact": ("openai", "gemini", "xai", "local"),
+        # Executive-ready accelerator documents must default to OpenAI when available.
+        "accelerator_executive": ("openai", "gemini", "xai", "local"),
+        # Code-focused accelerators should prioritise high-fidelity code models.
+        "accelerator_code": ("openai", "gemini", "xai", "local"),
         # Retrieval augmented or real-time lookups use the search pipeline first.
         "realtime_grounding": ("search", "openai"),
     }

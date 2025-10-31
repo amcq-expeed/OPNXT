@@ -160,7 +160,7 @@ export default function ProjectsPage() {
         ...prev.filter((p) => p.project_id !== proj.project_id),
       ]);
       const prefill = encodeURIComponent(
-        `I want to build: ${text}. Please help capture clear, testable requirements (FR and NFR), then generate a Charter, SRS, SDD, and Test Plan.`,
+        `Concept to Deployment: ${text}. Lead me from discovery through architecture, implementation, testing, and deployment. Capture functional and non-functional requirements, propose architecture decisions, outline implementation steps, recommend testing strategy, and prepare Charter, SRS, SDD, and Test Plan milestones as we progress.`,
       );
       await router.push(
         `/projects/${encodeURIComponent(proj.project_id)}?tab=Requirements&prefill=${prefill}`,
@@ -189,7 +189,7 @@ export default function ProjectsPage() {
         ...prev.filter((p) => p.project_id !== proj.project_id),
       ]);
       const prefill = encodeURIComponent(
-        `Let's build a ${scenario}. Start by asking me clarifying questions and propose SHALL-style requirements. Then generate the core documents.`,
+        `Concept to Deployment scenario: ${scenario}. Ask for any critical context, then walk me through requirements, architecture, implementation guidance, testing strategy, and deployment readiness. Summarize progress at each gate and prepare Charter, SRS, SDD, and Test Plan artifacts when ready.`,
       );
       await router.push(
         `/projects/${encodeURIComponent(proj.project_id)}?tab=Requirements&prefill=${prefill}`,
@@ -244,8 +244,8 @@ export default function ProjectsPage() {
         <ProjectLaunchHero
           className="launch-hero--spotlight launch-hero--wide"
           badgeLabel="Projects Hub"
-          title="Concept → Delivery projects"
-          subtitle="Capture initiatives, seed requirements, and jump straight into the chat capability palette with history search so every document, readiness signal, and approval stays synchronized."
+          title="Concept to Deployment"
+          subtitle="Start with a simple idea and walk through the full engineering design process—from requirements to architecture, implementation, testing, and deployment—with SDLC documentation generated at every step."
           value={quickText}
           onChange={setQuickText}
           disabled={startingQuick}

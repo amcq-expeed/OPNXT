@@ -17,6 +17,8 @@ export default function MarkdownMessage({ children, className }: MarkdownMessage
           ol: ({ node, ...props }) => <ol {...props} />,
           li: ({ node, ...props }) => <li {...props} />,
         }}
+        skipHtml={false}
+        rehypePlugins={[]}
       >
         {children}
       </ReactMarkdown>

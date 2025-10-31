@@ -248,10 +248,91 @@
 }
 
 .dashboard-composer {
-  margin-top: 0;
-  padding-top: clamp(6px, 0.8vw, 10px);
-  width: min(760px, 100%);
-  align-self: center;
+  margin: clamp(18px, 2.4vw, 28px) auto clamp(96px, 12vh, 140px);
+  padding: 0;
+  width: min(640px, 100%);
+  display: flex;
+  justify-content: center;
+}
+
+.dashboard-composer .chat-composer {
+  width: 100%;
+  max-width: 640px;
+  margin: 0;
+}
+
+.dashboard-composer__inner .chat-composer__form {
+  background: #ffffff;
+  border: 1px solid rgba(206, 214, 240, 0.8);
+  box-shadow: 0 22px 44px rgba(24, 36, 96, 0.12);
+  border-radius: 16px;
+  padding: clamp(16px, 2.4vw, 20px);
+}
+
+.dashboard-composer__inner .composer-shell {
+  gap: clamp(12px, 1.8vw, 16px);
+}
+
+.dashboard-composer__inner .composer-shell__input {
+  background: rgba(244, 248, 255, 0.9);
+  border: 1px solid rgba(188, 202, 232, 0.85);
+  border-radius: 12px;
+  padding: clamp(12px, 1.6vw, 15px);
+}
+
+.dashboard-composer__inner .composer-shell__input textarea {
+  color: #18224c;
+  font-size: 14px;
+  line-height: 1.58;
+}
+
+.dashboard-composer__inner .composer-shell__input textarea::placeholder {
+  color: rgba(24, 34, 76, 0.52);
+}
+
+.dashboard-composer__inner .composer-shell__footer {
+  flex-wrap: wrap;
+  gap: clamp(10px, 1.4vw, 16px);
+}
+
+.dashboard-composer__inner .composer-pill {
+  border-color: rgba(182, 196, 230, 0.8);
+  background: rgba(235, 241, 255, 0.92);
+  color: #304290;
+}
+
+.dashboard-composer__inner .composer-pill--active {
+  background: rgba(74, 110, 214, 0.18);
+  border-color: rgba(74, 110, 214, 0.32);
+  color: #25357a;
+}
+
+.dashboard-composer__inner .composer-pill:disabled {
+  opacity: 0.45;
+}
+
+.dashboard-composer__inner .composer-model select {
+  color: #25336e;
+  font-weight: 600;
+}
+
+.dashboard-composer__inner .composer-model::after {
+  color: rgba(37, 51, 110, 0.4);
+}
+
+.dashboard-composer__inner .composer-menu {
+  border-color: rgba(196, 206, 234, 0.88);
+  box-shadow: 0 18px 36px rgba(28, 44, 120, 0.14);
+}
+
+.dashboard-composer__inner .composer-menu__list button,
+.dashboard-composer__inner .composer-menu__toggle {
+  color: #223164;
+}
+
+.dashboard-composer__inner .composer-menu__search {
+  border-color: rgba(196, 206, 234, 0.88);
+  color: rgba(33, 49, 100, 0.6);
 }
 
 .dashboard-composer__form {

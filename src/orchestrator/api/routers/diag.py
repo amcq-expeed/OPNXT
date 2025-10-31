@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import os
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Body, Depends, HTTPException, status
 from pydantic import BaseModel
 
 from ...security.rbac import require_permission, Permission
@@ -34,6 +34,24 @@ def _base_url() -> str:
 
 def _model() -> str:
     return os.getenv("OPNXT_LLM_MODEL") or os.getenv("OPENAI_MODEL") or os.getenv("XAI_MODEL") or "gpt-4o-mini"
+
+
+@router.post("/artifacts/test")
+def push_test_artifact(
+    session_id: str = Body(..., embed=True),
+    text: str | None = Body("Hello from /diag", embed=True),
+):
+    from ...services.accelerator_service import artifacts_queue
+
+    artifacts_queue.put_nowait(
+        session_id,
+        {
+            "type": "note",
+            "title": "Test Artifact",
+            "preview": text,
+        },
+    )
+    return {"ok": True}
 
 
 @router.get("/llm")

@@ -7,6 +7,17 @@ from datetime import UTC, datetime
 from typing import Any, Dict, List, Optional, Protocol
 from threading import RLock
 
+# --- v1.0 update ---
+_db_mode = os.getenv("DB_MODE", "").lower()
+_mongo_doc_store_cls = None
+if _db_mode == "mongo":
+    try:
+        from .doc_store_mongo import MongoDocumentStore as _MongoDocumentStore  # type: ignore
+
+        _mongo_doc_store_cls = _MongoDocumentStore
+    except Exception:
+        _mongo_doc_store_cls = None
+
 
 @dataclass
 class DocVersion:
@@ -23,6 +34,7 @@ class DocumentStore(Protocol):
     def get_document(self, project_id: str, filename: str, version: Optional[int] = None) -> Optional[DocVersion]: ...
     def save_accelerator_preview(self, session_id: str, filename: str, content: str, meta: Optional[Dict[str, Any]] = None) -> int: ...
     def list_accelerator_previews(self, session_id: str) -> List[Dict[str, Any]]: ...
+    def get_accelerator_preview(self, session_id: str, filename: str) -> Optional[Dict[str, Any]]: ...
 
 
 def _utc_now() -> datetime:
@@ -98,12 +110,21 @@ class InMemoryDocumentStore:
     def save_accelerator_preview(self, session_id: str, filename: str, content: str, meta: Optional[Dict[str, Any]] = None) -> int:
         with self._lock:
             entries = self._accelerator_data.setdefault(session_id, [])
+            meta = dict(meta or {})
+            if entries:
+                last_entry = entries[-1]
+                if last_entry.get("filename") == filename and last_entry.get("content") == content:
+                    last_meta = dict(last_entry.get("meta") or {})
+                    last_meta.update(meta)
+                    last_entry["meta"] = last_meta
+                    return int(last_entry.get("version") or len(entries))
             version = len(entries) + 1
+            meta.setdefault("version", version)
             entry = {
                 "version": version,
                 "filename": filename,
                 "created_at": _isoformat_utc(_utc_now()),
-                "meta": dict(meta or {}),
+                "meta": meta,
                 "content": content,
             }
             entries.append(entry)
@@ -111,7 +132,35 @@ class InMemoryDocumentStore:
 
     def list_accelerator_previews(self, session_id: str) -> List[Dict[str, Any]]:
         with self._lock:
-            return list(self._accelerator_data.get(session_id, []))
+            previews = []
+            for entry in self._accelerator_data.get(session_id, []):
+                preview_meta = dict(entry.get("meta") or {})
+                preview_meta.setdefault("version", entry.get("version"))
+                previews.append(
+                    {
+                        "version": entry.get("version"),
+                        "filename": entry.get("filename"),
+                        "created_at": entry.get("created_at"),
+                        "meta": preview_meta,
+                        "content": entry.get("content"),
+                    }
+                )
+            return previews
+
+    def get_accelerator_preview(self, session_id: str, filename: str) -> Optional[Dict[str, Any]]:
+        with self._lock:
+            for entry in reversed(self._accelerator_data.get(session_id, [])):
+                if entry.get("filename") == filename:
+                    meta = dict(entry.get("meta") or {})
+                    meta.setdefault("version", entry.get("version"))
+                    return {
+                        "version": entry.get("version"),
+                        "filename": entry.get("filename"),
+                        "created_at": entry.get("created_at"),
+                        "meta": meta,
+                        "content": entry.get("content"),
+                    }
+            return None
 
 
 class MongoDocumentStore:
@@ -239,8 +288,14 @@ class MongoDocumentStore:
     def list_accelerator_previews(self, session_id: str) -> List[Dict[str, Any]]:
         return self._fallback.list_accelerator_previews(session_id)
 
+    def get_accelerator_preview(self, session_id: str, filename: str) -> Optional[Dict[str, Any]]:
+        return self._fallback.get_accelerator_preview(session_id, filename)
+
 
 _doc_store_singleton: DocumentStore | None = None
+
+# --- v1.0 update ---
+_db_mode_mongo_docs_enabled = _db_mode == "mongo" and _mongo_doc_store_cls is not None
 
 
 def get_doc_store() -> DocumentStore:
@@ -248,8 +303,18 @@ def get_doc_store() -> DocumentStore:
     if _doc_store_singleton is not None:
         return _doc_store_singleton
     impl = os.getenv("OPNXT_DOC_STORE_IMPL", "memory").lower()
-    if impl == "mongo":
-        _doc_store_singleton = MongoDocumentStore()
+    if _db_mode_mongo_docs_enabled:
+        _doc_store_singleton = _mongo_doc_store_cls()  # type: ignore[operator]
         return _doc_store_singleton
-    _doc_store_singleton = InMemoryDocumentStore()
+    if impl == "mongo":
+        try:
+            # --- v1.0 update ---
+            from .doc_store_mongo import MongoDocumentStore  # type: ignore
+
+            _doc_store_singleton = MongoDocumentStore()
+            return _doc_store_singleton
+        except Exception:
+            _doc_store_singleton = None
+    if _doc_store_singleton is None:
+        _doc_store_singleton = InMemoryDocumentStore()
     return _doc_store_singleton

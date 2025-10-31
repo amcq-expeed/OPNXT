@@ -135,6 +135,11 @@ export default function MVPChat({
   const [modelError, setModelError] = useState<string | null>(null);
   const [selectedModel, setSelectedModel] = useState<string>("adaptive:auto");
 
+  const docVersionMap = docVersions?.versions ?? {};
+  const docFileOptions = Object.keys(docVersionMap);
+  const selectedDocVersionList = docFile ? docVersionMap[docFile] ?? [] : [];
+  const toastData = toast;
+
   const serializeModelKey = (opt: ChatModelOption) => `${opt.provider}:${opt.model}`;
 
   const loadDoc = useCallback(
@@ -196,21 +201,16 @@ export default function MVPChat({
   };
 
   useEffect(() => {
-    // Auto-scroll when messages change
     try {
       bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
     } catch {}
   }, [messages.length]);
 
-  // On mount, focus composer and bring it into view so user doesn't need to scroll first
   useEffect(() => {
     const t = setTimeout(() => {
       try {
         textareaRef.current?.focus();
-        textareaRef.current?.scrollIntoView({
-          behavior: "smooth",
-          block: "center",
-        });
+        textareaRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
       } catch {}
     }, 0);
     return () => clearTimeout(t);
@@ -744,7 +744,8 @@ export default function MVPChat({
   };
 
   return (
-    <div className={"mvp-chat " + styles.chat}>
+    <>
+      <div className={"mvp-chat " + styles.chat}>
       {/* Subtitle hidden for compact ChatGPT-like layout */}
 
       <div
@@ -806,122 +807,141 @@ export default function MVPChat({
         <div ref={bottomRef} />
       </div>
 
-      <div className={`mvp-chat__composer ${styles.composer}`}>
-        <form className={`mvp-chat__form ${styles.form}`} onSubmit={onSend}>
-          <textarea
-            className={`textarea chat-input mvp-chat__textarea ${styles.textarea}`}
-            aria-label="Your message"
-            placeholder="Describe your idea or requirement… (Enter to send, Shift+Enter for newline)"
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault();
-                onSend();
-              }
-            }}
-            disabled={!authReady || sending}
-            ref={textareaRef}
-            autoFocus
-          />
-          <div className={styles.modelSelectorRow}>
-            <label className="muted" style={{ fontSize: 12 }}>
-              Model
-              <select
-                className="select"
-                value={selectedModel}
-                onChange={(event) => {
-                  const value = event.target.value;
-                  setSelectedModel(value);
-                  const choice = modelOptions.find(
-                    (opt) => serializeModelKey(opt) === value,
-                  );
-                  if (choice) {
-                    setModelPreference(choice.provider, choice.model);
-                  } else if (value.startsWith("adaptive")) {
-                    setModelPreference("adaptive", "auto");
-                  }
-                }}
-                disabled={modelLoading || modelOptions.length === 0}
-              >
-                {modelOptions.map((opt) => (
-                  <option
-                    key={serializeModelKey(opt)}
-                    value={serializeModelKey(opt)}
-                    disabled={!opt.available && !opt.adaptive}
-                  >
-                    {opt.label}
-                    {opt.available ? "" : " (unavailable)"}
-                  </option>
-                ))}
-              </select>
-            </label>
-            {modelError && (
-              <span className="muted" style={{ fontSize: 12 }} role="alert">
-                {modelError}
-              </span>
-            )}
-          </div>
-          <button
-            type="submit"
-            className={`btn btn-primary mvp-chat__send ${styles.send}`}
-            disabled={!authReady || sending || !draft.trim()}
-            aria-busy={sending || !authReady}
-          >
-            {sending ? "Sending…" : "Send"}
-          </button>
-        </form>
-
-        <div className={`mvp-chat__meta ${styles.meta}`}>
-          {!readiness.ready ? (
-            <div className={`mvp-chat__actions ${styles.actions}`}>
-              <button
-                className="btn btn-primary"
-                type="button"
-                disabled
-                aria-disabled="true"
-              >
-                Capture more detail to unlock docs
-              </button>
-              <span className="muted" style={{ fontSize: 12 }}>
-                {readiness.reason}
-              </span>
-            </div>
-          ) : (
-            <div className={`mvp-chat__actions ${styles.actions}`}>
-              <button
-                className="btn btn-primary"
-                onClick={() => onGenerateDocs()}
-                aria-busy={generating}
-              >
-                {generating ? "Generating…" : "Generate Docs"}
-              </button>
-            </div>
+      <form
+        className={styles.composer}
+        onSubmit={(event) => {
+          event.preventDefault();
+          void onSend();
+        }}
+      >
+        <label className="sr-only" htmlFor="mvp-chat-input">
+          Send a message
+        </label>
+        <textarea
+          id="mvp-chat-input"
+          ref={textareaRef}
+          value={draft}
+          placeholder={authReady ? "Share context with the assistant…" : "Authenticating…"}
+          onChange={(event) => {
+            setDraft(event.target.value);
+            requestAnimationFrame(() => {
+              const el = textareaRef.current;
+              if (!el) return;
+              el.style.height = "auto";
+              const max = 200;
+              el.style.height = `${Math.min(el.scrollHeight, max)}px`;
+            });
+          }}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" && !event.shiftKey) {
+              event.preventDefault();
+              void onSend();
+            }
+          }}
+          onFocus={() => {
+            if (!authReady) return;
+            if (!sessionId) {
+              void ensureSession();
+            }
+          }}
+          disabled={!authReady || sending}
+        />
+        <div className={styles.modelSelectorRow}>
+          <label className="muted" style={{ fontSize: 12 }}>
+            Model
+            <select
+              className="select"
+              value={selectedModel}
+              onChange={(event) => {
+                const value = event.target.value;
+                setSelectedModel(value);
+                const choice = modelOptions.find((opt) => serializeModelKey(opt) === value);
+                if (choice) {
+                  setModelPreference(choice.provider, choice.model);
+                } else if (value.startsWith("adaptive")) {
+                  setModelPreference("adaptive", "auto");
+                }
+              }}
+              disabled={modelLoading || modelOptions.length === 0}
+            >
+              {modelOptions.map((opt) => (
+                <option
+                  key={serializeModelKey(opt)}
+                  value={serializeModelKey(opt)}
+                  disabled={!opt.available && !opt.adaptive}
+                >
+                  {opt.label}
+                  {opt.available ? "" : " (unavailable)"}
+                </option>
+              ))}
+            </select>
+          </label>
+          {modelError && (
+            <span className="muted" style={{ fontSize: 12 }} role="alert">
+              {modelError}
+            </span>
           )}
         </div>
+        <button
+          type="submit"
+          className={`btn btn-primary mvp-chat__send ${styles.send}`}
+          disabled={!authReady || sending || !draft.trim()}
+          aria-busy={sending || !authReady}
+        >
+          {sending ? "Sending…" : "Send"}
+        </button>
+      </form>
 
-        {hasDocs && (
-          <div className="mvp-chat__actions" style={{ marginTop: 4 }}>
+      <div className={`mvp-chat__meta ${styles.meta}`}>
+        {!readiness.ready ? (
+          <div className={`mvp-chat__actions ${styles.actions}`}>
             <button
+              className="btn btn-primary"
               type="button"
-              className="btn"
-              onClick={() => openDocsDrawer()}
+              disabled
+              aria-disabled="true"
             >
-              Open documents
+              Capture more detail to unlock docs
+            </button>
+            <span className="muted" style={{ fontSize: 12 }}>
+              {readiness.reason}
+            </span>
+          </div>
+        ) : (
+          <div className={`mvp-chat__actions ${styles.actions}`}>
+            <button
+              className="btn btn-primary"
+              onClick={() => onGenerateDocs()}
+              aria-busy={generating}
+            >
+              {generating ? "Generating…" : "Generate Docs"}
             </button>
           </div>
         )}
       </div>
 
-      {toast && (
+      {hasDocs && (
+        <div className="mvp-chat__actions" style={{ marginTop: 4 }}>
+          <button
+            type="button"
+            className="btn"
+            onClick={() => openDocsDrawer()}
+          >
+            Open documents
+          </button>
+        </div>
+      )}
+    </div>
+
+      {toastData ? (
         <div className="toast-stack" role="status" aria-live="polite">
-          <div className={`toast toast-${toast.type}`}>
-            <span className="grow">{toast.message}</span>
-            {toast.actionLabel && toast.action && (
+          <div className={`toast toast-${toastData.type}`}>
+            <span className="grow">{toastData.message}</span>
+            {toastData.actionLabel && toastData.action ? (
               <button type="button" onClick={handleToastAction}>
-                {toast.actionLabel}
+                {toastData.actionLabel}
               </button>
-            )}
+            ) : null}
             <button
               type="button"
               className="toast-dismiss"
@@ -931,7 +951,7 @@ export default function MVPChat({
             </button>
           </div>
         </div>
-      )}
+      ) : null}
 
       {showPaywallModal && (
         <div className="modal-backdrop" role="presentation">
@@ -1024,7 +1044,7 @@ export default function MVPChat({
               {!docVersions && !snapshotRef.current && !docLoading && (
                 <div className="muted">No documents yet.</div>
               )}
-              {docVersions && (
+              {docFileOptions.length > 0 ? (
                 <div
                   style={{
                     display: "flex",
@@ -1041,21 +1061,21 @@ export default function MVPChat({
                       onChange={(e) => {
                         const fname = e.target.value;
                         setDocFile(fname);
-                        const list = docVersions.versions[fname] || [];
+                        const list = docVersionMap[fname] ?? [];
                         const v = list.length
                           ? list[list.length - 1].version
                           : 1;
                         void loadDoc(fname, v);
                       }}
                     >
-                      {Object.keys(docVersions.versions).map((f) => (
+                      {docFileOptions.map((f) => (
                         <option key={f} value={f}>
                           {f}
                         </option>
                       ))}
                     </select>
                   </label>
-                  {docFile && docVersions.versions[docFile] && (
+                  {docFile && selectedDocVersionList.length > 0 && (
                     <label>
                       Version
                       <select
@@ -1067,7 +1087,7 @@ export default function MVPChat({
                           void loadDoc(docFile, v);
                         }}
                       >
-                        {docVersions.versions[docFile].map((info) => (
+                        {selectedDocVersionList.map((info) => (
                           <option key={info.version} value={info.version}>
                             v{info.version}
                           </option>
@@ -1086,7 +1106,7 @@ export default function MVPChat({
                     Open in Workspace
                   </a>
                 </div>
-              )}
+              ) : null}
               {docLoading && (
                 <div className="badge" role="status">
                   Loading…
@@ -1118,7 +1138,7 @@ export default function MVPChat({
                   }}
                 >
                   <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                    {snapshotRef.current}
+                    {snapshotRef.current || ""}
                   </ReactMarkdown>
                 </div>
               )}
@@ -1128,7 +1148,7 @@ export default function MVPChat({
       )}
 
       {/* Detected Requirements panel intentionally hidden for MVP-clean UI */}
-    </div>
+    </>
   );
 }
 

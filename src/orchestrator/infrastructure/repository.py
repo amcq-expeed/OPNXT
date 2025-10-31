@@ -8,6 +8,17 @@ import json
 from threading import RLock
 from ..domain.models import Project, ProjectCreate
 
+# --- v1.0 update ---
+_db_mode = os.getenv("DB_MODE", "").lower()
+_mongo_repo_cls = None
+if _db_mode == "mongo":
+    try:
+        from .repository_mongo import MongoProjectRepository as _MongoRepoImpl  # type: ignore
+
+        _mongo_repo_cls = _MongoRepoImpl
+    except Exception:
+        _mongo_repo_cls = None
+
 
 class ProjectRepository(Protocol):
     def list(self) -> List[Project]: ...
@@ -71,31 +82,6 @@ class InMemoryProjectRepository:
         """Delete a project by id. Returns True if removed."""
         return self._projects.pop(project_id, None) is not None
 
-
-class MongoProjectRepository:
-    """Placeholder for a future MongoDB-backed repository.
-
-    NOTE: For now, we fall back to an in-memory instance to avoid breaking the app.
-    """
-
-    def __init__(self) -> None:
-        # TODO: wire up pymongo client, database, and collections
-        self._fallback = InMemoryProjectRepository()
-
-    def list(self) -> List[Project]:
-        return self._fallback.list()
-
-    def get(self, project_id: str) -> Optional[Project]:
-        return self._fallback.get(project_id)
-
-    def create(self, payload: ProjectCreate) -> Project:
-        return self._fallback.create(payload)
-
-    def update_phase(self, project_id: str, new_phase: str) -> Optional[Project]:
-        return self._fallback.update_phase(project_id, new_phase)
-
-    def delete(self, project_id: str) -> bool:
-        return self._fallback.delete(project_id)
 
 
 class FileProjectRepository:
@@ -205,16 +191,35 @@ _repo: ProjectRepository = InMemoryProjectRepository()
 _mongo_repo: ProjectRepository | None = None
 _file_repo: ProjectRepository | None = None
 
+# --- v1.0 update ---
+_db_mode_mongo_enabled = _db_mode == "mongo" and _mongo_repo_cls is not None
+
 
 def get_repo() -> ProjectRepository:
+    global _mongo_repo
+    global _file_repo
     impl = os.getenv("OPNXT_REPO_IMPL", "memory").lower()
-    if impl == "mongo":
-        global _mongo_repo
+    if _db_mode_mongo_enabled:
         if _mongo_repo is None:
-            _mongo_repo = MongoProjectRepository()
+            _mongo_repo = _mongo_repo_cls()  # type: ignore[operator]
+        return _mongo_repo
+    if impl == "mongo":
+        if _mongo_repo is None:
+            # --- v1.0 update ---
+            repo_cls = _mongo_repo_cls
+            if repo_cls is None:
+                try:
+                    from .repository_mongo import MongoProjectRepository as _DynamicMongoRepo  # type: ignore
+
+                    repo_cls = _DynamicMongoRepo
+                except Exception:
+                    repo_cls = None
+            if repo_cls is not None:
+                _mongo_repo = repo_cls()  # type: ignore[operator]
+            else:
+                _mongo_repo = InMemoryProjectRepository()
         return _mongo_repo
     if impl == "file":
-        global _file_repo
         if _file_repo is None:
             _file_repo = FileProjectRepository()
         return _file_repo

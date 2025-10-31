@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { useRouter } from "next/router";
-import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { FormEvent } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   LaunchAcceleratorResponse,
   getAcceleratorSession,
@@ -10,8 +11,20 @@ import {
   trackEvent,
   API_BASE_URL,
   getAccessToken,
+  getAcceleratorPreviewHtml,
+  getAcceleratorArtifactRaw,
+  listAcceleratorPreviews,
+  listChatModels,
+  type AcceleratorPreview,
+  type ChatModelOption,
+  downloadAcceleratorBundle,
 } from "../../lib/api";
 import { useUserContext } from "../../lib/user-context";
+import { getModelPreference, setModelPreference } from "../../lib/modelPreference";
+import ChatComposer, {
+  type ChatComposerConnectorToggle,
+  type ChatComposerResourceMenuItem,
+} from "../../components/chat/ChatComposer";
 import MarkdownMessage from "../../components/MarkdownMessage";
 
 const PERSONA_LABELS: Record<string, string> = {
@@ -29,9 +42,15 @@ const PERSONA_LABELS: Record<string, string> = {
   people: "People / HR",
 };
 
-type SimplifiedArtifact = { filename: string; created_at?: string; version?: number; summary?: string };
-
-type SuggestedPrompt = { id: string; label: string; body: string };
+type SimplifiedArtifact = {
+  filename: string;
+  created_at?: string;
+  version?: number;
+  summary?: string;
+  title?: string;
+  type?: string;
+  language?: string;
+};
 
 function formatPersonaLabel(code: string | null | undefined): string | null {
   if (!code) return null;
@@ -52,6 +71,34 @@ export default function AcceleratorChatPage() {
   const [promotionProjectId, setPromotionProjectId] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const [liveArtifacts, setLiveArtifacts] = useState<SimplifiedArtifact[]>([]);
+  const [previewMap, setPreviewMap] = useState<Record<string, AcceleratorPreview>>({});
+  const [selectedArtifactId, setSelectedArtifactId] = useState<string | null>(null);
+  const [selectedPreview, setSelectedPreview] = useState<AcceleratorPreview | null>(null);
+  const [previewMode, setPreviewMode] = useState<"render" | "source">("render");
+  const [previewHtml, setPreviewHtml] = useState<string>("");
+  const [previewSource, setPreviewSource] = useState<string>("");
+  const [previewHeight, setPreviewHeight] = useState<number>(720);
+  const previewIframeRef = useRef<HTMLIFrameElement | null>(null);
+  const [actionStatus, setActionStatus] = useState<string | null>(null);
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [drawerExpanded, setDrawerExpanded] = useState(false);
+  const [artifactMenuOpen, setArtifactMenuOpen] = useState(false);
+  const artifactMenuContainerRef = useRef<HTMLDivElement | null>(null);
+  const [previewActionsOpen, setPreviewActionsOpen] = useState(false);
+  const previewActionsRef = useRef<HTMLDivElement | null>(null);
+  const [modelOptions, setModelOptions] = useState<ChatModelOption[]>([]);
+  const [modelLoading, setModelLoading] = useState<boolean>(false);
+  const [modelError, setModelError] = useState<string | null>(null);
+  const [selectedModelKey, setSelectedModelKey] = useState<string>(() => {
+    const stored = getModelPreference();
+    return stored ? `${stored.provider}:${stored.model}` : "adaptive:auto";
+  });
+  const [connectorSettings, setConnectorSettings] = useState({
+    webSearch: true,
+    research: false,
+    extendedThinking: false,
+    useStyle: false,
+  });
 
   const intentId = useMemo(() => {
     const raw = router.query.intentId;
@@ -123,21 +170,111 @@ export default function AcceleratorChatPage() {
 
   const session = data?.session;
   const intent = data?.intent;
-  const messages = data?.messages ?? [];
+  const messages = useMemo(() => data?.messages ?? [], [data?.messages]);
   const personaLabel = useMemo(() => formatPersonaLabel(session?.persona), [session?.persona]);
+  const acceleratorModelOptions = useMemo<ChatModelOption[]>(() => {
+    const raw = session?.metadata?.accelerator_models;
+    if (!Array.isArray(raw)) return [];
+    const mapped: ChatModelOption[] = [];
+    raw.forEach((item) => {
+      if (!item) return;
+      const provider = typeof item.provider === "string" ? item.provider : null;
+      const model = typeof item.model === "string" ? item.model : null;
+      const label = typeof item.label === "string" ? item.label : null;
+      if (!provider || !model || !label) return;
+      mapped.push({
+        provider,
+        model,
+        label,
+        available: typeof item.available === "boolean" ? item.available : true,
+        description: typeof item.description === "string" ? item.description : undefined,
+        adaptive: typeof item.adaptive === "boolean" ? item.adaptive : undefined,
+      });
+    });
+    return mapped;
+  }, [session?.metadata]);
+
+  useEffect(() => {
+    const stored = getModelPreference();
+    if (!stored) return;
+    const key = `${stored.provider}:${stored.model}`;
+    setSelectedModelKey(key);
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    async function hydrateModels() {
+      setModelLoading(true);
+      setModelError(null);
+      try {
+        if (acceleratorModelOptions.length > 0) {
+          if (active) setModelOptions(acceleratorModelOptions);
+          if (active) setModelLoading(false);
+          return;
+        }
+        const options = await listChatModels();
+        if (!active) return;
+        setModelOptions(Array.isArray(options) ? options : []);
+      } catch (e: any) {
+        if (!active) return;
+        setModelError(e?.message || "Unable to load models");
+      } finally {
+        if (active) setModelLoading(false);
+      }
+    }
+
+    hydrateModels().catch(() => {
+      if (active) setModelLoading(false);
+    });
+
+    return () => {
+      active = false;
+    };
+  }, [acceleratorModelOptions]);
+
+  const selectedModelOption = useMemo(() => {
+    if (!modelOptions.length) return null;
+    const found = modelOptions.find((opt) => `${opt.provider}:${opt.model}` === selectedModelKey && opt.available);
+    if (found) return found;
+    const firstAvailable = modelOptions.find((opt) => opt.available);
+    return firstAvailable ?? modelOptions[0];
+  }, [modelOptions, selectedModelKey]);
+
+  useEffect(() => {
+    if (!modelOptions.length) return;
+    const desiredExists = modelOptions.some((opt) => `${opt.provider}:${opt.model}` === selectedModelKey);
+    if (!desiredExists) {
+      const fallback = modelOptions.find((opt) => opt.available) ?? modelOptions[0];
+      if (fallback) {
+        const key = `${fallback.provider}:${fallback.model}`;
+        setSelectedModelKey(key);
+        setModelPreference(fallback.provider, fallback.model);
+      }
+    }
+  }, [modelOptions, selectedModelKey]);
+
   const normalizeArtifacts = useCallback((list: any): SimplifiedArtifact[] => {
     if (!Array.isArray(list)) return [];
-    return list.map((item) => ({
-      filename: String(item?.filename ?? ""),
-      created_at: typeof item?.created_at === "string" ? item.created_at : undefined,
-      version:
-        typeof item?.meta?.version === "number"
-          ? item.meta.version
-          : typeof item?.meta?.version === "string"
-          ? Number(item.meta.version)
-          : undefined,
-      summary: typeof item?.meta?.summary === "string" ? item.meta.summary : undefined,
-    }));
+    return list.map((item) => {
+      const meta = item?.meta ?? {};
+      const versionValue = meta?.version;
+      let parsedVersion: number | undefined;
+      if (typeof versionValue === "number") parsedVersion = versionValue;
+      else if (typeof versionValue === "string") {
+        const numeric = Number(versionValue);
+        parsedVersion = Number.isFinite(numeric) ? numeric : undefined;
+      }
+
+      return {
+        filename: String(item?.filename ?? ""),
+        created_at: typeof item?.created_at === "string" ? item.created_at : undefined,
+        version: parsedVersion,
+        summary: typeof meta?.summary === "string" ? meta.summary : undefined,
+        title: typeof meta?.title === "string" ? meta.title : undefined,
+        type: typeof meta?.type === "string" ? meta.type : undefined,
+        language: typeof meta?.language === "string" ? meta.language : undefined,
+      } satisfies SimplifiedArtifact;
+    });
   }, []);
 
   const artifacts = useMemo(() => {
@@ -146,35 +283,8 @@ export default function AcceleratorChatPage() {
     return normalizeArtifacts(list);
   }, [session?.metadata, normalizeArtifacts]);
 
-  const suggestedPrompts = useMemo(() => {
-    const meta = session?.metadata;
-    const raw = (meta as any)?.suggested_prompts;
-    if (!Array.isArray(raw)) return [] as SuggestedPrompt[];
-    return raw
-      .map((item, index) => ({
-        id: String(item?.id ?? index),
-        label: String(item?.label ?? `Prompt ${index + 1}`),
-        body: String(item?.body ?? ""),
-      }))
-      .filter((prompt) => prompt.body.trim().length > 0);
-  }, [session?.metadata]);
-
   const displayArtifacts = liveArtifacts.length ? liveArtifacts : artifacts;
-
-  function formatAssistantPreview(content: string) {
-    const lines = content.split(/\n+/).filter((line) => line.trim().length > 0);
-    if (!lines.length) return content;
-    const first = lines[0];
-    const rest = lines.slice(1)
-      .map((line) => {
-        if (/^[\d\-•]/.test(line.trim())) {
-          return `<li>${line.replace(/^[-•\d.)\s]+/, "").trim()}</li>`;
-        }
-        return `<p>${line}</p>`;
-      })
-      .join("");
-    return `<strong>${first}</strong>${rest}`;
-  }
+  const artifactCount = displayArtifacts.length;
 
   useEffect(() => {
     requestAnimationFrame(() => messagesEndRef.current?.scrollIntoView({ behavior: "smooth" }));
@@ -187,6 +297,204 @@ export default function AcceleratorChatPage() {
     }
     setLiveArtifacts(artifacts);
   }, [session?.session_id, artifacts]);
+
+  useEffect(() => {
+    if (!session?.session_id) return;
+    let cancelled = false;
+    void listAcceleratorPreviews(session.session_id)
+      .then((list: AcceleratorPreview[]) => {
+        if (cancelled) return;
+        setPreviewMap((prev) => {
+          const next = { ...prev };
+          list.forEach((item) => {
+            next[item.filename] = item;
+          });
+          return next;
+        });
+      })
+      .catch((err: unknown) => console.error("list_previews_failed", err));
+    return () => {
+      cancelled = true;
+    };
+  }, [session?.session_id]);
+
+  const artifactDetails = useMemo(() => {
+    const map = new Map<string, SimplifiedArtifact>();
+    for (const item of displayArtifacts) {
+      if (!item.filename) continue;
+      map.set(item.filename, item);
+    }
+    return map;
+  }, [displayArtifacts]);
+
+  useEffect(() => {
+    if (artifactCount === 0) {
+      setSelectedArtifactId(null);
+      setSelectedPreview(null);
+      setPreviewHtml("");
+      setPreviewSource("");
+      return;
+    }
+    if (!selectedArtifactId || !artifactDetails.has(selectedArtifactId)) {
+      const fallback = displayArtifacts[0]?.filename ?? null;
+      setSelectedArtifactId(fallback);
+    }
+  }, [displayArtifacts, artifactCount, selectedArtifactId, artifactDetails]);
+
+  useEffect(() => {
+    if (artifactCount === 0 && drawerOpen) {
+      setDrawerOpen(false);
+      setDrawerExpanded(false);
+      setArtifactMenuOpen(false);
+      setPreviewActionsOpen(false);
+    }
+  }, [artifactCount, drawerOpen]);
+
+  useEffect(() => {
+    if (!drawerOpen) {
+      document.body.classList.remove("accelerator-body-lock");
+      return;
+    }
+    document.body.classList.add("accelerator-body-lock");
+    return () => {
+      document.body.classList.remove("accelerator-body-lock");
+    };
+  }, [drawerOpen]);
+
+  useEffect(() => {
+    if (!artifactMenuOpen) return;
+    const handler = (event: MouseEvent) => {
+      if (!artifactMenuContainerRef.current) return;
+      if (!artifactMenuContainerRef.current.contains(event.target as Node)) {
+        setArtifactMenuOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => {
+      document.removeEventListener("mousedown", handler);
+    };
+  }, [artifactMenuOpen]);
+
+  useEffect(() => {
+    if (!previewActionsOpen) return;
+    const handler = (event: MouseEvent) => {
+      if (!previewActionsRef.current) return;
+      if (!previewActionsRef.current.contains(event.target as Node)) {
+        setPreviewActionsOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => {
+      document.removeEventListener("mousedown", handler);
+    };
+  }, [previewActionsOpen]);
+
+  const resourceMenuConfig = useMemo(() => {
+    if (!session) return undefined;
+    const items: ChatComposerResourceMenuItem[] = [
+      {
+        id: "project",
+        label: "Use a project",
+        icon: "📁",
+        onSelect: () =>
+          setDraft((value) => `${value ? `${value}\n\n` : ""}Please scaffold a starter project.`),
+      },
+      { id: "drive", label: "Add from Google Drive", icon: "📂", disabled: true },
+      { id: "github", label: "Add from GitHub", icon: "🐙", disabled: true },
+      { id: "screenshot", label: "Take a screenshot", icon: "📸", disabled: true },
+      { id: "upload", label: "Upload a file", icon: "⤴", disabled: true },
+    ];
+    return {
+      accountLabel: user?.email ?? "me",
+      searchPlaceholder: "Search menu",
+      items,
+    };
+  }, [session, user?.email, setDraft]);
+
+  const connectorToggles = useMemo<ChatComposerConnectorToggle[]>(
+    () => [
+      {
+        id: "drive",
+        label: "Drive search",
+        icon: "🟩",
+        value: false,
+        disabled: true,
+        onChange: () => {},
+      },
+      {
+        id: "web",
+        label: "Web search",
+        icon: "🌐",
+        value: connectorSettings.webSearch,
+        onChange: (next) => setConnectorSettings((prev) => ({ ...prev, webSearch: next })),
+      },
+      {
+        id: "research",
+        label: "Research",
+        icon: "🔬",
+        value: connectorSettings.research,
+        onChange: (next) => setConnectorSettings((prev) => ({ ...prev, research: next })),
+      },
+      {
+        id: "extended",
+        label: "Extended thinking",
+        icon: "🧠",
+        value: connectorSettings.extendedThinking,
+        onChange: (next) => setConnectorSettings((prev) => ({ ...prev, extendedThinking: next })),
+      },
+      {
+        id: "style",
+        label: "Use style",
+        icon: "🎨",
+        value: connectorSettings.useStyle,
+        onChange: (next) => setConnectorSettings((prev) => ({ ...prev, useStyle: next })),
+      },
+    ],
+    [connectorSettings],
+  );
+
+  const connectorMenuConfig = useMemo(() => {
+    if (!session) return undefined;
+    const items: ChatComposerResourceMenuItem[] = [
+      {
+        id: "calendar",
+        label: "Calendar search",
+        icon: "📅",
+        accessoryLabel: "Connect ↗",
+        disabled: true,
+      },
+      {
+        id: "gmail",
+        label: "Gmail search",
+        icon: "📧",
+        accessoryLabel: "Connect ↗",
+        disabled: true,
+      },
+    ];
+    return {
+      headerLabel: "Manage connectors",
+      addConnectorsLabel: "Add connectors",
+      items,
+      toggles: connectorToggles,
+      searchPlaceholder: "Search connectors",
+    };
+  }, [session, connectorToggles]);
+
+  const extendedThinkingConfig = useMemo(
+    () =>
+      session
+        ? {
+            value: connectorSettings.extendedThinking,
+            onToggle: (next: boolean) =>
+              setConnectorSettings((prev) => ({ ...prev, extendedThinking: next })),
+            icon: "🧠",
+            tooltip: "Extended thinking",
+          }
+        : undefined,
+    [session, connectorSettings.extendedThinking],
+  );
+
+  const activeArtifact = selectedArtifactId ? artifactDetails.get(selectedArtifactId) ?? null : null;
 
   useEffect(() => {
     if (!session?.session_id) return;
@@ -225,7 +533,20 @@ export default function AcceleratorChatPage() {
                 try {
                   const payload = JSON.parse(payloadRaw);
                   const nextArtifacts = normalizeArtifacts(payload?.artifacts ?? []);
-                  setLiveArtifacts(nextArtifacts);
+                  setLiveArtifacts((prev) => {
+                    const map = new Map<string, SimplifiedArtifact>();
+                    const mergeList = (list: SimplifiedArtifact[]) => {
+                      list.forEach((item) => {
+                        if (!item?.filename) return;
+                        const existing = map.get(item.filename);
+                        map.set(item.filename, existing ? { ...existing, ...item } : item);
+                      });
+                    };
+                    mergeList(artifacts);
+                    mergeList(prev);
+                    mergeList(nextArtifacts);
+                    return Array.from(map.values());
+                  });
                 } catch (err) {
                   console.error("Failed to parse artifact stream", err);
                 }
@@ -247,9 +568,251 @@ export default function AcceleratorChatPage() {
       cancelled = true;
       controller.abort();
     };
-  }, [session?.session_id, normalizeArtifacts]);
+  }, [session?.session_id, normalizeArtifacts, artifacts]);
 
-  async function refreshSession(id: string) {
+  const handleSelectArtifact = useCallback((filename: string | null) => {
+    if (!filename) {
+      setSelectedArtifactId(null);
+      setSelectedPreview(null);
+      setPreviewHtml("");
+      setPreviewSource("");
+      return;
+    }
+    setSelectedArtifactId(filename);
+    setPreviewMode("render");
+    setDrawerOpen(true);
+  }, []);
+
+  useEffect(() => {
+    if (!selectedArtifactId || !session?.session_id) {
+      setSelectedPreview(null);
+      setPreviewHtml("");
+      setPreviewSource("");
+      return;
+    }
+
+    let cancelled = false;
+    const preview = previewMap[selectedArtifactId] ?? null;
+    setSelectedPreview(preview ?? null);
+    const fallbackContent = preview?.content ?? "";
+    setPreviewHtml(fallbackContent);
+    setPreviewSource(fallbackContent);
+
+    if (!preview?.content) {
+      void getAcceleratorPreviewHtml(session.session_id, selectedArtifactId)
+        .then((html) => {
+          if (cancelled) return;
+          setPreviewHtml(html);
+          setPreviewMap((prev) => ({
+            ...prev,
+            [selectedArtifactId]: {
+              ...(prev[selectedArtifactId] ?? {
+                filename: selectedArtifactId,
+                version: activeArtifact?.version ?? 1,
+                created_at: activeArtifact?.created_at ?? new Date().toISOString(),
+                meta: activeArtifact
+                  ? {
+                      title: activeArtifact.title,
+                      language: activeArtifact.language,
+                      type: activeArtifact.type,
+                      version: activeArtifact.version,
+                    }
+                  : undefined,
+              }),
+              content: html,
+            },
+          }));
+        })
+        .catch((err) => console.error("fetch_preview_html_failed", err));
+    }
+
+    void getAcceleratorArtifactRaw(session.session_id, selectedArtifactId)
+      .then((text) => {
+        if (cancelled) return;
+        setPreviewSource(text);
+      })
+      .catch((err) => {
+        console.error("fetch_preview_raw_failed", err);
+        setPreviewSource((prev) => prev || fallbackContent);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedArtifactId, session?.session_id, previewMap, activeArtifact]);
+
+  const selectedPreviewMeta = useMemo(() => selectedPreview?.meta ?? {}, [selectedPreview]);
+  const selectedIsHtml = useMemo(() => {
+    const ext = selectedPreview?.filename?.split(".").pop()?.toLowerCase();
+    if (ext === "html") return true;
+    const language = typeof selectedPreviewMeta?.language === "string" ? selectedPreviewMeta.language : undefined;
+    return language?.toLowerCase() === "html";
+  }, [selectedPreview, selectedPreviewMeta]);
+
+  const htmlIframeUrl = useMemo(() => {
+    if (!selectedPreview || previewMode !== "render") return null;
+    const iframePath = selectedPreviewMeta?.iframe_url;
+    if (typeof iframePath !== "string" || !iframePath) return null;
+    if (iframePath.startsWith("http")) return iframePath;
+    if (session?.session_id) {
+      return `${API_BASE_URL}${iframePath}`;
+    }
+    return null;
+  }, [selectedPreview, selectedPreviewMeta, previewMode, session?.session_id]);
+
+  useEffect(() => {
+    if (previewMode !== "render" || !htmlIframeUrl) return;
+    const iframe = previewIframeRef.current;
+    if (!iframe) return;
+    const listener = (event: MessageEvent) => {
+      if (!event.data || typeof event.data !== "object") return;
+      if (event.data.type === "accelerator_preview_height" && typeof event.data.height === "number") {
+        const nextHeight = Math.min(Math.max(event.data.height, 520), 2200);
+        setPreviewHeight(nextHeight);
+      }
+    };
+    window.addEventListener("message", listener);
+    const handleLoad = () => {
+      try {
+        iframe.contentWindow?.postMessage({ type: "accelerator_preview_measure" }, "*");
+      } catch (err) {
+        console.error("iframe_measure_failed", err);
+      }
+    };
+    iframe.addEventListener("load", handleLoad);
+    if (iframe.contentDocument?.readyState === "complete") {
+      handleLoad();
+    }
+    return () => {
+      window.removeEventListener("message", listener);
+      iframe.removeEventListener("load", handleLoad);
+    };
+  }, [previewMode, htmlIframeUrl, selectedPreview]);
+
+  const hasRenderContent = previewHtml.trim().length > 0;
+  const hasSourceContent = previewSource.trim().length > 0;
+  const sourceText = hasSourceContent ? previewSource : previewHtml;
+  const renderContent = useMemo(() => {
+    if (selectedIsHtml) return previewHtml;
+    return previewHtml || previewSource;
+  }, [selectedIsHtml, previewHtml, previewSource]);
+
+  const frameHeight = useMemo(() => {
+    if (previewMode !== "render" || !selectedIsHtml) return null;
+    if (htmlIframeUrl) return Math.max(previewHeight, 520);
+    if (previewHtml.trim()) return Math.max(previewHeight, 840);
+    return 640;
+  }, [previewMode, selectedIsHtml, htmlIframeUrl, previewHeight, previewHtml]);
+
+  const displayTitle =
+    activeArtifact?.title ||
+    activeArtifact?.filename ||
+    selectedPreview?.filename ||
+    (previewHtml ? "Draft preview" : "");
+  const displayBadge =
+    activeArtifact?.type?.toUpperCase() ||
+    activeArtifact?.language?.toUpperCase() ||
+    (typeof selectedPreviewMeta?.type === "string" ? selectedPreviewMeta.type.toUpperCase() : undefined) ||
+    (typeof selectedPreviewMeta?.language === "string"
+      ? (selectedPreviewMeta.language as string).toUpperCase()
+      : undefined) ||
+    null;
+  const displayExtension =
+    selectedPreview?.filename?.split(".").pop()?.toUpperCase() ||
+    activeArtifact?.filename?.split(".").pop()?.toUpperCase() ||
+    null;
+
+  const artifactOptions = useMemo(
+    () =>
+      displayArtifacts.map((artifact) => ({
+        id: artifact.filename,
+        label: artifact.title || artifact.filename,
+        subtitle: artifact.version ? `v${artifact.version}` : undefined,
+      })),
+    [displayArtifacts],
+  );
+
+  useEffect(() => {
+    if (!actionStatus) return;
+    const timeout = window.setTimeout(() => setActionStatus(null), 2400);
+    return () => window.clearTimeout(timeout);
+  }, [actionStatus]);
+
+  const downloadArtifact = useCallback(
+    async (filename?: string | null) => {
+      if (!session?.session_id || !filename) {
+        setActionStatus("Select an artifact to download.");
+        return;
+      }
+      try {
+        const blob = await downloadAcceleratorBundle(session.session_id, filename);
+        const url = window.URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = filename;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        window.URL.revokeObjectURL(url);
+        setActionStatus("Download started.");
+      } catch (err) {
+        console.error("download_artifact_failed", err);
+        setActionStatus("Unable to download artifact.");
+      }
+    },
+    [session?.session_id],
+  );
+
+  const handleCopyPreview = useCallback(async () => {
+    const textToCopy = previewMode === "source" ? sourceText : previewHtml;
+    if (!textToCopy.trim()) {
+      setActionStatus("Nothing to copy yet.");
+      return;
+    }
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(textToCopy);
+      } else {
+        const textarea = document.createElement("textarea");
+        textarea.value = textToCopy;
+        textarea.style.position = "fixed";
+        textarea.style.opacity = "0";
+        document.body.appendChild(textarea);
+        textarea.focus();
+        textarea.select();
+        document.execCommand("copy");
+        document.body.removeChild(textarea);
+      }
+      setActionStatus("Copied preview to clipboard.");
+    } catch (err) {
+      console.error("copy_preview_failed", err);
+      setActionStatus("Unable to copy preview.");
+    }
+  }, [previewMode, previewHtml, sourceText]);
+
+  const handleDownloadPreview = useCallback(() => {
+    void downloadArtifact(selectedArtifactId);
+  }, [downloadArtifact, selectedArtifactId]);
+
+  const latestAssistantMessageId = useMemo(() => {
+    for (let index = messages.length - 1; index >= 0; index -= 1) {
+      const candidate = messages[index];
+      if (candidate?.role === "assistant") {
+        return candidate.message_id;
+      }
+    }
+    return null;
+  }, [messages]);
+
+  const activeSwitcherLabel = useMemo(() => {
+    if (!selectedArtifactId) return "Artifacts";
+    const current = artifactDetails.get(selectedArtifactId);
+    return current?.title || current?.filename || selectedArtifactId;
+  }, [artifactDetails, selectedArtifactId]);
+
+  const showPreviewPanel = Boolean(hasRenderContent || hasSourceContent || selectedPreview);
+
+  const refreshSession = useCallback(async (id: string) => {
     try {
       const fresh = await getAcceleratorSession(id);
       setData(fresh);
@@ -257,49 +820,46 @@ export default function AcceleratorChatPage() {
     } catch (e: any) {
       setError(e?.message || "Unable to refresh session.");
     }
-  }
+  }, []);
 
-  async function handleSend(event?: FormEvent, override?: string) {
-    event?.preventDefault();
-    if (!session || sending) return;
-    const content = (override ?? draft).trim();
-    if (!content) return;
-    const messageToSend = content;
-    if (!override) {
-      setDraft("");
-    }
-    setSending(true);
-    setError(null);
-
-    try {
-      trackEvent("accelerator_prompt_sent", {
-        sessionId: session.session_id,
-        intentId: intent?.intent_id,
-        length: content.length,
-      });
-      await postAcceleratorMessage(session.session_id, content);
-      void refreshSession(session.session_id);
-    } catch (e: any) {
-      setError(e?.message || "Unable to send message right now.");
+  const handleSend = useCallback(
+    async (event?: FormEvent, override?: string) => {
+      event?.preventDefault();
+      if (!session || sending) return;
+      const content = (override ?? draft).trim();
+      if (!content) return;
+      const messageToSend = content;
       if (!override) {
-        setDraft(messageToSend);
+        setDraft("");
       }
-    } finally {
-      setSending(false);
-    }
-  }
+      setSending(true);
+      setError(null);
 
-  const handleQuickPrompt = useCallback(
-    (prompt: SuggestedPrompt) => {
-      if (!prompt?.body || !session || sending) return;
-      trackEvent("accelerator_prompt_prefill", {
-        sessionId: session.session_id,
-        intentId: intent?.intent_id,
-        promptId: prompt.id,
-      });
-      void handleSend(undefined, prompt.body);
+      try {
+        const providerOverride = selectedModelOption?.available ? selectedModelOption.provider : null;
+        const modelOverride = selectedModelOption?.available ? selectedModelOption.model : null;
+        trackEvent("accelerator_prompt_sent", {
+          sessionId: session.session_id,
+          intentId: intent?.intent_id,
+          length: content.length,
+          model: modelOverride,
+          provider: providerOverride,
+        });
+        await postAcceleratorMessage(session.session_id, content, {
+          provider: providerOverride,
+          model: modelOverride,
+        });
+        void refreshSession(session.session_id);
+      } catch (e: any) {
+        setError(e?.message || "Unable to send message right now.");
+        if (!override) {
+          setDraft(messageToSend);
+        }
+      } finally {
+        setSending(false);
+      }
     },
-    [intent?.intent_id, session, sending],
+    [session, sending, draft, intent?.intent_id, refreshSession, selectedModelOption],
   );
 
   async function handlePromote() {
@@ -333,21 +893,7 @@ export default function AcceleratorChatPage() {
         </nav>
         <h1>{intent?.title ?? "Accelerator chat"}</h1>
         {intent && <p className="accelerator-subhead">{intent.description}</p>}
-        <div className="accelerator-meta" role="list">
-          {intent?.requirement_area && (
-            <span role="listitem">Focus: {intent.requirement_area}</span>
-          )}
-          {personaLabel && <span role="listitem">Persona: {personaLabel}</span>}
-        </div>
-        {intent?.deliverables?.length ? (
-          <div className="accelerator-deliverables" role="list">
-            {intent.deliverables.map((item) => (
-              <span key={item} role="listitem">
-                {item}
-              </span>
-            ))}
-          </div>
-        ) : null}
+        {personaLabel && <div className="accelerator-meta" role="list"><span role="listitem">Persona: {personaLabel}</span></div>}
         <div className="accelerator-actions">
           <button
             type="button"
@@ -376,146 +922,417 @@ export default function AcceleratorChatPage() {
         </div>
       )}
 
-      <main className="accelerator-chat" aria-live="polite">
-        <aside
-          style={{
-            border: "1px solid var(--border, #e0e0e0)",
-            borderRadius: 12,
-            padding: 16,
-            marginBottom: 16,
-            background: "var(--surface, #f8f9fb)",
-          }}
-          aria-label="Generated artifacts"
-        >
-          <h2 style={{ margin: 0, fontSize: "1rem" }}>Artifacts</h2>
-          <p style={{ marginTop: 8, marginBottom: 12, color: "var(--muted, #5f6a84)", fontSize: "0.875rem" }}>
-            {artifacts.length
-              ? "Latest documents captured for this accelerator session."
-              : "Documents will appear here once generated."}
-          </p>
-          {artifacts.length > 0 && (
-            <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "grid", gap: 8 }}>
-              {displayArtifacts.map((artifact) => (
-                <li
-                  key={`${artifact.filename}-${artifact.version ?? "v"}`}
-                  style={{
-                    border: "1px solid var(--border, #e0e0e0)",
-                    borderRadius: 10,
-                    padding: "8px 12px",
-                    background: "#fff",
-                    display: "grid",
-                    gap: 6,
-                  }}
-                >
-                  <div style={{ fontWeight: 600 }}>{artifact.filename || "Untitled"}</div>
-                  <div style={{ fontSize: "0.8rem", color: "var(--muted, #5f6a84)" }}>
-                    {artifact.version ? `Version ${artifact.version}` : null}
-                    {artifact.version && artifact.created_at ? " • " : ""}
-                    {artifact.created_at ? new Date(artifact.created_at).toLocaleString() : null}
-                  </div>
-                  {artifact.summary ? (
-                    <div
-                      style={{
-                        fontSize: "0.85rem",
-                        color: "var(--text, #27324b)",
-                        background: "#f5f7fb",
-                        borderRadius: 6,
-                        padding: "6px 8px",
-                        lineHeight: 1.4,
-                      }}
+      <main className="accelerator-main" aria-live="polite">
+        <section className="accelerator-chat" aria-label="Conversation">
+          {loading && !session && <div className="accelerator-status">Loading accelerator…</div>}
+          {!loading && session && (
+            <>
+              <ol className="accelerator-messages">
+                {messages.map((message) => {
+                  const isAssistant = message.role === "assistant";
+                  const showArtifactsInline =
+                    isAssistant &&
+                    message.message_id === latestAssistantMessageId &&
+                    displayArtifacts.length > 0;
+
+                  const assistantDisplay = intent?.title ?? "Assistant";
+                  const assistantInitials = assistantDisplay
+                    .split(/\s+/)
+                    .map((part) => part[0])
+                    .join("")
+                    .slice(0, 2)
+                    .toUpperCase();
+
+                  return (
+                    <li
+                      key={message.message_id}
+                      className={`accelerator-message accelerator-message--${message.role}`}
                     >
-                      {artifact.summary}
-                    </div>
-                  ) : null}
-                </li>
-              ))}
-            </ul>
+                      <span className="accelerator-message__role">
+                        {isAssistant ? (
+                          <>
+                            <span aria-hidden="true" className="accelerator-message__avatar">
+                              {assistantInitials}
+                            </span>
+                            {assistantDisplay}
+                          </>
+                        ) : (
+                          "You"
+                        )}
+                      </span>
+                      <div className="accelerator-message__bubble">
+                        <MarkdownMessage>{message.content}</MarkdownMessage>
+                      </div>
+                      {showArtifactsInline ? (
+                        <div className="accelerator-inline-artifact-card" aria-label="Generated artifacts">
+                          <header className="accelerator-inline-artifact-card__header">
+                            <span className="accelerator-inline-artifact-card__label">Generated artifacts</span>
+                            <span className="accelerator-inline-artifact-card__count">
+                              {displayArtifacts.length} files
+                            </span>
+                          </header>
+                          <ul className="accelerator-inline-artifact-card__list" role="list">
+                            {displayArtifacts.map((artifact) => {
+                              const active = selectedArtifactId === artifact.filename;
+                              const extension = artifact.filename?.split(".").pop()?.toUpperCase() ?? "";
+                              return (
+                                <li
+                                  key={`${artifact.filename}-${artifact.version ?? "v"}`}
+                                  className={
+                                    active
+                                      ? "accelerator-inline-artifact-card__item accelerator-inline-artifact-card__item--active"
+                                      : "accelerator-inline-artifact-card__item"
+                                  }
+                                >
+                                  <button
+                                    type="button"
+                                    className="accelerator-inline-artifact-card__button"
+                                    onClick={() => handleSelectArtifact(artifact.filename)}
+                                    aria-pressed={active}
+                                  >
+                                    <span className="accelerator-inline-artifact-card__icon" aria-hidden="true">
+                                      {extension}
+                                    </span>
+                                    <span className="accelerator-inline-artifact-card__text">
+                                      <span className="accelerator-inline-artifact-card__title">
+                                        {artifact.title || artifact.filename}
+                                      </span>
+                                      <span className="accelerator-inline-artifact-card__meta">
+                                        {extension || "FILE"}
+                                        {artifact.version ? ` • v${artifact.version}` : ""}
+                                      </span>
+                                    </span>
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="accelerator-inline-artifact-card__download"
+                                    onClick={() => void downloadArtifact(artifact.filename)}
+                                    aria-label={`Download ${artifact.title || artifact.filename}`}
+                                  >
+                                    Download
+                                  </button>
+                                </li>
+                              );
+                            })}
+                          </ul>
+                        </div>
+                      ) : null}
+                    </li>
+                  );
+                })}
+              </ol>
+              <div ref={messagesEndRef} />
+            </>
           )}
-        </aside>
-        {loading && !session && <div className="accelerator-status">Loading accelerator…</div>}
-        {!loading && session && (
-          <>
-            <ol className="accelerator-messages">
-              {messages.map((message) => (
-                <li
-                  key={message.message_id}
-                  className={`accelerator-message accelerator-message--${message.role}`}
-                >
-                  <span className="accelerator-message__role">
-                    {message.role === "assistant" ? intent?.title ?? "Assistant" : "You"}
-                  </span>
-                  <MarkdownMessage>{message.content}</MarkdownMessage>
-                </li>
-              ))}
-            </ol>
-            <div ref={messagesEndRef} />
-          </>
-        )}
+        </section>
+
       </main>
 
-      <footer className="accelerator-composer">
-        <form onSubmit={handleSend} className="accelerator-form">
-          {suggestedPrompts.length > 0 && (
-            <div
-              className="accelerator-quick-prompts"
-              role="group"
-              aria-label="Suggested prompts"
-              style={{
-                display: "flex",
-                flexWrap: "wrap",
-                gap: 8,
-                marginBottom: 12,
-              }}
-            >
-              {suggestedPrompts.map((prompt) => (
-                <button
-                  key={prompt.id}
-                  type="button"
-                  className="accelerator-quick-prompt"
-                  onClick={() => handleQuickPrompt(prompt)}
-                  disabled={sending || !session}
-                  style={{
-                    border: "1px solid var(--border, #d6dbe7)",
-                    background: "#eef2ff",
-                    color: "#3341a0",
-                    borderRadius: 999,
-                    padding: "6px 14px",
-                    fontSize: "0.85rem",
-                    fontWeight: 600,
-                    cursor: "pointer",
-                    transition: "background 0.2s ease, color 0.2s ease",
-                    opacity: sending || !session ? 0.6 : 1,
-                  }}
-                  onMouseEnter={(event) => {
-                    (event.currentTarget as HTMLButtonElement).style.background = "#dce4ff";
-                  }}
-                  onMouseLeave={(event) => {
-                    (event.currentTarget as HTMLButtonElement).style.background = "#eef2ff";
-                  }}
-                >
-                  {prompt.label}
-                </button>
-              ))}
+      <ChatComposer
+        className="accelerator-composer"
+        draft={draft}
+        onDraftChange={setDraft}
+        onSubmit={(event) => handleSend(event)}
+        sending={sending}
+        textareaDisabled={sending || loading || !session}
+        hasSession={Boolean(session)}
+        modelOptions={modelOptions}
+        modelLoading={modelLoading}
+        modelError={modelError}
+        selectedModelKey={selectedModelKey}
+        onModelChange={(value) => {
+          setSelectedModelKey(value);
+          const [provider, ...rest] = value.split(":");
+          const model = rest.join(":");
+          setModelPreference(provider, model);
+          trackEvent("accelerator_model_changed", {
+            sessionId: session?.session_id,
+            provider,
+            model,
+          });
+        }}
+        resourceMenu={resourceMenuConfig}
+        connectorsMenu={connectorMenuConfig}
+        extendedThinking={extendedThinkingConfig}
+        sendIcon={<span aria-hidden="true">↑</span>}
+      />
+      {displayArtifacts.length > 0 ? (
+        <button
+          type="button"
+          className="accelerator-drawer-toggle"
+          onClick={() => {
+            setDrawerOpen((open) => {
+              const nextOpen = !open;
+              if (!nextOpen) {
+                setDrawerExpanded(false);
+                setArtifactMenuOpen(false);
+              }
+              return nextOpen;
+            });
+          }}
+          aria-pressed={drawerOpen}
+          aria-label={drawerOpen ? "Hide generated artifacts" : `Show generated artifacts (${displayArtifacts.length})`}
+        >
+          <span aria-hidden="true">☰</span>
+        </button>
+      ) : null}
+      <div
+        className={`accelerator-drawer${drawerOpen ? " accelerator-drawer--open" : ""}${
+          drawerExpanded ? " accelerator-drawer--expanded" : ""
+        }`}
+      >
+        <div
+          className="accelerator-drawer__backdrop"
+          role="presentation"
+          onClick={() => {
+            setDrawerOpen(false);
+            setDrawerExpanded(false);
+            setArtifactMenuOpen(false);
+            setPreviewActionsOpen(false);
+          }}
+        />
+        <aside className="accelerator-drawer__panel" aria-label="Artifact preview">
+          <header className="accelerator-drawer__header">
+            <div className="accelerator-drawer__title" ref={artifactMenuContainerRef}>
+              <button
+                type="button"
+                className="accelerator-drawer__menu-trigger"
+                aria-haspopup="listbox"
+                aria-expanded={artifactMenuOpen}
+                aria-label={
+                  artifactMenuOpen
+                    ? "Close artifact menu"
+                    : `Show artifact menu (current: ${activeSwitcherLabel})`
+                }
+                onClick={() => setArtifactMenuOpen((open) => !open)}
+              >
+                <span aria-hidden="true">☰</span>
+              </button>
+              <div className="accelerator-drawer__heading">
+                <span className="accelerator-drawer__eyebrow">Generated artifacts</span>
+                <span className="accelerator-drawer__label">{displayTitle}</span>
+              </div>
+              {artifactMenuOpen ? (
+                <div className="accelerator-drawer__menu" role="listbox">
+                  <span className="accelerator-drawer__menu-label">Switch between artifacts</span>
+                  <ul>
+                    {displayArtifacts.map((artifact) => {
+                      const active = artifact.filename === selectedArtifactId;
+                      return (
+                        <li key={artifact.filename}>
+                          <button
+                            type="button"
+                            className={
+                              active
+                                ? "accelerator-drawer__menu-item accelerator-drawer__menu-item--active"
+                                : "accelerator-drawer__menu-item"
+                            }
+                            onClick={() => {
+                              handleSelectArtifact(artifact.filename);
+                              setArtifactMenuOpen(false);
+                            }}
+                            role="option"
+                            aria-selected={active}
+                          >
+                            <span className="accelerator-drawer__menu-item-title">
+                              {artifact.title || artifact.filename}
+                            </span>
+                            {artifact.version ? (
+                              <span className="accelerator-drawer__menu-item-meta">v{artifact.version}</span>
+                            ) : null}
+                          </button>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </div>
+              ) : null}
             </div>
-          )}
-          <label className="sr-only" htmlFor="accelerator-input">
-            Send a message
-          </label>
-          <textarea
-            id="accelerator-input"
-            value={draft}
-            onChange={(event) => setDraft(event.target.value)}
-            placeholder="Share context or ask for the next step…"
-            rows={3}
-            disabled={sending || loading || !session}
-          />
-          <div className="accelerator-compose-actions">
-            <button type="submit" disabled={!draft.trim() || sending || !session}>
-              {sending ? "Sending…" : "Send"}
-            </button>
+            <div className="accelerator-drawer__actions">
+              <button
+                type="button"
+                className="accelerator-drawer__expand"
+                onClick={() => setDrawerExpanded((value) => !value)}
+                aria-pressed={drawerExpanded}
+              >
+                {drawerExpanded ? "Collapse" : "Expand"}
+              </button>
+              <button
+                type="button"
+                className="accelerator-drawer__close"
+                onClick={() => {
+                  setDrawerOpen(false);
+                  setDrawerExpanded(false);
+                  setArtifactMenuOpen(false);
+                  setPreviewActionsOpen(false);
+                }}
+              >
+                Close
+              </button>
+            </div>
+          </header>
+          <div className="accelerator-drawer__content">
+            <div className="accelerator-drawer__body" aria-live="polite">
+              {showPreviewPanel ? (
+                <div className="accelerator-preview-card">
+                  <header className="accelerator-preview-card__header">
+                    <div className="accelerator-preview-card__header-left">
+                      <div className="accelerator-preview-card__toggles">
+                        <button
+                          type="button"
+                          className={
+                            previewMode === "render"
+                              ? "accelerator-preview-toggle accelerator-preview-toggle--active"
+                              : "accelerator-preview-toggle"
+                          }
+                          onClick={() => {
+                            setPreviewMode("render");
+                            setPreviewActionsOpen(false);
+                          }}
+                          disabled={!hasRenderContent}
+                          aria-label="Show final output"
+                        >
+                          <span className="accelerator-preview-toggle__icon" aria-hidden="true">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                              <path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7Z" />
+                              <circle cx="12" cy="12" r="3.5" />
+                            </svg>
+                          </span>
+                          <span className="sr-only">Final output</span>
+                        </button>
+                        <button
+                          type="button"
+                          className={
+                            previewMode === "source"
+                              ? "accelerator-preview-toggle accelerator-preview-toggle--active"
+                              : "accelerator-preview-toggle"
+                          }
+                          onClick={() => {
+                            setPreviewMode("source");
+                            setPreviewActionsOpen(false);
+                          }}
+                          disabled={!hasSourceContent && !previewHtml.trim()}
+                          aria-label="Show source"
+                        >
+                          <span className="accelerator-preview-toggle__icon" aria-hidden="true">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                              <polyline points="16 18 22 12 16 6" />
+                              <polyline points="8 6 2 12 8 18" />
+                            </svg>
+                          </span>
+                          <span className="sr-only">Source</span>
+                        </button>
+                      </div>
+                    </div>
+                    <div className="accelerator-preview-card__header-actions" ref={previewActionsRef}>
+                      <button
+                        type="button"
+                        className="accelerator-preview-card__action"
+                        onClick={() => {
+                          if (!(previewMode === "source" ? sourceText : previewHtml).trim()) return;
+                          setPreviewActionsOpen((open) => !open);
+                        }}
+                        disabled={!(previewMode === "source" ? sourceText : previewHtml).trim()}
+                        aria-expanded={previewActionsOpen}
+                        aria-haspopup="menu"
+                      >
+                        <span className="accelerator-preview-card__action-label">Copy</span>
+                        <span className="accelerator-preview-card__action-caret" aria-hidden="true" />
+                      </button>
+                      {previewActionsOpen ? (
+                        <div className="accelerator-preview-card__action-menu" role="menu">
+                          <button
+                            type="button"
+                            role="menuitem"
+                            onClick={() => {
+                              handleCopyPreview();
+                              setPreviewActionsOpen(false);
+                            }}
+                            disabled={!(previewMode === "source" ? sourceText : previewHtml).trim()}
+                          >
+                            Copy text
+                          </button>
+                          <button
+                            type="button"
+                            role="menuitem"
+                            onClick={() => {
+                              handleDownloadPreview();
+                              setPreviewActionsOpen(false);
+                            }}
+                            disabled={!selectedArtifactId}
+                          >
+                            Download
+                          </button>
+                        </div>
+                      ) : null}
+                      <button
+                        type="button"
+                        className="accelerator-preview-card__icon-button"
+                        onClick={() => handleDownloadPreview()}
+                        disabled={!selectedArtifactId}
+                        aria-label="Download artifact"
+                      >
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                          <polyline points="7 10 12 15 17 10" />
+                          <line x1="12" y1="15" x2="12" y2="3" />
+                        </svg>
+                      </button>
+                    </div>
+                  </header>
+                  {actionStatus ? <div className="accelerator-preview-card__status">{actionStatus}</div> : null}
+                  <div className="accelerator-preview-card__body">
+                    {previewMode === "render" ? (
+                      selectedIsHtml ? (
+                        renderContent.trim() || htmlIframeUrl ? (
+                          <div
+                            className="accelerator-preview-card__frame"
+                            style={frameHeight ? { minHeight: frameHeight, height: frameHeight } : undefined}
+                          >
+                            <iframe
+                              ref={previewIframeRef}
+                              {...(htmlIframeUrl ? { src: htmlIframeUrl } : { srcDoc: renderContent })}
+                              title={
+                                activeArtifact?.title ||
+                                activeArtifact?.filename ||
+                                selectedPreview?.filename ||
+                                "Live preview"
+                              }
+                              loading="lazy"
+                              allow="clipboard-write"
+                              sandbox="allow-scripts allow-same-origin allow-popups allow-top-navigation-by-user-activation"
+                            />
+                          </div>
+                        ) : (
+                          <div className="accelerator-preview-card__empty">Preview not available for this artifact.</div>
+                        )
+                      ) : (
+                        <div className="accelerator-preview-card__markdown">
+                          <MarkdownMessage className="accelerator-preview-card__content">
+                            {renderContent || ""}
+                          </MarkdownMessage>
+                        </div>
+                      )
+                    ) : sourceText.trim() ? (
+                      <pre className="accelerator-preview-card__source" aria-label="Source code">
+                        <code>{sourceText}</code>
+                      </pre>
+                    ) : (
+                      <div className="accelerator-preview-card__empty">
+                        Source view is unavailable for this artifact.
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                <div className="accelerator-preview-card accelerator-preview-card--empty">
+                  Select an artifact to preview the final experience.
+                </div>
+              )}
+            </div>
           </div>
-        </form>
-      </footer>
+        </aside>
+      </div>
     </div>
   );
 }

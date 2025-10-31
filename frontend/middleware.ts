@@ -24,7 +24,12 @@ export function middleware(req: NextRequest) {
   }
 
   // Keep MVP and root
-  if (p === "/" || p === "/mvp") {
+  if (
+    p === "/" ||
+    p === "/mvp" ||
+    p.startsWith("/accelerators") ||
+    p.startsWith("/projects")
+  ) {
     return NextResponse.next();
   }
 

@@ -37,6 +37,8 @@ class InMemoryAcceleratorStore:
         self._messages: Dict[str, List[_Message]] = {}
         self._artifacts: Dict[str, List[Dict[str, Any]]] = {}
         self._artifact_revisions: Dict[str, int] = {}
+        self._attachments: Dict[str, Dict[str, Dict[str, Any]]] = {}
+        self._assets: Dict[str, Dict[str, bytes]] = {}
         self._lock = RLock()
 
     def _now_iso(self) -> str:
@@ -66,49 +68,37 @@ class InMemoryAcceleratorStore:
             self._messages[sid] = []
             self._artifacts[sid] = []
             self._artifact_revisions[sid] = 0
-            return AcceleratorSession(
-                accelerator_id=session.accelerator_id,
-                session_id=session.session_id,
-                created_by=session.created_by,
-                created_at=session.created_at,
-                persona=session.persona,
-                project_id=session.project_id,
-                promoted_at=session.promoted_at,
-                metadata=dict(session.metadata),
-            )
+            self._attachments.setdefault(sid, {})
+            self._assets.setdefault(sid, {})
+            return self._serialize_session(session)
 
     def get_session(self, session_id: str) -> Optional[AcceleratorSession]:
         with self._lock:
             sess = self._sessions.get(session_id)
             if not sess:
                 return None
-            return AcceleratorSession(
-                accelerator_id=sess.accelerator_id,
-                session_id=sess.session_id,
-                created_by=sess.created_by,
-                created_at=sess.created_at,
-                persona=sess.persona,
-                project_id=sess.project_id,
-                promoted_at=sess.promoted_at,
-                metadata=dict(sess.metadata),
-            )
+            return self._serialize_session(sess)
 
     def list_sessions(self, limit: Optional[int] = None) -> List[AcceleratorSession]:
         with self._lock:
-            sessions = [
-                AcceleratorSession(
-                    accelerator_id=sess.accelerator_id,
-                    session_id=sess.session_id,
-                    created_by=sess.created_by,
-                    created_at=sess.created_at,
-                    persona=sess.persona,
-                    project_id=sess.project_id,
-                    promoted_at=sess.promoted_at,
-                    metadata=dict(sess.metadata),
-                )
-                for sess in self._sessions.values()
-            ]
+            sessions = [self._serialize_session(sess) for sess in self._sessions.values()]
             sessions.sort(key=lambda s: s.created_at, reverse=True)
+            if limit is not None:
+                sessions = sessions[: max(0, limit)]
+            return sessions
+
+    def list_recent_sessions(self, limit: Optional[int] = None) -> List[AcceleratorSession]:
+        with self._lock:
+            sessions = [self._serialize_session(sess) for sess in self._sessions.values()]
+
+            def sort_key(accel_session: AcceleratorSession) -> str:
+                meta = accel_session.metadata or {}
+                last_activity = meta.get("last_activity")
+                if isinstance(last_activity, str) and last_activity:
+                    return last_activity
+                return accel_session.created_at
+
+            sessions.sort(key=sort_key, reverse=True)
             if limit is not None:
                 sessions = sessions[: max(0, limit)]
             return sessions
@@ -187,6 +177,21 @@ class InMemoryAcceleratorStore:
             self._artifact_revisions[session_id] = self._artifact_revisions.get(session_id, 0) + 1
             return entry
 
+    def save_asset(self, session_id: str, filename: str, content: bytes) -> None:
+        with self._lock:
+            if session_id not in self._sessions:
+                raise KeyError("Session not found")
+            assets = self._assets.setdefault(session_id, {})
+            assets[filename] = content
+
+    def get_asset(self, session_id: str, filename: str) -> Optional[bytes]:
+        with self._lock:
+            return self._assets.get(session_id, {}).get(filename)
+
+    def list_assets(self, session_id: str) -> List[str]:
+        with self._lock:
+            return list(self._assets.get(session_id, {}).keys())
+
     def list_artifacts(self, session_id: str) -> List[Dict[str, Any]]:
         with self._lock:
             return list(self._artifacts.get(session_id, []))
@@ -205,16 +210,7 @@ class InMemoryAcceleratorStore:
             sess.metadata = dict(metadata)
             self._sessions[session_id] = sess
             self._artifact_revisions.setdefault(session_id, 0)
-            return AcceleratorSession(
-                accelerator_id=sess.accelerator_id,
-                session_id=sess.session_id,
-                created_by=sess.created_by,
-                created_at=sess.created_at,
-                persona=sess.persona,
-                project_id=sess.project_id,
-                promoted_at=sess.promoted_at,
-                metadata=dict(sess.metadata),
-            )
+            return self._serialize_session(sess)
 
     def promote_session(self, session_id: str, project_id: str) -> Optional[AcceleratorSession]:
         with self._lock:
@@ -224,16 +220,7 @@ class InMemoryAcceleratorStore:
             sess.project_id = project_id
             sess.promoted_at = self._now_iso()
             self._sessions[session_id] = sess
-            return AcceleratorSession(
-                accelerator_id=sess.accelerator_id,
-                session_id=sess.session_id,
-                created_by=sess.created_by,
-                created_at=sess.created_at,
-                persona=sess.persona,
-                project_id=sess.project_id,
-                promoted_at=sess.promoted_at,
-                metadata=dict(sess.metadata),
-            )
+            return self._serialize_session(sess)
 
     def update_persona(self, session_id: str, persona: Optional[str]) -> AcceleratorSession:
         with self._lock:
@@ -242,16 +229,83 @@ class InMemoryAcceleratorStore:
                 raise KeyError("Session not found")
             sess.persona = persona
             self._sessions[session_id] = sess
-            return AcceleratorSession(
-                accelerator_id=sess.accelerator_id,
-                session_id=sess.session_id,
-                created_by=sess.created_by,
-                created_at=sess.created_at,
-                persona=sess.persona,
-                project_id=sess.project_id,
-                promoted_at=sess.promoted_at,
-                metadata=dict(sess.metadata),
-            )
+            return self._serialize_session(sess)
+
+    def add_attachment(self, session_id: str, attachment: Dict[str, Any]) -> Dict[str, Any]:
+        with self._lock:
+            if session_id not in self._sessions:
+                raise KeyError("Session not found")
+            attachments = self._attachments.setdefault(session_id, {})
+            attachments[attachment["id"]] = attachment
+            self._refresh_attachment_metadata(session_id)
+            return self._public_attachment(attachment)
+
+    def get_attachment(self, session_id: str, attachment_id: str) -> Optional[Dict[str, Any]]:
+        with self._lock:
+            att = self._attachments.get(session_id, {}).get(attachment_id)
+            return self._public_attachment(att) if att else None
+
+    def list_attachments(self, session_id: str) -> List[Dict[str, Any]]:
+        with self._lock:
+            return [self._public_attachment(att) for att in self._attachments.get(session_id, {}).values()]
+
+    def attachment_count(self, session_id: str) -> int:
+        with self._lock:
+            return len(self._attachments.get(session_id, {}))
+
+    def remove_attachment(self, session_id: str, attachment_id: str) -> None:
+        with self._lock:
+            attachments = self._attachments.get(session_id)
+            if not attachments or attachment_id not in attachments:
+                return
+            attachments.pop(attachment_id, None)
+            self._refresh_attachment_metadata(session_id)
+
+    def _refresh_attachment_metadata(self, session_id: str) -> None:
+        sess = self._sessions.get(session_id)
+        if not sess:
+            return
+        snapshot = [self._public_attachment(att) for att in self._attachments.get(session_id, {}).values()]
+        if snapshot:
+            sess.metadata.setdefault("attachments", snapshot)
+        else:
+            sess.metadata.pop("attachments", None)
+        self._sessions[session_id] = sess
+
+    def _serialize_session(self, sess: _Session) -> AcceleratorSession:
+        metadata = dict(sess.metadata)
+        attachments = self._attachments.get(sess.session_id)
+        if attachments:
+            metadata["attachments"] = [self._public_attachment(att) for att in attachments.values()]
+        return AcceleratorSession(
+            accelerator_id=sess.accelerator_id,
+            session_id=sess.session_id,
+            created_by=sess.created_by,
+            created_at=sess.created_at,
+            persona=sess.persona,
+            project_id=sess.project_id,
+            promoted_at=sess.promoted_at,
+            metadata=metadata,
+        )
+
+    def attachment_text_map(self, session_id: str) -> Dict[str, str]:
+        with self._lock:
+            attachments = self._attachments.get(session_id, {})
+            mapping: Dict[str, str] = {}
+            for att in attachments.values():
+                text = att.get("text")
+                if not text:
+                    continue
+                name = (att.get("filename") or att.get("id") or "attachment").strip() or att.get("id")
+                mapping[str(name)] = str(text)
+            return mapping
+
+    def _public_attachment(self, attachment: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+        if not attachment:
+            return {}
+        public = dict(attachment)
+        public.pop("text", None)
+        return public
 
 
 _store: InMemoryAcceleratorStore | None = None

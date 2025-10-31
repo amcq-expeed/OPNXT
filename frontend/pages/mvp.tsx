@@ -36,7 +36,7 @@ export default function MVPPage() {
       } as ProjectCreate;
       const proj = await createProject(payload);
       const prefill = encodeURIComponent(
-        `I want to build: ${trimmed}. Help capture clear, testable functional and non-functional requirements, then generate a Charter, SRS, SDD, and Test Plan.`,
+        `Concept to Deployment: ${trimmed}. Lead me from discovery through architecture, implementation, testing, and deployment. Capture functional and non-functional requirements, propose architecture decisions, outline implementation steps, recommend testing strategy, and prepare Charter, SRS, SDD, and Test Plan milestones as we progress.`,
       );
       await router.push(
         `/start/${encodeURIComponent(proj.project_id)}?prefill=${prefill}`,

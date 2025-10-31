@@ -3,10 +3,34 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from threading import RLock
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Protocol
+import os
 import uuid
 
 from ..domain.chat_models import ChatSession, ChatMessage
+
+
+# --- v1.0 update ---
+class ChatStore(Protocol):
+    def create_session(self, project_id: Optional[str], created_by: str, title: Optional[str] = None, persona: Optional[str] = None, kind: str = "project") -> ChatSession: ...
+
+    def list_sessions(self, project_id: str) -> List[ChatSession]: ...
+
+    def list_recent_sessions(self, limit: int = 10) -> List[ChatSession]: ...
+
+    def list_guest_sessions(self) -> List[ChatSession]: ...
+
+    def count_sessions(self) -> int: ...
+
+    def get_session(self, session_id: str) -> Optional[ChatSession]: ...
+
+    def update_session_persona(self, session_id: str, persona: Optional[str]) -> ChatSession: ...
+
+    def add_message(self, session_id: str, role: str, content: str, metadata: Optional[Dict[str, Any]] = None) -> ChatMessage: ...
+
+    def list_messages(self, session_id: str) -> List[ChatMessage]: ...
+
+    def search_messages(self, query: str, project_id: Optional[str] = None, limit: int = 20) -> List[Tuple[ChatSession, ChatMessage, str]]: ...
 
 
 @dataclass
@@ -208,11 +232,37 @@ class InMemoryChatStore:
             return matches
 
 
-_store: InMemoryChatStore | None = None
+_store: ChatStore | None = None
+
+# --- v1.0 update ---
+_db_mode = os.getenv("DB_MODE", "").lower()
+_mongo_chat_store_cls = None
+if _db_mode == "mongo":
+    try:
+        from .chat_store_mongo import MongoChatStore as _MongoChatStore  # type: ignore
+
+        _mongo_chat_store_cls = _MongoChatStore
+    except Exception:
+        _mongo_chat_store_cls = None
+_db_mode_mongo_chat_enabled = _db_mode == "mongo" and _mongo_chat_store_cls is not None
 
 
-def get_chat_store() -> InMemoryChatStore:
+def get_chat_store() -> ChatStore:
     global _store
+    if _store is not None:
+        return _store
+    impl = os.getenv("OPNXT_CHAT_STORE_IMPL", "memory").lower()
+    if _db_mode_mongo_chat_enabled:
+        _store = _mongo_chat_store_cls()  # type: ignore[operator]
+        return _store
+    if impl == "mongo":
+        try:
+            from .chat_store_mongo import MongoChatStore  # type: ignore
+
+            _store = MongoChatStore()
+            return _store
+        except Exception:
+            _store = None
     if _store is None:
         _store = InMemoryChatStore()
     return _store

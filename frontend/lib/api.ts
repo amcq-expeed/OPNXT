@@ -64,6 +64,28 @@ export interface EnrichResponse {
   summaries: Record<string, string>;
 }
 
+export interface OrchestrateTimelineEntry {
+  agent?: string;
+  status?: string;
+  message?: string;
+  started_at?: string;
+  completed_at?: string;
+  [key: string]: any;
+}
+
+export interface OrchestrateResponse {
+  run_id: string;
+  outputs: Record<string, any>;
+  timeline: OrchestrateTimelineEntry[];
+}
+
+export interface OrchestrateRequest {
+  goal: string;
+  project_id?: string | null;
+  project_name?: string | null;
+  options?: Record<string, any>;
+}
+
 const API_BASE =
   process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 export const API_BASE_URL = API_BASE;
@@ -244,6 +266,24 @@ export async function generateDocuments(
     headers: { "Content-Type": "application/json" },
     body: opts ? JSON.stringify(opts) : undefined,
   });
+  return res.json();
+}
+
+export async function orchestrateWorkflow(
+  payload: OrchestrateRequest,
+  signal?: AbortSignal,
+): Promise<OrchestrateResponse> {
+  const res = await apiFetch(`${API_BASE}/orchestrate`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+    signal,
+  });
+  return res.json();
+}
+
+export async function getOrchestrationRun(runId: string): Promise<OrchestrateResponse> {
+  const res = await apiFetch(`${API_BASE}/orchestrate/${encodeURIComponent(runId)}`);
   return res.json();
 }
 
@@ -644,10 +684,12 @@ export interface AcceleratorSession {
   accelerator_id: string;
   created_by: string;
   created_at: string;
-  persona?: string | null;
-  project_id?: string | null;
-  promoted_at?: string | null;
-  metadata?: Record<string, any>;
+  persona: string | null;
+  project_id: string | null;
+  promoted_at: string | null;
+  metadata: Record<string, any>;
+  attachments?: AcceleratorAttachment[];
+  last_summary?: string | null;
 }
 
 export interface AcceleratorMessage {
@@ -662,6 +704,15 @@ export interface LaunchAcceleratorResponse {
   session: AcceleratorSession;
   intent: CatalogIntent;
   messages: AcceleratorMessage[];
+}
+
+export interface AcceleratorAttachment {
+  id: string;
+  filename: string;
+  content_type?: string;
+  size?: number;
+  uploaded_at?: string;
+  preview?: string;
 }
 
 export interface PromoteAcceleratorRequest {
@@ -800,18 +851,141 @@ export async function getAcceleratorSession(
   return res.json();
 }
 
+export interface AcceleratorPreview {
+  version: number;
+  filename: string;
+  created_at: string;
+  meta?: Record<string, any>;
+  content?: string;
+}
+
+export async function listAcceleratorPreviews(
+  sessionId: string,
+): Promise<AcceleratorPreview[]> {
+  const res = await apiFetch(
+    `${API_BASE}/accelerators/sessions/${encodeURIComponent(sessionId)}/artifacts/previews`,
+    { cache: "no-store" },
+  );
+  return res.json();
+}
+
+export async function downloadAcceleratorBundle(
+  sessionId: string,
+  filename: string,
+): Promise<Blob> {
+  const res = await apiFetch(
+    `${API_BASE}/accelerators/sessions/${encodeURIComponent(sessionId)}/artifacts/${encodeURIComponent(filename)}/download`,
+  );
+  return res.blob();
+}
+
+export async function getAcceleratorPreviewHtml(
+  sessionId: string,
+  filename: string,
+): Promise<string> {
+  const res = await apiFetch(
+    `${API_BASE}/accelerators/sessions/${encodeURIComponent(sessionId)}/artifacts/${encodeURIComponent(filename)}/preview`,
+    { cache: "no-store" },
+  );
+  return res.text();
+}
+
+export async function getAcceleratorArtifactRaw(
+  sessionId: string,
+  filename: string,
+): Promise<string> {
+  const res = await apiFetch(
+    `${API_BASE}/accelerators/sessions/${encodeURIComponent(sessionId)}/artifacts/${encodeURIComponent(filename)}/raw`,
+    { cache: "no-store" },
+  );
+  const text = await res.text();
+  if (!res.ok) {
+    throw new Error(text || `Failed to fetch artifact source (${res.status})`);
+  }
+  return text;
+}
+
 export async function postAcceleratorMessage(
   sessionId: string,
   content: string,
+  attachmentsOrOpts?: string[] | { attachments?: string[]; provider?: string | null; model?: string | null },
 ): Promise<AcceleratorMessage> {
+  let attachments: string[] | undefined;
+  let provider: string | null | undefined;
+  let model: string | null | undefined;
+
+  if (Array.isArray(attachmentsOrOpts)) {
+    attachments = attachmentsOrOpts;
+  } else if (attachmentsOrOpts && typeof attachmentsOrOpts === "object") {
+    attachments = attachmentsOrOpts.attachments;
+    provider = attachmentsOrOpts.provider;
+    model = attachmentsOrOpts.model;
+  }
+
   const res = await apiFetch(
     `${API_BASE}/accelerators/sessions/${encodeURIComponent(sessionId)}/messages`,
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ content }),
+      body: JSON.stringify({
+        content,
+        attachments: attachments ?? [],
+        ...(provider ? { provider } : {}),
+        ...(model ? { model } : {}),
+      }),
     },
   );
+  return res.json();
+}
+
+export async function listAcceleratorAttachments(
+  sessionId: string,
+): Promise<AcceleratorAttachment[]> {
+  const res = await apiFetch(
+    `${API_BASE}/accelerators/sessions/${encodeURIComponent(sessionId)}/attachments`,
+    { cache: "no-store" },
+  );
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(text || `Failed to load attachments (${res.status})`);
+  }
+  return res.json();
+}
+
+export async function uploadAcceleratorAttachments(
+  sessionId: string,
+  files: File[],
+): Promise<AcceleratorAttachment[]> {
+  const fd = new FormData();
+  files.forEach((file) => fd.append("files", file));
+  const res = await apiFetch(
+    `${API_BASE}/accelerators/sessions/${encodeURIComponent(sessionId)}/attachments`,
+    {
+      method: "POST",
+      body: fd,
+    },
+  );
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(text || "Upload failed");
+  }
+  return res.json();
+}
+
+export async function deleteAcceleratorAttachment(
+  sessionId: string,
+  attachmentId: string,
+): Promise<AcceleratorAttachment[]> {
+  const res = await apiFetch(
+    `${API_BASE}/accelerators/sessions/${encodeURIComponent(sessionId)}/attachments/${encodeURIComponent(attachmentId)}`,
+    {
+      method: "DELETE",
+    },
+  );
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(text || `Failed to delete attachment (${res.status})`);
+  }
   return res.json();
 }
 
@@ -837,6 +1011,8 @@ export interface WorkspaceSummary {
   chat_sessions: number;
   accelerator_sessions: number;
   accelerator_artifacts: number;
+  accelerator_messages: number;
+  chat_sessions_raw?: number;
 }
 
 export async function getWorkspaceSummary(): Promise<WorkspaceSummary> {
@@ -848,6 +1024,26 @@ export async function listRecentChatSessions(limit = 10): Promise<ChatSession[]>
   const params = new URLSearchParams({ limit: String(limit) });
   const res = await apiFetch(
     `${API_BASE}/workspace/chats/recent?${params.toString()}`,
+    { cache: "no-store" },
+  );
+  return res.json();
+}
+
+export interface AcceleratorSummary {
+  session_id: string;
+  intent_id: string;
+  intent_title: string;
+  created_at: string;
+  last_activity: string;
+  persona: string | null;
+  message_count: number;
+  artifact_count: number;
+}
+
+export async function listRecentAcceleratorSessions(limit = 10): Promise<AcceleratorSummary[]> {
+  const params = new URLSearchParams({ limit: String(limit) });
+  const res = await apiFetch(
+    `${API_BASE}/workspace/accelerators/recent?${params.toString()}`,
     { cache: "no-store" },
   );
   return res.json();

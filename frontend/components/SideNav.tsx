@@ -1,10 +1,10 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/router";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import styles from "./SideNav.module.css";
-import type { User, WorkspaceSummary, ChatSession } from "../lib/api";
-import { getWorkspaceSummary, listRecentChatSessions } from "../lib/api";
+import type { AcceleratorSummary, User, WorkspaceSummary, ChatSession } from "../lib/api";
+import { getWorkspaceSummary, listRecentAcceleratorSessions, listRecentChatSessions } from "../lib/api";
 
 type NavItem = {
   href: string;
@@ -53,48 +53,108 @@ export default function SideNav({ collapsed = false, onToggle, user }: SideNavPr
   const accountRef = useRef<HTMLDivElement | null>(null);
   const [summary, setSummary] = useState<WorkspaceSummary | null>(null);
   const [recentChats, setRecentChats] = useState<ChatSession[]>([]);
+  const [recentAccelerators, setRecentAccelerators] = useState<AcceleratorSummary[]>([]);
   const [summaryError, setSummaryError] = useState<string | null>(null);
   const [loadingSummary, setLoadingSummary] = useState<boolean>(false);
   const [loadingRecents, setLoadingRecents] = useState<boolean>(false);
 
   const items = useMemo(() => baseNavItems, []);
 
+  const mountedRef = useRef(false);
+
   useEffect(() => {
-    let cancelled = false;
-    setLoadingSummary(true);
-    setSummaryError(null);
-    getWorkspaceSummary()
-      .then((data) => {
-        if (!cancelled) setSummary(data);
-      })
-      .catch((error: any) => {
-        if (!cancelled) setSummaryError(error?.message || "Unable to load workspace summary.");
-      })
-      .finally(() => {
-        if (!cancelled) setLoadingSummary(false);
-      });
+    mountedRef.current = true;
     return () => {
-      cancelled = true;
+      mountedRef.current = false;
     };
   }, []);
 
-  useEffect(() => {
-    let cancelled = false;
-    setLoadingRecents(true);
-    listRecentChatSessions(6)
-      .then((sessions) => {
-        if (!cancelled) setRecentChats(sessions ?? []);
-      })
-      .catch(() => {
-        if (!cancelled) setRecentChats([]);
-      })
-      .finally(() => {
-        if (!cancelled) setLoadingRecents(false);
-      });
-    return () => {
-      cancelled = true;
-    };
+  const refreshSummary = useCallback(async () => {
+    setLoadingSummary(true);
+    setSummaryError(null);
+    try {
+      const data = await getWorkspaceSummary();
+      if (mountedRef.current) {
+        setSummary(data);
+      }
+    } catch (error: any) {
+      if (mountedRef.current) {
+        setSummaryError(error?.message || "Unable to load workspace summary.");
+      }
+    } finally {
+      if (mountedRef.current) {
+        setLoadingSummary(false);
+      }
+    }
   }, []);
+
+  const refreshRecents = useCallback(async () => {
+    setLoadingRecents(true);
+    try {
+      const [chats, accelerators] = await Promise.all([
+        listRecentChatSessions(6),
+        listRecentAcceleratorSessions(6),
+      ]);
+      if (mountedRef.current) {
+        setRecentChats(chats ?? []);
+        setRecentAccelerators(accelerators ?? []);
+      }
+    } catch (error) {
+      if (mountedRef.current) {
+        setRecentChats([]);
+        setRecentAccelerators([]);
+      }
+    } finally {
+      if (mountedRef.current) {
+        setLoadingRecents(false);
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    void refreshSummary();
+  }, [refreshSummary]);
+
+  useEffect(() => {
+    void refreshRecents();
+  }, [refreshRecents]);
+
+  useEffect(() => {
+    const handleRefresh = () => {
+      void refreshSummary();
+      void refreshRecents();
+    };
+
+    router.events.on("routeChangeComplete", handleRefresh);
+    router.events.on("hashChangeComplete", handleRefresh);
+
+    return () => {
+      router.events.off("routeChangeComplete", handleRefresh);
+      router.events.off("hashChangeComplete", handleRefresh);
+    };
+  }, [router.events, refreshSummary, refreshRecents]);
+
+  useEffect(() => {
+    const handleVisibility = () => {
+      if (document.visibilityState === "visible") {
+        void refreshSummary();
+        void refreshRecents();
+      }
+    };
+
+    const handleFocus = () => {
+      void refreshSummary();
+      void refreshRecents();
+    };
+
+    document.addEventListener("visibilitychange", handleVisibility);
+    window.addEventListener("focus", handleFocus);
+
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibility);
+      window.removeEventListener("focus", handleFocus);
+    };
+  }, [refreshSummary, refreshRecents]);
 
   useEffect(() => {
     if (!accountOpen) return;
@@ -156,7 +216,9 @@ export default function SideNav({ collapsed = false, onToggle, user }: SideNavPr
                   <span className={styles.navLabel}>{item.label}</span>
                   {summary ? (
                     item.href === "/dashboard" ? (
-                      <span className={styles.navBadge}>{summary.chat_sessions}</span>
+                      <span className={styles.navBadge} title={`Copilot + chat sessions: ${summary.chat_sessions}`}>
+                        {summary.chat_sessions}
+                      </span>
                     ) : item.href === "/projects" ? (
                       <span className={styles.navBadge}>{summary.documents}</span>
                     ) : null
@@ -171,16 +233,36 @@ export default function SideNav({ collapsed = false, onToggle, user }: SideNavPr
         <div className={styles.usageHeader}>
           <span className={styles.usageLabel}>Chats used</span>
           <span className={styles.usageValue}>
-            {summary ? `${Math.min(summary.chat_sessions, 3)} / 3` : loadingSummary ? "Loading…" : "—"}
+            {summary
+              ? `${Math.min(summary.chat_sessions, 3)} / 3`
+              : loadingSummary
+                ? "Loading…"
+                : "—"}
           </span>
         </div>
         <div className={styles.usageMeter}>
           <span
             style={{
-              width: summary ? `${Math.min((summary.chat_sessions / 3) * 100, 100)}%` : "0%",
+              width: summary
+                ? `${Math.min((summary.chat_sessions / 3) * 100, 100)}%`
+                : "0%",
             }}
           />
         </div>
+        <ul className={styles.usageStats}>
+          <li>
+            <span>Copilot sessions</span>
+            <strong>{summary ? summary.accelerator_sessions : loadingSummary ? "—" : "0"}</strong>
+          </li>
+          <li>
+            <span>Copilot artifacts</span>
+            <strong>{summary ? summary.accelerator_artifacts : loadingSummary ? "—" : "0"}</strong>
+          </li>
+          <li>
+            <span>Copilot messages</span>
+            <strong>{summary ? summary.accelerator_messages : loadingSummary ? "—" : "0"}</strong>
+          </li>
+        </ul>
         <Link href="/billing" className={styles.usageUpgrade}>
           Upgrade for unlimited
         </Link>
@@ -200,31 +282,59 @@ export default function SideNav({ collapsed = false, onToggle, user }: SideNavPr
         </div>
         {loadingRecents ? (
           <p className={styles.recentsEmpty}>Loading…</p>
-        ) : recentChats.length ? (
-          <ul className={styles.recentsList}>
-            {recentChats.map((chat) => (
-              <li key={chat.session_id}>
-                <button
-                  type="button"
-                  className={styles.recentsItem}
-                  onClick={() => {
-                    if (chat.kind === "project" && chat.project_id) {
-                      router.push(`/projects/${chat.project_id}?session=${chat.session_id}`);
-                      return;
-                    }
-                    router.push(`/dashboard?session=${chat.session_id}`);
-                  }}
-                >
-                  <span className={styles.recentsTitle}>{chat.title}</span>
-                  <span className={styles.recentsSubtitle}>
-                    {chat.persona ? chat.persona.toUpperCase() : chat.kind === "guest" ? "Guest" : "Project"}
-                  </span>
-                </button>
-              </li>
-            ))}
-          </ul>
+        ) : recentChats.length || recentAccelerators.length ? (
+          <div className={styles.recentsGroups}>
+            {recentChats.length ? (
+              <div className={styles.recentsGroup}>
+                <h4>Chats</h4>
+                <ul className={styles.recentsList}>
+                  {recentChats.map((chat) => (
+                    <li key={chat.session_id}>
+                      <button
+                        type="button"
+                        className={styles.recentsItem}
+                        onClick={() => {
+                          if (chat.kind === "project" && chat.project_id) {
+                            router.push(`/projects/${chat.project_id}?session=${chat.session_id}`);
+                            return;
+                          }
+                          router.push(`/dashboard?session=${chat.session_id}`);
+                        }}
+                      >
+                        <span className={styles.recentsTitle}>{chat.title}</span>
+                        <span className={styles.recentsSubtitle}>
+                          {chat.persona ? chat.persona.toUpperCase() : chat.kind === "guest" ? "Guest" : "Project"}
+                        </span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+            {recentAccelerators.length ? (
+              <div className={styles.recentsGroup}>
+                <h4>Accelerators</h4>
+                <ul className={styles.recentsList}>
+                  {recentAccelerators.map((session) => (
+                    <li key={session.session_id}>
+                      <button
+                        type="button"
+                        className={styles.recentsItem}
+                        onClick={() => router.push(`/accelerators/${session.intent_id}?session=${session.session_id}`)}
+                      >
+                        <span className={styles.recentsTitle}>{session.intent_title}</span>
+                        <span className={styles.recentsSubtitle}>
+                          {new Date(session.last_activity).toLocaleString()} • {session.message_count} msgs
+                        </span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+          </div>
         ) : (
-          <p className={styles.recentsEmpty}>No chats yet.</p>
+          <p className={styles.recentsEmpty}>No recent chats or accelerators yet.</p>
         )}
         {summaryError && <p className={styles.recentsEmpty}>{summaryError}</p>}
       </div>

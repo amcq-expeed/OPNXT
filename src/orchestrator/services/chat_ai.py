@@ -5,6 +5,13 @@ import os
 import re
 import requests
 import logging
+import time  # --- mcp-fix-2 ---
+# --- mcp-fix ---
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
+# --- opnxt-stream ---
+import json
+from typing import Iterator, Any
 
 from .model_router import ModelRouter, ProviderSelection
 
@@ -15,7 +22,62 @@ except Exception:  # pragma: no cover - optional import
     ChatOpenAI = None  # type: ignore
 
 
+# --- mcp-fix ---
 logger = logging.getLogger(__name__)
+LOG = logging.getLogger("opnxt.llm")
+
+
+# --- mcp-fix-2 ---
+_BREAKER_STATE = {"fails": 0, "opened_at": 0.0}
+_BREAKER_THRESHOLD = int(os.getenv("OPNXT_LLM_BREAKER_THRESHOLD", "2"))
+_BREAKER_COOLDOWN = float(os.getenv("OPNXT_LLM_BREAKER_COOLDOWN", "120.0"))
+_BREAKER_PROBE_INTERVAL = float(os.getenv("OPNXT_LLM_BREAKER_PROBE_INTERVAL", "15.0"))
+_LAST_BREAKER_PROBE = {"t": 0.0}
+# --- opnxt-stream ---
+_STREAM_TIMEOUT = (int(os.getenv("OPNXT_LLM_CONNECT_TIMEOUT", "3")), int(os.getenv("OPNXT_LLM_READ_TIMEOUT", "15")))
+
+
+def _breaker_open() -> bool:
+    opened = _BREAKER_STATE["opened_at"]
+    if opened == 0.0:
+        return False
+    if time.time() - opened < _BREAKER_COOLDOWN:
+        return True
+    _BREAKER_STATE["fails"] = 0
+    _BREAKER_STATE["opened_at"] = 0.0
+    return False
+
+
+def _record_fail() -> None:
+    _BREAKER_STATE["fails"] += 1
+    if _BREAKER_STATE["fails"] >= _BREAKER_THRESHOLD and _BREAKER_STATE["opened_at"] == 0.0:
+        _BREAKER_STATE["opened_at"] = time.time()
+        LOG.warning(
+            "llm_breaker_opened",
+            extra={"fails": _BREAKER_STATE["fails"], "cooldown_s": _BREAKER_COOLDOWN},
+        )
+
+
+def _record_success() -> None:
+    if _BREAKER_STATE["fails"] or _BREAKER_STATE["opened_at"]:
+        LOG.info("llm_breaker_closed")
+    _BREAKER_STATE["fails"] = 0
+    _BREAKER_STATE["opened_at"] = 0.0
+
+
+# --- mcp-fix ---
+def _build_session() -> requests.Session:
+    session = requests.Session()
+    retry = Retry(
+        total=2,
+        backoff_factor=0.5,
+        status_forcelist=(429, 500, 502, 503, 504),
+        allowed_methods=frozenset(["POST", "GET"]),
+    )
+    adapter = HTTPAdapter(max_retries=retry, pool_connections=10, pool_maxsize=10)
+    session.mount("http://", adapter)
+    session.mount("https://", adapter)
+    return session
 
 
 DEFAULT_BASE_URLS = {
@@ -98,44 +160,152 @@ def detect_user_intent(user_message: str, history: Optional[List[Dict[str, str]]
 
 
 class LocalLLMClient:
+    # --- mcp-fix ---
     def __init__(self, base_url: str, model: str, timeout: float = 30.0) -> None:
-        self._base_url = base_url.rstrip("/")
-        self._model = model
-        self._timeout = timeout
+        self.base_url = base_url.rstrip("/")
+        self.model = os.getenv("OPNXT_LLM_LOCAL_MODEL", model)
+        self._timeout = (_STREAM_TIMEOUT if isinstance(_STREAM_TIMEOUT, tuple) else (3, int(timeout)))  # --- opnxt-stream ---
+        self._session = _build_session()
+        self.api_style = (os.getenv("OPNXT_LLM_LOCAL_API") or "auto").lower()  # --- opnxt-stream ---
 
     def invoke(self, messages: List[Dict[str, str]]):
-        logger.debug("LocalLLMClient invoking model=%s base_url=%s", self._model, self._base_url)
-        prompt_parts: List[str] = []
-        for msg in messages:
-            role = msg.get("role", "user").lower()
-            content = msg.get("content", "")
-            if not content:
-                continue
-            if role == "system":
-                prompt_parts.append(f"[INSTRUCTION]\n{content}\n")
-            elif role == "assistant":
-                prompt_parts.append(f"Assistant: {content}\n")
-            else:
-                prompt_parts.append(f"User: {content}\n")
-        prompt = "\n".join(prompt_parts).strip()
-        payload = {
-            "model": self._model,
-            "prompt": prompt,
-            "stream": False,
-        }
+        # --- mcp-fix ---
+        if self.api_style == "ollama":  # --- opnxt-stream ---
+            return self._invoke_ollama(messages)
+        if self.api_style == "openai":  # --- opnxt-stream ---
+            return self._invoke_openai(messages)
         try:
-            resp = requests.post(
-                f"{self._base_url}/api/generate",
-                json=payload,
-                timeout=self._timeout,
+            return self._invoke_openai(messages)
+        except requests.exceptions.RequestException as exc:
+            LOG.warning(
+                "local_llm_openai_failed_switching_to_ollama",
+                extra={"base_url": self.base_url, "model": self.model, "err": str(exc)},
             )
+            self.api_style = "ollama"
+            return self._invoke_ollama(messages)
+
+    def stream(self, messages: List[Dict[str, str]]) -> Iterator[Dict[str, Any]]:  # --- opnxt-stream ---
+        if self.api_style == "ollama":  # --- opnxt-stream ---
+            yield from self._stream_ollama(messages)
+            return
+        if self.api_style == "openai":  # --- opnxt-stream ---
+            yield from self._stream_openai(messages)
+            return
+        try:
+            yield from self._stream_openai(messages)
+        except requests.exceptions.RequestException as exc:
+            LOG.warning(
+                "local_llm_stream_openai_failed_switching_to_ollama",
+                extra={"base_url": self.base_url, "model": self.model, "err": str(exc)},
+            )
+            self.api_style = "ollama"
+            yield from self._stream_ollama(messages)
+
+    # --- opnxt-stream ---
+    def _invoke_openai(self, messages: List[Dict[str, str]]):
+        LOG.debug("local_llm_invoke", extra={"model": self.model, "base_url": self.base_url})
+        resp = self._session.post(
+            f"{self.base_url}/v1/chat/completions",
+            json={"model": self.model, "messages": messages, "stream": False},
+            timeout=(2, 90),
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        choices = data.get("choices") or []
+        if choices:
+            message = choices[0].get("message") or {}
+            content = message.get("content")
+            if content:
+                return content
+        return data.get("response") or data.get("text") or ""
+
+    # --- opnxt-stream ---
+    def _stream_openai(self, messages: List[Dict[str, str]]) -> Iterator[Dict[str, Any]]:
+        LOG.debug(
+            "local_llm_stream",
+            extra={"model": self.model, "base_url": self.base_url, "timeout": self._timeout},
+        )
+        payload = {
+            "model": self.model,
+            "messages": messages,
+            "stream": True,
+        }
+        with self._session.post(
+            f"{self.base_url}/v1/chat/completions",
+            json=payload,
+            timeout=(self._timeout[0], max(self._timeout[1], 60)),  # type: ignore[arg-type]
+            stream=True,
+        ) as resp:
             resp.raise_for_status()
-            data = resp.json()
-            logger.debug("LocalLLMClient received keys=%s", list(data.keys()))
-            return data.get("response") or data.get("text") or ""
-        except Exception as exc:  # pragma: no cover - diagnostic path
-            logger.exception("LocalLLMClient request failed: base_url=%s model=%s", self._base_url, self._model)
-            raise
+            for raw_line in resp.iter_lines():
+                if not raw_line:
+                    continue
+                line = raw_line.decode("utf-8") if isinstance(raw_line, bytes) else raw_line
+                if not line.startswith("data: "):
+                    continue
+                data = line[6:].strip()
+                if data == "[DONE]":
+                    break
+                try:
+                    parsed = json.loads(data)
+                except json.JSONDecodeError:
+                    continue
+                delta = (parsed.get("choices") or [{}])[0].get("delta") or {}
+                token = delta.get("content") or ""
+                if token:
+                    yield {"token": token}
+
+    # --- opnxt-stream ---
+    def _invoke_ollama(self, messages: List[Dict[str, str]]) -> str:
+        url = f"{self.base_url}/api/generate"
+        prompt = self._messages_to_prompt(messages)
+        resp = self._session.post(url, json={"model": self.model, "prompt": prompt, "stream": False}, timeout=(2, 90))
+        resp.raise_for_status()
+        data = resp.json()
+        return data.get("response") or data.get("text") or ""
+
+    # --- opnxt-stream ---
+    def _stream_ollama(self, messages: List[Dict[str, str]]) -> Iterator[Dict[str, Any]]:
+        prompt = self._messages_to_prompt(messages)
+        LOG.debug(
+            "local_llm_stream_ollama",
+            extra={"model": self.model, "base_url": self.base_url},
+        )
+        payload = {
+            "model": self.model,
+            "prompt": prompt,
+            "stream": True,
+        }
+        with self._session.post(
+            f"{self.base_url}/api/generate",
+            json=payload,
+            timeout=(2, 120),
+            stream=True,
+        ) as resp:
+            resp.raise_for_status()
+            for raw_line in resp.iter_lines():
+                if not raw_line:
+                    continue
+                try:
+                    data = json.loads(raw_line.decode("utf-8"))
+                except json.JSONDecodeError:
+                    continue
+                token = data.get("response") or ""
+                if token:
+                    yield {"token": token}
+                if data.get("done"):
+                    break
+
+    # --- opnxt-stream ---
+    @staticmethod
+    def _messages_to_prompt(messages: List[Dict[str, str]]) -> str:
+        parts: List[str] = []
+        for msg in messages:
+            role = (msg.get("role") or "user").strip().upper()
+            content = msg.get("content") or ""
+            parts.append(f"{role}: {content}")
+        parts.append("ASSISTANT:")
+        return "\n".join(parts)
 
 
 def _get_llm(
@@ -165,6 +335,8 @@ def _get_llm(
         raise RuntimeError("Search provider cannot handle conversational responses")
 
     if selection.name == "local":
+        if (os.getenv("OPNXT_DISABLE_LOCAL_LLM") or "").strip() == "1":  # --- opnxt-stream ---
+            raise RuntimeError("Local LLM disabled via OPNXT_DISABLE_LOCAL_LLM")
         base_url = DEFAULT_BASE_URLS.get("local") or "http://127.0.0.1:11434"
         if selection.base_url_env:
             base_url = os.getenv(selection.base_url_env, base_url)
@@ -292,31 +464,49 @@ def _fallback_structured_reply(
     questions = _suggest_questions(convo_text)
 
     lines: List[str] = []
-    summary_intro = f"I'm hearing that {summary_line}."
-    if gaps:
-        summary_intro += f" To refine this and sharpen the vision, let's fill in details on {', '.join(gaps[:2])}."
-    lines.append(summary_intro)
-
-    engineering_sentence = "From an engineering standpoint, let's keep feasibility clear and phase the build sensibly."
+    persona_lookup = {
+        "pm": "product manager",
+        "product": "product manager",
+        "analyst": "business analyst",
+        "engineer": "engineering lead",
+        "architect": "solutions architect",
+        "qa": "quality partner",
+        "approver": "governance approver",
+        "executive": "executive sponsor",
+        "operations": "operations lead",
+    }
+    persona_label = None
     if persona:
-        engineering_sentence += f" We'll keep the `{persona}` perspective in mind as we shape interfaces and flows."
-    if attachments:
-        engineering_sentence += " I reviewed the material you shared and will weave any hard constraints into the plan."
-    if not gaps:
-        engineering_sentence += " Technically this seems on-track; let's validate integrations and data paths next."
-    lines.append(engineering_sentence)
+        key = persona.lower()
+        persona_label = persona_lookup.get(key) or persona.replace("_", " ").strip().lower()
 
-    delivery_sentence = "On delivery, I'll map the next moves so we keep momentum without overloading the first release."
-    lines.append(delivery_sentence)
+    opening = f"I'm hearing that {summary_line}."
+    if persona_label:
+        opening = f"I'm hearing that {summary_line}. I'll partner with you in the {persona_label} seat so the briefing lands the right way."
+    lines.append(opening)
+
+    if attachments:
+        lines.append("I've reviewed what you dropped in so the narrative can reference the specifics already captured.")
+
+    if gaps:
+        focus_targets = ", ".join(gaps[:2])
+        lines.append(f"To get us to a signable draft, let's close the gaps around {focus_targets}. Once those are settled, the deliverables come together fast.")
+    else:
+        lines.append("The foundations look solid—I'll translate this into the right executive materials while you confirm any final guardrails.")
+
+    lines.append("Next moves I'm ready to drive:")
+    lines.append("• Lock in the headline success metrics and hard constraints so every decision stays anchored.")
+    lines.append("• Turn today's notes into draft requirements and coaching prompts the broader team can run with.")
+    lines.append("• Surface the early risks or dependencies we should brief before the stakeholder walk-through.")
 
     if questions:
-        lines.append("Questions we're holding:")
-        for i, q in enumerate(questions[:2], 1):
-            lines.append(f"{i}) {q}")
+        lines.append("Before I stitch the draft, could you clarify:")
+        for q in questions[:2]:
+            lines.append(f"- {q}")
     else:
-        lines.append("Just confirm what success looks like and we'll press ahead.")
+        lines.append("Let me know if there are executive expectations or solution boundaries we still need on paper.")
 
-    lines.append("Whenever you're ready, let us know and we'll start drafting the right artifacts—PRDs, requirement sets, or delivery roadmaps.")
+    lines.append("Reply with any missing context—or just tell me to draft—and I'll spin up the kickoff packet immediately.")
     return "\n".join(lines)
 
 
@@ -328,6 +518,9 @@ def reply_with_chat_ai(
     persona: Optional[str] = None,
     provider: Optional[str] = None,
     model: Optional[str] = None,
+    streaming_aware: bool = False,  # --- opnxt-stream ---
+    intent_override: Optional[str] = None,
+    purpose_override: Optional[str] = None,
 ) -> Dict[str, Optional[str] | str]:
     """Return assistant reply using LLM if configured; otherwise a helpful deterministic fallback.
 
@@ -336,8 +529,9 @@ def reply_with_chat_ai(
     """
     history = history or []
 
-    intent = detect_user_intent(user_message, history)
-    if intent == "troubleshooting":
+    detected_intent = intent_override or detect_user_intent(user_message, history)
+    force_non_troubleshooting = bool(intent_override and intent_override != "troubleshooting")
+    if detected_intent == "troubleshooting" and not force_non_troubleshooting:
         try:
             selection = _get_llm("conversation", provider=provider, model_hint=model)
             llm, selected_provider, selected_model = selection
@@ -376,7 +570,7 @@ def reply_with_chat_ai(
                 "model": None,
             }
 
-    purpose = _determine_purpose(user_message)
+    purpose = purpose_override or _determine_purpose(user_message)
 
     try:
         selection = _get_llm(purpose, provider=provider, model_hint=model)
@@ -428,14 +622,104 @@ def reply_with_chat_ai(
                 r = "user"
             msgs.append({"role": r, "content": c})
         msgs.append({"role": "user", "content": user_message})
-        res = llm.invoke(msgs)
+        # --- mcp-fix ---
+        preferred_local_fallback = os.getenv("OPNXT_LLM_LOCAL_FALLBACK_MODEL", "mixtral:8x22b")
+        cloud_provider_override = os.getenv("OPNXT_LLM_CLOUD_PROVIDER")
+        cloud_model_override = os.getenv("OPNXT_LLM_CLOUD_MODEL")
+        res = None
+        primary_error: Optional[Exception] = None
+        current_provider = selected_provider
+        current_model = selected_model
+        breaker_skipped = isinstance(llm, LocalLLMClient) and _breaker_open()
+        if breaker_skipped:
+            now = time.time()
+            if now - _LAST_BREAKER_PROBE["t"] < _BREAKER_PROBE_INTERVAL:
+                primary_error = RuntimeError("llm_circuit_open")
+                LOG.info("llm_skipped_due_to_breaker", extra={"cooldown_s": _BREAKER_COOLDOWN})
+            else:
+                _LAST_BREAKER_PROBE["t"] = now
+                try:
+                    if streaming_aware and isinstance(llm, LocalLLMClient):
+                        res = {"probe": True}
+                    else:
+                        res = llm.invoke(msgs)
+                    _record_success()
+                    LOG.info("llm_breaker_probe_succeeded")
+                    breaker_skipped = False
+                except Exception as probe_err:
+                    _record_fail()
+                    LOG.warning("llm_breaker_probe_failed", extra={"err": str(probe_err)})
+                    primary_error = RuntimeError("llm_circuit_open")
+        if not breaker_skipped:
+            try:
+                if streaming_aware and isinstance(llm, LocalLLMClient):  # --- opnxt-stream ---
+                    _record_success()  # --- opnxt-stream ---
+                    return {
+                        "text": "",  # Placeholder; streaming caller handles tokens.
+                        "provider": selected_provider,
+                        "model": selected_model,
+                        "stream": llm,  # --- opnxt-stream ---
+                        "messages": msgs,  # --- opnxt-stream ---
+                    }
+
+                res = llm.invoke(msgs)
+                _record_success()
+            except Exception as first_err:
+                primary_error = first_err
+                LOG.warning("llm_primary_failed", extra={"err": str(first_err)})
+                _record_fail()
+                if isinstance(llm, LocalLLMClient) and preferred_local_fallback and preferred_local_fallback != llm.model:
+                    try:
+                        llm.model = preferred_local_fallback
+                        LOG.info("llm_try_alt_local", extra={"alt_model": llm.model})
+                        res = llm.invoke(msgs)
+                        current_model = llm.model
+                        _record_success()
+                        LOG.info("llm_alt_local_success", extra={"model": current_model})
+                    except Exception as second_err:
+                        LOG.warning("llm_alt_failed", extra={"err": str(second_err)})
+                        _record_fail()
+                        res = None
+                if res is None and cloud_provider_override:
+                    try:
+                        LOG.info(
+                            "llm_try_cloud",
+                            extra={"provider": cloud_provider_override, "model": cloud_model_override},
+                        )
+                        cloud_llm, cloud_provider, cloud_model = _get_llm(
+                            purpose,
+                            provider=cloud_provider_override,
+                            model_hint=cloud_model_override,
+                        )
+                        res = cloud_llm.invoke(msgs)
+                        current_provider = cloud_provider
+                        current_model = cloud_model
+                        _record_success()
+                        LOG.info(
+                            "llm_cloud_success",
+                            extra={"provider": current_provider, "model": current_model},
+                        )
+                    except Exception as cloud_err:
+                        LOG.warning("llm_cloud_failed", extra={"err": str(cloud_err)})
+                        _record_fail()
+                        res = None
+                        if primary_error is None:
+                            primary_error = cloud_err
+        if not res:
+            if primary_error:
+                raise primary_error
+            raise RuntimeError("llm_no_response")
         text = res.content if hasattr(res, "content") else str(res)
+        if not text:
+            raise RuntimeError("llm_empty_response")
         return {
             "text": text,
-            "provider": selected_provider,
-            "model": selected_model,
+            "provider": current_provider,
+            "model": current_model,
         }
     except Exception as exc:
+        # --- mcp-fix ---
+        LOG.info("llm_fallback_deterministic", extra={"err": str(exc)})
         logger.exception("LLM invocation failed; falling back to deterministic prompts")
         return {
             "text": _fallback_structured_reply(user_message, history, persona, attachments),

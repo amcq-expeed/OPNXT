@@ -116,9 +116,10 @@ export default function TopNav({
                   src="/logo-full.svg"
                   alt="Expeed Software"
                   className={`top-nav__img ${styles.img}`}
-                  width={120}
+                  width={140}
                   height={32}
                   priority
+                  style={{ width: "auto", height: "2rem" }}
                 />
                 <span className={`top-nav__logo ${styles.logo}`}>OPNXT</span>
               </span>

@@ -8,12 +8,15 @@ def test_reply_with_chat_ai_fallback(monkeypatch):
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     monkeypatch.delenv("OPNXT_ENABLE_LOCAL_PROVIDER", raising=False)
 
-    text = reply_with_chat_ai(
+    reply = reply_with_chat_ai(
         project_name="Demo",
         user_message="- login\n- track sessions",
         history=[{"role": "user", "content": "hi"}],
         attachments=None,
     )
+    assert isinstance(reply, dict)
+    text = reply["text"]
     assert "Converted to canonical SHALL requirements:" not in text
     assert "The system SHALL" not in text
-    assert "To refine this" in text
+    assert "I'm hearing" in text
+    assert "Here's how I'd move us forward next:" in text
