@@ -71,6 +71,10 @@ Write-Host "Deploying OPNXT from $SourceRoot to $TargetRoot" -ForegroundColor Cy
 function Stop-ServiceIfExists {
     param([string]$Name)
     if ([string]::IsNullOrWhiteSpace($Name)) { return }
+    if (-not $script:IsAdmin) {
+        Write-Host "Skipping stop of service $Name because administrative privileges are required" -ForegroundColor DarkGray
+        return
+    }
     $svc = Get-Service -Name $Name -ErrorAction SilentlyContinue
     if ($null -ne $svc) {
         if ($svc.Status -ne 'Stopped') {
@@ -86,6 +90,10 @@ function Stop-ServiceIfExists {
 function Start-ServiceIfExists {
     param([string]$Name)
     if ([string]::IsNullOrWhiteSpace($Name)) { return }
+    if (-not $script:IsAdmin) {
+        Write-Host "Skipping start of service $Name because administrative privileges are required" -ForegroundColor DarkGray
+        return
+    }
     $svc = Get-Service -Name $Name -ErrorAction SilentlyContinue
     if ($null -ne $svc) {
         if ($svc.Status -ne 'Running') {
@@ -162,6 +170,11 @@ function Set-BackendService {
     $nssmExe = Resolve-NssmExecutable -PreferredPath $PreferredNssmPath
 
     if ($null -eq $service) {
+        if (-not $script:IsAdmin) {
+            Write-Warning "Backend service $ServiceName not found, and administrative privileges are required to create it. Install the service manually or rerun with elevation."
+            return
+        }
+
         if (-not $nssmExe) {
             throw "Backend service $ServiceName not found and NSSM executable unavailable. Install NSSM or provide -NssmPath."
         }
@@ -172,7 +185,7 @@ function Set-BackendService {
         $service = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
     }
 
-    if ($nssmExe) {
+    if ($nssmExe -and $script:IsAdmin) {
         Write-Host "Configuring backend service $ServiceName" -ForegroundColor DarkGray
         Start-Process -FilePath $nssmExe -ArgumentList @('set', $ServiceName, 'AppDirectory', $WorkingDirectory) -Wait -NoNewWindow
         Start-Process -FilePath $nssmExe -ArgumentList @('set', $ServiceName, 'AppParameters', $arguments) -Wait -NoNewWindow
@@ -184,7 +197,7 @@ function Set-BackendService {
     } elseif ($null -eq $service) {
         throw "Backend service $ServiceName could not be validated after creation attempt."
     } else {
-        Write-Warning "NSSM executable not available; backend service $ServiceName left unchanged."
+        Write-Warning "NSSM executable not available or insufficient privileges; backend service $ServiceName left unchanged."
     }
 }
 
