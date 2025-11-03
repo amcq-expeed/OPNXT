@@ -12,7 +12,8 @@ param(
     [string]$FrontendServiceName = "opnxt-frontend",
     [string]$SiteName = "opnxt",
     [string]$PythonExecutable,
-    [string]$NodeExecutable
+    [string]$NodeExecutable,
+    [string]$NssmPath
 )
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
@@ -94,6 +95,96 @@ function Start-ServiceIfExists {
         }
     } else {
         Write-Host "Service $Name not found, skipping start" -ForegroundColor DarkGray
+    }
+}
+
+function Resolve-NssmExecutable {
+    param([string]$PreferredPath)
+
+    if ($PreferredPath -and (Test-Path $PreferredPath)) {
+        return (Resolve-Path $PreferredPath).ProviderPath
+    }
+
+    try {
+        $cmd = Get-Command nssm -ErrorAction Stop
+        if ($cmd -and $cmd.Source) {
+            return $cmd.Source
+        }
+    } catch {
+        # ignore
+    }
+
+    try {
+        $whereResult = & where.exe nssm 2>$null
+        if ($whereResult) {
+            foreach ($line in $whereResult -split "`n") {
+                $trimmed = $line.Trim()
+                if ($trimmed -and (Test-Path $trimmed)) {
+                    return (Resolve-Path $trimmed).ProviderPath
+                }
+            }
+        }
+    } catch {
+        # ignore
+    }
+
+    $candidatePaths = @(
+        "C:\\nssm\\nssm.exe",
+        "C:\\Program Files\\nssm-2.24\\win64\\nssm.exe",
+        "C:\\Program Files\\nssm-2.24\\win32\\nssm.exe"
+    )
+
+    foreach ($candidate in $candidatePaths) {
+        if (Test-Path $candidate) {
+            return (Resolve-Path $candidate).ProviderPath
+        }
+    }
+
+    return $null
+}
+
+function Ensure-BackendService {
+    param(
+        [string]$ServiceName,
+        [string]$PythonPath,
+        [string]$WorkingDirectory,
+        [string]$EnvFile,
+        [string]$PreferredNssmPath
+    )
+
+    if ([string]::IsNullOrWhiteSpace($ServiceName)) { return }
+    if (-not (Test-Path $PythonPath)) {
+        throw "Backend Python executable not found at $PythonPath"
+    }
+
+    $arguments = '-m uvicorn src.orchestrator.api.main:app --host 0.0.0.0 --port 8000'
+    $service = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
+    $nssmExe = Resolve-NssmExecutable -PreferredPath $PreferredNssmPath
+
+    if ($null -eq $service) {
+        if (-not $nssmExe) {
+            throw "Backend service $ServiceName not found and NSSM executable unavailable. Install NSSM or provide -NssmPath."
+        }
+
+        Write-Host "Creating backend Windows service $ServiceName via NSSM" -ForegroundColor Cyan
+        $installArgs = @('install', $ServiceName, $PythonPath, $arguments)
+        Start-Process -FilePath $nssmExe -ArgumentList $installArgs -Wait -NoNewWindow
+        $service = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
+    }
+
+    if ($nssmExe) {
+        Write-Host "Configuring backend service $ServiceName" -ForegroundColor DarkGray
+        Start-Process -FilePath $nssmExe -ArgumentList @('set', $ServiceName, 'AppDirectory', $WorkingDirectory) -Wait -NoNewWindow
+        Start-Process -FilePath $nssmExe -ArgumentList @('set', $ServiceName, 'AppParameters', $arguments) -Wait -NoNewWindow
+        if ($EnvFile) {
+            Start-Process -FilePath $nssmExe -ArgumentList @('set', $ServiceName, 'AppEnvironmentExtra', "OPNXT_ENV_FILE=$EnvFile") -Wait -NoNewWindow
+        }
+        Start-Process -FilePath $nssmExe -ArgumentList @('set', $ServiceName, 'Start', 'SERVICE_AUTO_START') -Wait -NoNewWindow
+        Start-Process -FilePath $nssmExe -ArgumentList @('set', $ServiceName, 'DisplayName', 'OPNXT Backend API') -Wait -NoNewWindow
+    } elseif ($null -eq $service) {
+        throw "Backend service $ServiceName could not be validated after creation attempt."
+    } else {
+        Write-Warning "NSSM executable not available; backend service $ServiceName left unchanged."
     }
 }
 
@@ -492,6 +583,14 @@ try {
         & (Join-Path $venvPath 'Scripts\pip.exe') install -r $apiReq
     }
 
+    $backendPythonExe = Join-Path $venvPath 'Scripts\python.exe'
+    $backendEnvFile = $null
+    $backendEnvCandidate = Join-Path $TargetRoot '.env'
+    if (Test-Path $backendEnvCandidate) {
+        $backendEnvFile = (Resolve-Path $backendEnvCandidate).ProviderPath
+    }
+    Ensure-BackendService -ServiceName $BackendServiceName -PythonPath $backendPythonExe -WorkingDirectory $TargetRoot -EnvFile $backendEnvFile -PreferredNssmPath $NssmPath
+
     $frontendTarget = Join-Path $TargetRoot 'frontend'
 
     Write-Host "Installing frontend dependencies" -ForegroundColor Cyan
@@ -534,7 +633,8 @@ try {
     Pop-Location
 }
 
-Stop-ServiceIfExists -Name $FrontendServiceName
+Start-ServiceIfExists -Name $BackendServiceName
+Start-ServiceIfExists -Name $FrontendServiceName
 Restart-IISAppPool -PoolName $SiteName
 
 if ($importedWebModule -and $iisAccessible -and -not [string]::IsNullOrWhiteSpace($SiteName)) {

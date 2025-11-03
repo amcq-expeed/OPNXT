@@ -6,6 +6,7 @@ langchain-openai>=0.2.0
 
 # Backend API
 fastapi>=0.111.0
+annotated-doc>=0.0.3
 uvicorn[standard]>=0.30.0
 pydantic>=2.7.0
 email-validator>=2.1.0
