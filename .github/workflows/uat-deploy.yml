@@ -65,14 +65,19 @@ jobs:
             throw "deploy-uat.ps1 not found at $scriptPath"
           }
 
+          $nssmPath = 'C:\nssm\nssm.exe'
+          if (-not (Test-Path $nssmPath)) {
+            throw "NSSM not found at $nssmPath. Install NSSM or adjust the path before deploying."
+          }
+
           & $scriptPath `
             -SourceRoot $env:GITHUB_WORKSPACE `
             -TargetRoot 'C:\opnxt' `
             -BackendEnvPath $backendEnvLocal `
             -FrontendEnvPath $frontendEnvLocal `
             -BackendServiceName 'opnxt-backend' `
-            -FrontendServiceName 'opnxt-frontend' `
-            -SiteName 'opnxt'
+            -SiteName 'opnxt' `
+            -NssmPath $nssmPath
 
           Remove-Item -Path $backendEnvLocal -ErrorAction SilentlyContinue
           Remove-Item -Path $frontendEnvLocal -ErrorAction SilentlyContinue
