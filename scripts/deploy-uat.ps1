@@ -13,7 +13,7 @@ param(
     [string]$SiteName = "opnxt",
     [string]$PythonExecutable,
     [string]$NodeExecutable,
-    [string]$NssmPath
+    [string]$NssmPath = "C:\nssm\nssm.exe"
 )
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
