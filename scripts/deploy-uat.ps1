@@ -143,7 +143,7 @@ function Resolve-NssmExecutable {
     return $null
 }
 
-function Ensure-BackendService {
+function Set-BackendService {
     param(
         [string]$ServiceName,
         [string]$PythonPath,
@@ -589,7 +589,7 @@ try {
     if (Test-Path $backendEnvCandidate) {
         $backendEnvFile = (Resolve-Path $backendEnvCandidate).ProviderPath
     }
-    Ensure-BackendService -ServiceName $BackendServiceName -PythonPath $backendPythonExe -WorkingDirectory $TargetRoot -EnvFile $backendEnvFile -PreferredNssmPath $NssmPath
+    Set-BackendService -ServiceName $BackendServiceName -PythonPath $backendPythonExe -WorkingDirectory $TargetRoot -EnvFile $backendEnvFile -PreferredNssmPath $NssmPath
 
     $frontendTarget = Join-Path $TargetRoot 'frontend'
 
