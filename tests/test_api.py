@@ -62,12 +62,13 @@ def test_accelerator_session_flow():
     headers = _auth_headers()
 
     # Launch accelerator session
-    launch = client.post("/accelerators/doc-generation/sessions?persona=pm", headers=headers)
+    launch = client.post("/accelerators/requirements-baseline/sessions?persona=pm", headers=headers)
     assert launch.status_code == 201
     payload = launch.json()
     session = payload["session"]
-    assert session["accelerator_id"] == "doc-generation"
-    assert payload["intent"]["intent_id"] == "doc-generation"
+    assert session["accelerator_id"] == "requirements-baseline"
+    assert "last_summary" in session
+    assert payload["intent"]["intent_id"] == "requirements-baseline"
     assert payload["messages"]
     session_id = session["session_id"]
 

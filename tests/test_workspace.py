@@ -26,9 +26,14 @@ def test_workspace_summary_and_recent_chats():
     resp = client.get("/api/workspace/summary", headers=_auth_headers())
     assert resp.status_code == 200
     summary = resp.json()
-    assert summary["projects"] == len(projects)
-    assert summary["chat_sessions"] == chat_store.count_sessions()
-    assert summary["accelerator_sessions"] == accelerator_store.count_sessions()
+    expected_projects = len(projects)
+    expected_chat_raw = chat_store.count_sessions()
+    expected_accel = accelerator_store.count_sessions()
+
+    assert summary["projects"] == expected_projects
+    assert summary["chat_sessions"] == expected_chat_raw + expected_accel
+    assert summary["accelerator_sessions"] == expected_accel
+    assert summary.get("chat_sessions_raw") == expected_chat_raw
 
     # Add a chat session via guest API to exercise list_recent_sessions
     headers = _auth_headers()

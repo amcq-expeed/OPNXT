@@ -63,7 +63,7 @@ class MongoDocumentStore:
 
     # --- v1.0 update ---
     def save_document(self, project_id: str, filename: str, content: str, meta: Optional[Dict[str, Any]] = None) -> int:
-        if not self._collection or not self._fs:
+        if self._collection is None or self._fs is None:
             return self._fallback.save_document(project_id, filename, content, meta)
         try:
             last = self._run(
@@ -100,7 +100,7 @@ class MongoDocumentStore:
 
     # --- v1.0 update ---
     def list_documents(self, project_id: str) -> Dict[str, Any]:
-        if not self._collection:
+        if self._collection is None:
             return self._fallback.list_documents(project_id)
         try:
             cursor = self._collection.find({"project_id": project_id}).sort([
@@ -124,7 +124,7 @@ class MongoDocumentStore:
 
     # --- v1.0 update ---
     def get_document(self, project_id: str, filename: str, version: Optional[int] = None):
-        if not self._collection or not self._fs:
+        if self._collection is None or self._fs is None:
             return self._fallback.get_document(project_id, filename, version)
         try:
             query = {"project_id": project_id, "filename": filename}

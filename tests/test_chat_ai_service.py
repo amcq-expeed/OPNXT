@@ -19,4 +19,4 @@ def test_reply_with_chat_ai_fallback(monkeypatch):
     assert "Converted to canonical SHALL requirements:" not in text
     assert "The system SHALL" not in text
     assert "I'm hearing" in text
-    assert "Here's how I'd move us forward next:" in text
+    assert "Next moves I'm ready to drive:" in text

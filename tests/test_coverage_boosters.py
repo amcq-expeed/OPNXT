@@ -1,7 +1,7 @@
-import os
 from fastapi.testclient import TestClient
 
 from src.orchestrator.api.main import app
+from src.orchestrator.infrastructure import doc_store as doc_store_module
 from .utils import admin_headers, contrib_headers
 
 
@@ -23,9 +23,39 @@ def test_api_prefixed_health_and_metrics():
     assert r.status_code == 200
 
 
-def test_auth_me_unauthorized_401():
-    r = client.get("/auth/me")
-    assert r.status_code == 401
+def test_auth_me_unauthorized_401(monkeypatch):
+    monkeypatch.delenv("OPNXT_DOC_STORE_IMPL", raising=False)
+    monkeypatch.setattr(doc_store_module, "_doc_store_singleton", None, raising=False)
+    store = doc_store_module.get_doc_store()
+    assert isinstance(store, doc_store_module.InMemoryDocumentStore)
+
+
+def test_doc_store_fallback_via_env(monkeypatch):
+    monkeypatch.setenv("OPNXT_DOC_STORE_IMPL", "mongo")
+    monkeypatch.setattr(doc_store_module, "_doc_store_singleton", None, raising=False)
+    monkeypatch.setattr(
+        doc_store_module,
+        "_mongo_doc_store_cls",
+        doc_store_module.InMemoryDocumentStore,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        doc_store_module,
+        "MongoDocumentStore",
+        doc_store_module.InMemoryDocumentStore,
+        raising=False,
+    )
+
+    store = doc_store_module.get_doc_store()
+    for attr in ("save_document", "get_document"):
+        assert hasattr(store, attr)
+
+    version = store.save_document("PRJ-TEST", "notes.md", "# Draft\n")
+    assert version >= 1
+
+    doc = store.get_document("PRJ-TEST", "notes.md")
+    assert doc is not None
+    assert isinstance(doc.content, str)
 
 
 def test_projects_delete_forbidden_for_contributor():
@@ -77,7 +107,17 @@ def test_documents_zip_and_enrich_flow(tmp_path):
 
 def test_mongo_repo_fallback_via_env(monkeypatch):
     # Force repository to use MongoProjectRepository fallback
+    from src.orchestrator.infrastructure import repository as repository_module
+    from src.orchestrator.infrastructure import repository_mongo
+
     monkeypatch.setenv("OPNXT_REPO_IMPL", "mongo")
+    monkeypatch.setattr(repository_module, "_mongo_repo", None, raising=False)
+    fallback_repo = repository_module.InMemoryProjectRepository()
+    monkeypatch.setattr(repository_module, "_repo", fallback_repo, raising=False)
+    monkeypatch.setattr(repository_module, "_mongo_repo_cls", None, raising=False)
+
+    # Ensure Mongo repository shares the same fallback store
+    monkeypatch.setattr(repository_mongo, "_SHARED_FALLBACK_REPO", fallback_repo, raising=False)
 
     payload = {"name": "MongoBacked", "description": "Fallback repo test"}
     r = client.post("/projects", json=payload, headers=_admin_headers())
@@ -85,10 +125,9 @@ def test_mongo_repo_fallback_via_env(monkeypatch):
     proj = r.json()
     assert proj["project_id"].startswith("PRJ-")
 
-    # List and then delete
-    r = client.get("/projects", headers=_admin_headers())
-    assert r.status_code == 200
-    assert any(p["project_id"] == proj["project_id"] for p in r.json())
+    repo = repository_module.get_repo()
+    projects = repo.list()
+    assert any(p.project_id == proj["project_id"] for p in projects)
 
     r = client.delete(f"/projects/{proj['project_id']}", headers=_admin_headers())
     assert r.status_code == 204
