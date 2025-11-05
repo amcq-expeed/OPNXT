@@ -35,6 +35,8 @@ class DocumentStore(Protocol):
     def save_accelerator_preview(self, session_id: str, filename: str, content: str, meta: Optional[Dict[str, Any]] = None) -> int: ...
     def list_accelerator_previews(self, session_id: str) -> List[Dict[str, Any]]: ...
     def get_accelerator_preview(self, session_id: str, filename: str) -> Optional[Dict[str, Any]]: ...
+    def save_accelerator_asset(self, session_id: str, filename: str, content: bytes, meta: Optional[Dict[str, Any]] = None) -> int: ...
+    def get_accelerator_asset(self, session_id: str, filename: str) -> Optional[bytes]: ...
 
 
 def _utc_now() -> datetime:
@@ -58,6 +60,7 @@ class InMemoryDocumentStore:
     def __init__(self) -> None:
         self._data: Dict[str, Dict[str, List[DocVersion]]] = {}
         self._accelerator_data: Dict[str, List[Dict[str, Any]]] = {}
+        self._accelerator_assets: Dict[str, List[Dict[str, Any]]] = {}
         self._lock = RLock()
 
     def save_document(self, project_id: str, filename: str, content: str, meta: Optional[Dict[str, Any]] = None) -> int:
@@ -160,6 +163,27 @@ class InMemoryDocumentStore:
                         "meta": meta,
                         "content": entry.get("content"),
                     }
+            return None
+
+    def save_accelerator_asset(self, session_id: str, filename: str, content: bytes, meta: Optional[Dict[str, Any]] = None) -> int:
+        with self._lock:
+            entries = self._accelerator_assets.setdefault(session_id, [])
+            version = len(entries) + 1
+            payload = {
+                "version": version,
+                "filename": filename,
+                "created_at": _isoformat_utc(_utc_now()),
+                "meta": dict(meta or {}),
+                "content": bytes(content),
+            }
+            entries.append(payload)
+            return version
+
+    def get_accelerator_asset(self, session_id: str, filename: str) -> Optional[bytes]:
+        with self._lock:
+            for entry in reversed(self._accelerator_assets.get(session_id, [])):
+                if entry.get("filename") == filename:
+                    return entry.get("content")  # bytes
             return None
 
 
@@ -283,16 +307,25 @@ class MongoDocumentStore:
         )
 
     def save_accelerator_preview(self, session_id: str, filename: str, content: str, meta: Optional[Dict[str, Any]] = None) -> int:
-        return self._fallback.save_accelerator_preview(session_id, filename, content, meta)
+        if self._use_fallback():
+            return self._fallback.save_accelerator_preview(session_id, filename, content, meta)
+        raise NotImplementedError("MongoDocumentStore accelerator previews not yet implemented")
 
     def list_accelerator_previews(self, session_id: str) -> List[Dict[str, Any]]:
-        return self._fallback.list_accelerator_previews(session_id)
+        if self._use_fallback():
+            return self._fallback.list_accelerator_previews(session_id)
+        raise NotImplementedError("MongoDocumentStore accelerator previews not yet implemented")
 
     def get_accelerator_preview(self, session_id: str, filename: str) -> Optional[Dict[str, Any]]:
-        return self._fallback.get_accelerator_preview(session_id, filename)
+        if self._use_fallback():
+            return self._fallback.get_accelerator_preview(session_id, filename)
+        raise NotImplementedError("MongoDocumentStore accelerator previews not yet implemented")
 
+    def save_accelerator_asset(self, session_id: str, filename: str, content: bytes, meta: Optional[Dict[str, Any]] = None) -> int:
+        return self._fallback.save_accelerator_asset(session_id, filename, content, meta)
 
-_doc_store_singleton: DocumentStore | None = None
+    def get_accelerator_asset(self, session_id: str, filename: str) -> Optional[bytes]:
+        return self._fallback.get_accelerator_asset(session_id, filename)
 
 # --- v1.0 update ---
 _db_mode_mongo_docs_enabled = _db_mode == "mongo" and _mongo_doc_store_cls is not None

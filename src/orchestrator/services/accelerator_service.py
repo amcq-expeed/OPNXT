@@ -110,6 +110,36 @@ def _queue_artifact(session_id: str, artifact: Dict[str, Any]) -> None:
         logger.exception("artifact_enqueue_failed", extra={"session_id": session_id})
 
 
+def _emit_storage_error(session_id: str, filename: str, exc: Exception) -> None:
+    logger.exception("accelerator_storage_failed", extra={"session_id": session_id, "filename": filename})
+    _queue_artifact(
+        session_id,
+        {
+            "type": "error",
+            "title": "Artifact storage delayed",
+            "preview": f"Unable to persist {filename}: {exc}",
+            "source": "system",
+        },
+    )
+
+
+def _enqueue_snapshot_refresh(session_id: str) -> None:
+    store = get_accelerator_store()
+    try:
+        artifacts, revision = store.artifact_snapshot(session_id)
+    except Exception:
+        logger.exception("accelerator_snapshot_failed", extra={"session_id": session_id})
+        return
+    _queue_artifact(
+        session_id,
+        {
+            "type": "snapshot",
+            "revision": revision,
+            "artifacts": artifacts,
+        },
+    )
+
+
 ACCELERATOR_ASSISTANT_SYSTEM_PROMPT = textwrap.dedent(
     """
 You are the OPNXT Expert Circle, collaborating with delivery leaders. Respond in a natural, senior-consultant tone.
@@ -260,18 +290,25 @@ def _default_frontend_scaffold(project_name: str) -> Dict[str, str]:
               "scripts": {
                 "dev": "vite",
                 "build": "vite build",
-                "preview": "vite preview"
+                "preview": "vite preview",
+                "test": "jest"
               },
               "dependencies": {
                 "react": "^18.2.0",
-                "react-dom": "^18.2.0"
+                "react-dom": "^18.2.0",
+                "@testing-library/react": "^14.1.2",
+                "@testing-library/jest-dom": "^6.4.2"
               },
               "devDependencies": {
                 "@types/react": "^18.2.21",
                 "@types/react-dom": "^18.2.7",
                 "@vitejs/plugin-react": "^4.2.0",
                 "typescript": "^5.3.0",
-                "vite": "^5.0.0"
+                "vite": "^5.0.0",
+                "@types/jest": "^29.5.5",
+                "jest": "^29.7.0",
+                "ts-jest": "^29.1.1",
+                "jest-environment-jsdom": "^29.7.0"
               }
             }
             """
@@ -327,6 +364,25 @@ def _default_frontend_scaffold(project_name: str) -> Dict[str, str]:
             });
             """
         ).strip(),
+        "frontend/jest.config.js": textwrap.dedent(
+            """
+            /** @type {import('ts-jest').JestConfigWithTsJest} */
+            module.exports = {
+              preset: 'ts-jest',
+              testEnvironment: 'jest-environment-jsdom',
+              setupFilesAfterEnv: ['<rootDir>/jest.setup.ts'],
+              moduleFileExtensions: ['ts', 'tsx', 'js', 'jsx'],
+              transform: {
+                '^.+\\.(ts|tsx)$': ['ts-jest', { tsconfig: 'tsconfig.json' }],
+              },
+            };
+            """
+        ).strip(),
+        "frontend/jest.setup.ts": textwrap.dedent(
+            """
+            import '@testing-library/jest-dom';
+            """
+        ).strip(),
         "frontend/index.html": textwrap.dedent(
             """
             <!doctype html>
@@ -341,6 +397,20 @@ def _default_frontend_scaffold(project_name: str) -> Dict[str, str]:
                 <script type="module" src="/src/main.tsx"></script>
               </body>
             </html>
+            """
+        ).strip(),
+        "frontend/src/__tests__/App.test.tsx": textwrap.dedent(
+            """
+            import { describe, it, expect } from '@jest/globals';
+            import { render, screen } from '@testing-library/react';
+            import App from '../App';
+
+            describe('Budget Tracker hero (FR trace)', () => {
+              it('renders the add expense CTA tied to FR-001', () => {
+                render(<App />);
+                expect(screen.getByText(/Add expense/i)).toBeInTheDocument();
+              });
+            });
             """
         ).strip(),
         "frontend/src/main.tsx": textwrap.dedent(
@@ -708,17 +778,24 @@ def _default_frontend_scaffold(project_name: str) -> Dict[str, str]:
     }
 
 
-def _compose_capability_summary(project_name: str) -> str:
+def _compose_capability_summary(project_name: str, fr_refs: Iterable[str], nfr_refs: Iterable[str]) -> str:
+    fr_list = sorted({ref.upper() for ref in fr_refs if ref}) or ["FR-001"]
+    nfr_list = sorted({ref.upper() for ref in nfr_refs if ref})
+    fr_trace = ", ".join(fr_list)
+    nfr_trace = ", ".join(nfr_list) if nfr_list else "—"
     return textwrap.dedent(
         f"""
-        ## {project_name} – Generated Capabilities
+        ## {project_name} – Capability & Traceability Snapshot
 
-        - **Expense CRUD:** Add new expenses with description, amount, and category. Edit entries inline or delete them with a single click.
-        - **Category rollups:** Automatic totals by category with live recalculation as entries change.
-        - **Running total:** Global running total of all expenses displayed on the dashboard.
-        - **Seed data:** Sample expenses and presets for Food, Transportation, Entertainment, Utilities, Shopping, Healthcare, and Other.
-        - **FastAPI rules service:** YAML-driven rule evaluation with unit tests for regression coverage.
-        - **Ready-to-run bundle:** React + Vite frontend, FastAPI backend, README instructions, and tests packaged in a single download.
+        | Component | Description | Trace References |
+        | --- | --- | --- |
+        | FastAPI rules engine | YAML-driven evaluation with triage logic and alerts | {fr_trace} |
+        | React expense console | Interactive budgeting UI with decision simulation | {fr_trace}{" • " + nfr_trace if nfr_trace != "—" else ""} |
+        | Test scaffolding | PyTest coverage for rules + Jest DOM smoke test for UI | {fr_trace} |
+
+        ### Test Scaffolding
+        - `tests/test_clinical_rules.py` validates the core rules service against regression scenarios.
+        - `frontend/src/__tests__/App.test.tsx` boots the SPA with Jest + Testing Library to exercise the primary call-to-action.
         """
     ).strip()
 
@@ -728,16 +805,16 @@ def _compose_ready_to_run_instructions() -> str:
         """
         ### How to use this scaffold
 
-        1. Copy the `Ready-to-run bundle (Base64)` text and save it to `bundle.b64`.
-        2. Decode and extract the archive:
+        1. Download the **Ready-to-run bundle** artifact from the accelerator sidebar, or copy the `Ready-to-run bundle (Base64)` text into `bundle.b64`.
+        2. If using the Base64 text, decode and extract the archive:
 
            ```bash
            base64 -d bundle.b64 > scaffolding.zip
            unzip scaffolding.zip
            ```
 
-        3. Follow the README in the extracted folder to install dependencies, run the backend/frontend, and execute tests.
-        4. Update `config/rules.yaml` to tailor the rule logic for your project.
+        3. Follow the README in the extracted folder to install dependencies, run the backend/frontend, and execute both PyTest and Jest suites (`npm test`).
+        4. Update `config/rules.yaml` to tailor the rule logic for your project, and extend the Jest test to codify UI acceptance criteria traced to FR/NFRs.
         """
     ).strip()
 
@@ -1402,6 +1479,8 @@ def _publish_code_artifacts(session: AcceleratorSession, intent: ChatIntent, pay
     previous_previews = doc_store.list_accelerator_previews(session.session_id)
 
     bundle_files: Dict[str, str] = {}
+    aggregate_fr_refs: set[str] = set()
+    aggregate_nfr_refs: set[str] = set()
     for section in sections:
         content = section["content"]
         preview = content[:240]
@@ -1419,6 +1498,8 @@ def _publish_code_artifacts(session: AcceleratorSession, intent: ChatIntent, pay
         diff_summary = _summarize_diff(previous_content, content)
         fr_refs = _extract_requirement_refs(content, "FR")
         nfr_refs = _extract_requirement_refs(content, "NFR")
+        aggregate_fr_refs.update(fr_refs)
+        aggregate_nfr_refs.update(nfr_refs)
         gate_stage = _compute_gate_stage(section["kind"])
         meta = {
             "version": version,
@@ -1437,6 +1518,15 @@ def _publish_code_artifacts(session: AcceleratorSession, intent: ChatIntent, pay
             meta=meta,
         )
         doc_store.save_accelerator_preview(session.session_id, section["path"], content, meta)
+        try:
+            doc_store.save_accelerator_asset(
+                session.session_id,
+                section["path"],
+                content.encode("utf-8"),
+                meta,
+            )
+        except Exception as exc:  # pragma: no cover - defensive logging
+            _emit_storage_error(session.session_id, section["path"], exc)
         _queue_artifact(
             session.session_id,
             {
@@ -1471,7 +1561,7 @@ def _publish_code_artifacts(session: AcceleratorSession, intent: ChatIntent, pay
         bundle_files.setdefault("README.md", _build_ready_to_run_readme(intent.title))
         bundle_files.setdefault(
             "SUMMARY.md",
-            _compose_capability_summary(intent.title),
+            _compose_capability_summary(intent.title, aggregate_fr_refs, aggregate_nfr_refs),
         )
         archive_bytes = _package_ready_to_run_bundle(bundle_files)
         archive_b64 = base64.b64encode(archive_bytes).decode("utf-8")
@@ -1498,6 +1588,10 @@ def _publish_code_artifacts(session: AcceleratorSession, intent: ChatIntent, pay
             archive_b64,
             bundle_meta,
         )
+        try:
+            doc_store.save_accelerator_asset(session.session_id, bundle_filename, archive_bytes, bundle_meta)
+        except Exception as exc:  # pragma: no cover - defensive logging
+            _emit_storage_error(session.session_id, bundle_filename, exc)
         store.save_asset(session.session_id, bundle_filename, archive_bytes)
         _queue_artifact(
             session.session_id,
@@ -1535,6 +1629,15 @@ def _publish_code_artifacts(session: AcceleratorSession, intent: ChatIntent, pay
             live_preview_html,
             live_preview_meta,
         )
+        try:
+            doc_store.save_accelerator_asset(
+                session.session_id,
+                live_preview_filename,
+                live_preview_html.encode("utf-8"),
+                live_preview_meta,
+            )
+        except Exception as exc:  # pragma: no cover - defensive logging
+            _emit_storage_error(session.session_id, live_preview_filename, exc)
         _queue_artifact(
             session.session_id,
             {
@@ -1547,6 +1650,83 @@ def _publish_code_artifacts(session: AcceleratorSession, intent: ChatIntent, pay
             },
         )
         version += 1
+
+        if bundle_files:
+            if aggregate_fr_refs:
+                primary_ref = next(iter(sorted(aggregate_fr_refs)))
+            else:
+                primary_ref = "FR-001"
+            prototype_html = textwrap.dedent(
+                f"""
+                <!doctype html>
+                <html lang="en">
+                  <head>
+                    <meta charset="utf-8" />
+                    <title>Interactive Prototype</title>
+                    <style>
+                      body {{ font-family: Arial, sans-serif; margin: 1.5rem; }}
+                      .trace {{ font-weight: 600; color: #0b7285; }}
+                      button {{ padding: 0.5rem 1rem; border-radius: 0.5rem; border: none; background: #15aabf; color: #fff; }}
+                    </style>
+                  </head>
+                  <body>
+                    <h1>Capability Prototype</h1>
+                    <p>This interaction aligns with <span class="trace">{primary_ref}</span>{' and ' + ', '.join(sorted(aggregate_nfr_refs)) if aggregate_nfr_refs else ''}.</p>
+                    <button id="prototype-action">Simulate Decision</button>
+                    <p id="prototype-status">Awaiting input…</p>
+                    <script>
+                      document.getElementById("prototype-action").addEventListener("click", () => {{
+                        const ts = new Date().toISOString();
+                        document.getElementById("prototype-status").innerText = `Decision captured @ ${{ts}} (trace: {primary_ref})`;
+                      }});
+                    </script>
+                  </body>
+                </html>
+                """
+            ).strip()
+            prototype_meta = {
+                "version": version,
+                "type": "prototype",
+                "language": "html",
+                "summary": "Interactive HTML prototype snippet aligned to FR requirements.",
+                "gate_stage": _compute_gate_stage("code"),
+                "fr_refs": sorted(aggregate_fr_refs) or [primary_ref],
+                "nfr_refs": sorted(aggregate_nfr_refs),
+            }
+            store.add_artifact(
+                session.session_id,
+                filename="prototype-inline.html",
+                project_id=session.project_id,
+                meta=prototype_meta,
+            )
+            doc_store.save_accelerator_preview(
+                session.session_id,
+                "prototype-inline.html",
+                prototype_html,
+                prototype_meta,
+            )
+            try:
+                doc_store.save_accelerator_asset(
+                    session.session_id,
+                    "prototype-inline.html",
+                    prototype_html.encode("utf-8"),
+                    prototype_meta,
+                )
+            except Exception as exc:  # pragma: no cover - defensive
+                _emit_storage_error(session.session_id, "prototype-inline.html", exc)
+            _queue_artifact(
+                session.session_id,
+                {
+                    "type": "prototype",
+                    "title": "HTML prototype snippet",
+                    "preview": prototype_html[:240],
+                    "source": "system",
+                    "version": version,
+                    "fr_refs": sorted(aggregate_fr_refs) or [primary_ref],
+                    "nfr_refs": sorted(aggregate_nfr_refs),
+                },
+            )
+            version += 1
 
         guidance = _compose_ready_to_run_instructions()
         guidance_meta = {
@@ -1579,6 +1759,7 @@ def _publish_code_artifacts(session: AcceleratorSession, intent: ChatIntent, pay
     metadata["status"] = "ready"
     metadata["last_generated_at"] = time.time()
     _update_session_metadata(session.session_id, metadata)
+    _enqueue_snapshot_refresh(session.session_id)
 
     record_metric(
         name="accelerator_code_generation_ms",
@@ -2219,6 +2400,10 @@ Latest user input:
             )
             # --- mcp-fix ---
             doc_store.save_accelerator_preview(session_id, filename, draft_text)
+            try:
+                doc_store.save_accelerator_asset(session_id, filename, draft_text.encode("utf-8"))
+            except Exception as exc:  # pragma: no cover - defensive
+                _emit_storage_error(session_id, filename, exc)
             summary_artifact = {
                 "type": "summary",
                 "title": "Draft Summary",
@@ -2239,6 +2424,8 @@ Latest user input:
             metadata.setdefault("artifacts", store.list_artifacts(session_id))
             metadata["last_generated_at"] = time.time()
             _update_session_metadata(session_id, metadata)
+            _enqueue_snapshot_refresh(session_id)
+
             duration_ms = (time.perf_counter() - start) * 1000.0
             record_metric(
                 name="accelerator_artifact_generation_ms",
@@ -2497,6 +2684,9 @@ def get_accelerator_asset_blob(session_id: str, filename: str) -> bytes:
     if blob is not None:
         return blob
     doc_store = get_doc_store()
+    asset = doc_store.get_accelerator_asset(session_id, filename)
+    if isinstance(asset, (bytes, bytearray)):
+        return bytes(asset)
     preview = doc_store.get_accelerator_preview(session_id, filename)
     if preview and isinstance(preview.get("content"), str):
         try:

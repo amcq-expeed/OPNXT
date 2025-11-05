@@ -100,6 +100,21 @@ export default function AcceleratorChatPage() {
     useStyle: false,
   });
 
+  const [streaming, setStreaming] = useState<boolean>(false);
+  const [heartbeatAt, setHeartbeatAt] = useState<number | null>(null);
+  const [streamError, setStreamError] = useState<string | null>(null);
+  const heartbeatTimeoutMs = 15000;
+
+  useEffect(() => {
+    if (!heartbeatAt) return;
+    const timer = window.setTimeout(() => {
+      if (heartbeatAt && Date.now() - heartbeatAt > heartbeatTimeoutMs) {
+        setStreamError("Waiting for new artifacts. Generation is still in progress...");
+      }
+    }, heartbeatTimeoutMs);
+    return () => window.clearTimeout(timer);
+  }, [heartbeatAt]);
+
   const intentId = useMemo(() => {
     const raw = router.query.intentId;
     return typeof raw === "string" ? raw : null;
@@ -515,6 +530,7 @@ export default function AcceleratorChatPage() {
         const reader = res.body.getReader();
         const decoder = new TextDecoder();
         let buffer = "";
+        setStreaming(true);
         while (!cancelled) {
           const { value, done } = await reader.read();
           if (done) break;
@@ -532,6 +548,17 @@ export default function AcceleratorChatPage() {
               if (payloadRaw) {
                 try {
                   const payload = JSON.parse(payloadRaw);
+                  if (payload?.type === "heartbeat") {
+                    setHeartbeatAt(Date.now());
+                    setStreamError(null);
+                  }
+                  if (payload?.type === "updates" && Array.isArray(payload?.updates)) {
+                    payload.updates.forEach((update: any) => {
+                      if (update?.type === "error" && typeof update.preview === "string") {
+                        setStreamError(update.preview);
+                      }
+                    });
+                  }
                   const nextArtifacts = normalizeArtifacts(payload?.artifacts ?? []);
                   setLiveArtifacts((prev) => {
                     const map = new Map<string, SimplifiedArtifact>();
@@ -555,9 +582,14 @@ export default function AcceleratorChatPage() {
             boundary = buffer.indexOf("\n\n");
           }
         }
+        if (!cancelled) {
+          setStreaming(false);
+        }
       } catch (err) {
         if (!cancelled) {
           console.error("Artifact stream error", err);
+          setStreamError("We lost connection to the artifact stream. Please retry.");
+          setStreaming(false);
         }
       }
     };
@@ -567,6 +599,7 @@ export default function AcceleratorChatPage() {
     return () => {
       cancelled = true;
       controller.abort();
+      setStreaming(false);
     };
   }, [session?.session_id, normalizeArtifacts, artifacts]);
 
@@ -921,6 +954,16 @@ export default function AcceleratorChatPage() {
           {error}
         </div>
       )}
+      {streamError ? (
+        <div className="accelerator-status accelerator-status--warning" role="status">
+          {streamError}
+        </div>
+      ) : null}
+      {streaming && !streamError ? (
+        <div className="accelerator-status" role="status">
+          <span className="accelerator-spinner" aria-hidden="true" /> Generating artifacts…
+        </div>
+      ) : null}
 
       <main className="accelerator-main" aria-live="polite">
         <section className="accelerator-chat" aria-label="Conversation">

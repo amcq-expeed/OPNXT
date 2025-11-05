@@ -8,7 +8,7 @@ interface MarkdownMessageProps {
 
 export default function MarkdownMessage({ children, className }: MarkdownMessageProps) {
   return (
-    <div className={className}>
+    <div className={`markdown ${className ?? ""}`}>
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         components={{
@@ -16,6 +16,7 @@ export default function MarkdownMessage({ children, className }: MarkdownMessage
           ul: ({ node, ...props }) => <ul {...props} />,
           ol: ({ node, ...props }) => <ol {...props} />,
           li: ({ node, ...props }) => <li {...props} />,
+          span: ({ node, ...props }) => <span {...props} />,
         }}
         skipHtml={false}
         rehypePlugins={[]}
