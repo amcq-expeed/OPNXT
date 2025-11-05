@@ -1,3 +1,5 @@
+import asyncio
+
 import pytest
 
 from src.orchestrator.services import accelerator_service
@@ -18,11 +20,10 @@ def test_coerce_text_handles_varied_inputs():
     assert accelerator_service._coerce_text(None) == ""
 
 
-@pytest.mark.asyncio
-async def test_queue_artifact_enqueues_payload(isolated_stream):
+def test_queue_artifact_enqueues_payload(isolated_stream):
     payload = {"type": "test", "data": 123}
     accelerator_service._queue_artifact("session-1", payload)
-    stored = await isolated_stream.get_for_session("session-1")
+    stored = asyncio.run(isolated_stream.get_for_session("session-1"))
     assert stored == payload
 
 
@@ -108,9 +109,8 @@ def test_fallback_code_payload_includes_context():
     assert "evaluate_intake" in result["code"]["content"]
 
 
-@pytest.mark.asyncio
-async def test_artifact_stream_reset_drops_queue(isolated_stream):
+def test_artifact_stream_reset_drops_queue(isolated_stream):
     payload = {"type": "kept"}
     accelerator_service._queue_artifact("session-reset", payload)
     isolated_stream.reset("session-reset")
-    assert await isolated_stream.get_for_session("session-reset") is None
+    assert asyncio.run(isolated_stream.get_for_session("session-reset")) is None

@@ -168,8 +168,7 @@ def test_emit_stream_chunks(monkeypatch):
     assert queued, "chunks should be queued"
 
 
-@pytest.mark.asyncio
-async def test_stream_tokens_to_artifacts(monkeypatch):
+def test_stream_tokens_to_artifacts(monkeypatch):
     queued = []
 
     async def fake_iter_as_async(iterable):
@@ -180,13 +179,13 @@ async def test_stream_tokens_to_artifacts(monkeypatch):
     monkeypatch.setattr(accelerator_service, "_queue_artifact", lambda sid, payload: queued.append(payload))
 
     tokens = [{"token": "Hello"}, {"token": " World"}]
-    text = await accelerator_service._stream_tokens_to_artifacts("sess-1", tokens)
+
+    text = asyncio.run(accelerator_service._stream_tokens_to_artifacts("sess-1", tokens))
     assert text == "Hello World"
     assert queued
 
 
-@pytest.mark.asyncio
-async def test_run_stream_task_under_running_loop(monkeypatch):
+def test_run_stream_task_under_running_loop(monkeypatch):
     async def coro():
         return "result"
 

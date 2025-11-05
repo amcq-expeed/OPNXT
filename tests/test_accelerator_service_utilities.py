@@ -1,3 +1,4 @@
+import asyncio
 from datetime import datetime, timezone
 
 import pytest
@@ -81,8 +82,7 @@ def test_infer_persona_triggers_with_keywords():
     assert any(term in {"roadmap", "architecture", "roi"} for term in keywords)
 
 
-@pytest.mark.asyncio
-async def test_stream_accelerator_artifacts_emits_snapshot_and_updates(monkeypatch, sample_session):
+def test_stream_accelerator_artifacts_emits_snapshot_and_updates(monkeypatch, sample_session):
     events = []
 
     class StoreStub:
@@ -102,13 +102,13 @@ async def test_stream_accelerator_artifacts_emits_snapshot_and_updates(monkeypat
     accelerator_service.artifacts_queue.put_nowait(sample_session.session_id, {"type": "status", "preview": "ready"})
 
     generator = accelerator_service.stream_accelerator_artifacts(sample_session.session_id)
-    snapshot = await generator.__anext__()
+    snapshot = asyncio.run(generator.__anext__())
     assert snapshot["type"] == "snapshot"
 
-    update = await generator.__anext__()
+    update = asyncio.run(generator.__anext__())
     assert update["type"] == "updates"
 
-    await generator.aclose()
+    asyncio.run(generator.aclose())
 
 
 def test_schedule_code_generation_success(monkeypatch, sample_session, sample_intent):
