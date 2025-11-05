@@ -134,8 +134,18 @@ function resolveApiBase(): string {
   return "http://localhost:8000";
 }
 
-const API_BASE = resolveApiBase();
-export const API_BASE_URL = API_BASE;
+let API_BASE = resolveApiBase();
+let API_BASE_URL = API_BASE;
+
+if (typeof window !== "undefined") {
+  const runtimeBase = normalizeBaseUrl("/api");
+  if (runtimeBase) {
+    API_BASE = runtimeBase;
+    API_BASE_URL = API_BASE;
+  }
+}
+
+export { API_BASE_URL };
 const PUBLIC_MODE =
   process.env.NEXT_PUBLIC_PUBLIC_MODE === "1" ||
   process.env.NEXT_PUBLIC_PUBLIC_MODE === "true";
