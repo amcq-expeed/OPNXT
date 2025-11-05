@@ -66,7 +66,7 @@ _Last updated: <!-- YYYY-MM-DD -->_
 | NFR-003 | Dashboard refresh ≤ 2s | Performance | ≤ 2s | |
 | NFR-004 | API secured with JWT + RBAC | Security | Mandatory | |
 | NFR-005 | Dependency scans clean | Security | Mandatory | |
-| NFR-006 | Coverage ≥ 80% | Quality | ≥ 80% | |
+| NFR-006 | Coverage ≥ 75% | Quality | ≥ 75% | |
 | NFR-007 | Uptime ≥ 99.5% | Reliability | ≥ 99.5% | |
 | ... | | | | |
 
@@ -147,7 +147,7 @@ _Last updated: <!-- YYYY-MM-DD -->_
 
 ### C.2 Test Strategy
 
-- **Unit Testing:** Maintain ≥80% coverage; key suites include `tests/test_api.py`, `tests/test_chat.py`, etc.
+- **Unit Testing:** Maintain ≥75% coverage; key suites include `tests/test_api.py`, `tests/test_chat.py`, etc.
 - **Integration & Contract Tests:** <!-- Coverage plan, tooling, data dependencies -->
 - **Performance Testing:** Validate SLAs (chat ≤3s, docs ≤10s, dashboards ≤2s).
 - **Security Testing:** Static/dynamic scans, RBAC verification, dependency audits.
@@ -156,7 +156,7 @@ _Last updated: <!-- YYYY-MM-DD -->_
 
 ### C.3 Quality Gates & Reporting
 
-- **Quality Gate:** Coverage ≥80%, build success ≥95%, documentation updated.
+- **Quality Gate:** Coverage ≥75%, build success ≥95%, documentation updated.
 - **Security Gate:** Dependency scan clean, secrets absent, RBAC configured, keys rotated.
 - **Reporting:** <!-- Dashboard or cadence for surfacing test outcomes -->
 

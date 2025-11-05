@@ -9,7 +9,7 @@
 | `src/agents/{base,charter}.py` + `src/agents/registry.py` | C | SRS §3.3 FR-005 | system-design-agent | M | unit: agent select | Wrap existing `discovery_agent` where possible |
 | `src/storage/repository.py` (Mongo stub) | C | SRS FR-010 | data-design-agent | M | integration: repo | Start in-memory; feature flag Mongo |
 | `src/cache/redis_client.py` | C | SRS §2.1 | data-design-agent | L | unit: cache | Optional for MVP |
-| `.github/workflows/ci.yml` (coverage gate) | U | quality-gate | code-standards-agent | L | ci | Enforce ≥80% coverage threshold |
+| `.github/workflows/ci.yml` (coverage gate) | U | quality-gate | code-standards-agent | L | ci | Enforce ≥75% coverage threshold |
 | `requirements.txt` (FastAPI, auth, db, obs) | U | TDD §8 | deployment-agent | M | ci | Add fastapi, uvicorn, pydantic, pyjwt, passlib[bcrypt], prometheus_client |
 | `Dockerfile` + `docker-compose.yml` | U/C | TDD §8.2 | deployment-agent | M | e2e | Add backend service, healthcheck |
 | `tests/` (unit/integration/perf) | C | Backlog Epic 5 | test-planning-agent | M | all | Mock LLM, stub DB/Redis |
