@@ -86,8 +86,55 @@ export interface OrchestrateRequest {
   options?: Record<string, any>;
 }
 
-const API_BASE =
-  process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+function normalizeBaseUrl(raw?: string): string | undefined {
+  if (!raw) return undefined;
+  let base = raw.trim();
+  if (!base) return undefined;
+
+  const maybePromoteToHttps = (candidate: string) => {
+    try {
+      const url = new URL(candidate);
+      if (
+        typeof window !== "undefined" &&
+        window.location.protocol === "https:" &&
+        url.protocol === "http:" &&
+        url.hostname === window.location.hostname
+      ) {
+        url.protocol = "https:";
+        return url.toString();
+      }
+      return url.toString();
+    } catch {
+      return candidate;
+    }
+  };
+
+  if (base.startsWith("http://") || base.startsWith("https://")) {
+    return maybePromoteToHttps(base).replace(/\/+$/, "");
+  }
+
+  if (typeof window !== "undefined") {
+    const prefix = base.startsWith("/") ? "" : "/";
+    const composed = `${window.location.origin}${prefix}${base}`;
+    return maybePromoteToHttps(composed).replace(/\/+$/, "");
+  }
+
+  return undefined;
+}
+
+function resolveApiBase(): string {
+  const envBase = normalizeBaseUrl(process.env.NEXT_PUBLIC_API_BASE_URL);
+  if (envBase) return envBase;
+
+  if (typeof window !== "undefined") {
+    const browserBase = normalizeBaseUrl("/api");
+    if (browserBase) return browserBase;
+  }
+
+  return "http://localhost:8000";
+}
+
+const API_BASE = resolveApiBase();
 export const API_BASE_URL = API_BASE;
 const PUBLIC_MODE =
   process.env.NEXT_PUBLIC_PUBLIC_MODE === "1" ||
