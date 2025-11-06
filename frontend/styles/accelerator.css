@@ -1413,9 +1413,14 @@
   display: inline-flex;
   flex-direction: column;
   gap: 6px;
-  align-self: stretch;
-  width: 100%;
-  max-width: 100%;
+  max-width: min(760px, 100%);
+  border-radius: 16px;
+  padding: 18px 20px;
+  background: rgba(243, 246, 255, 0.9);
+  border: 1px solid rgba(64, 87, 255, 0.12);
+  color: #111827;
+  font-size: 15px;
+  line-height: 1.55;
   text-align: left;
 }
 
@@ -1423,6 +1428,20 @@
   padding: 0;
   background: transparent;
   border: none;
+}
+
+.accelerator-message--status {
+  align-items: center;
+}
+
+.accelerator-message__bubble--status {
+  border: 1px dashed rgba(79, 70, 229, 0.4);
+  background: rgba(79, 70, 229, 0.08);
+  color: #312e81;
+  padding: 14px 20px;
+  border-radius: 16px;
+  font-size: 14px;
+  font-weight: 500;
 }
 
 .accelerator-message--user .accelerator-message__bubble {

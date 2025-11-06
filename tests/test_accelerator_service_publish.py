@@ -73,10 +73,12 @@ def test_normalise_code_sections_handles_notes():
 
 def test_publish_code_artifacts_generates_bundle(monkeypatch, sample_session, sample_intent):
     payload = _make_payload()
+    payload["include_ready_bundle"] = True
 
     added_artifacts = []
     saved_assets = []
     saved_previews = []
+    saved_doc_assets = []
     queued = []
     recorded_metrics = []
     recorded_events = []
@@ -111,6 +113,9 @@ def test_publish_code_artifacts_generates_bundle(monkeypatch, sample_session, sa
         def save_accelerator_preview(self, *args, **kwargs):
             saved_previews.append((args, kwargs))
 
+        def save_accelerator_asset(self, session_id, filename, data, meta):
+            saved_doc_assets.append((session_id, filename, data, meta))
+
     monkeypatch.setattr(accelerator_service, "get_accelerator_store", lambda: StoreStub())
     monkeypatch.setattr(accelerator_service, "get_doc_store", lambda: DocStoreStub())
     monkeypatch.setattr(accelerator_service, "_queue_artifact", lambda sid, payload: queued.append((sid, payload)))
@@ -136,6 +141,70 @@ def test_publish_code_artifacts_generates_bundle(monkeypatch, sample_session, sa
     assert saved_assets
     assert recorded_metrics and recorded_events
     assert updated_metadata["status"] == "ready"
+
+
+def test_publish_code_artifacts_skips_bundle_without_flag(monkeypatch, sample_session, sample_intent):
+    payload = _make_payload()
+
+    added_artifacts = []
+    queued = []
+
+    class StoreStub:
+        def artifact_snapshot(self, session_id):
+            return ([], 0)
+
+        def add_artifact(self, session_id, **kwargs):
+            added_artifacts.append((session_id, kwargs))
+
+        def list_artifacts(self, session_id):
+            return [item for _, item in added_artifacts]
+
+        def save_asset(self, session_id, filename, data):
+            pass
+
+        def get_session(self, session_id):
+            return AcceleratorSession(
+                accelerator_id="acc-1",
+                session_id=session_id,
+                created_by="owner@example.com",
+                created_at=datetime.utcnow().isoformat(),
+                metadata={"status": "ready"},
+            )
+
+    class DocStoreStub:
+        def list_accelerator_previews(self, session_id):
+            return []
+
+        def save_accelerator_preview(self, *args, **kwargs):
+            pass
+
+        def save_accelerator_asset(self, session_id, filename, data, meta):
+            pass
+
+    monkeypatch.setattr(accelerator_service, "get_accelerator_store", lambda: StoreStub())
+    monkeypatch.setattr(accelerator_service, "get_doc_store", lambda: DocStoreStub())
+    monkeypatch.setattr(accelerator_service, "_queue_artifact", lambda sid, payload: queued.append((sid, payload)))
+    monkeypatch.setattr(accelerator_service, "record_metric", lambda **kwargs: None)
+    monkeypatch.setattr(accelerator_service, "record_event", lambda event: None)
+    monkeypatch.setattr(accelerator_service, "_update_session_metadata", lambda sid, meta: None)
+    monkeypatch.setattr(accelerator_service, "_default_frontend_scaffold", lambda _title: {})
+    monkeypatch.setattr(accelerator_service, "_build_ready_to_run_readme", lambda _title: "README")
+    monkeypatch.setattr(
+        accelerator_service,
+        "_compose_capability_summary",
+        lambda _title, _fr_refs=None, _nfr_refs=None: "SUMMARY",
+    )
+    monkeypatch.setattr(accelerator_service, "_package_ready_to_run_bundle", lambda files: b"zip-bytes")
+    monkeypatch.setattr(accelerator_service, "_build_live_preview_html", lambda _title: "<html></html>")
+    monkeypatch.setattr(accelerator_service, "_compose_ready_to_run_instructions", lambda: "Run it")
+
+    accelerator_service._publish_code_artifacts(sample_session, sample_intent, payload, duration_ms=100.0)
+
+    filenames = [kwargs["filename"] for _, kwargs in added_artifacts]
+    assert all(not name.endswith("-bundle.zip") for name in filenames)
+    assert all(kwargs.get("type") != "bundle" for _, kwargs in queued)
+    assert all(kwargs.get("type") != "preview" for _, kwargs in queued)
+    assert all(kwargs.get("type") != "prototype" for _, kwargs in queued)
 
 
 def test_seed_baseline_artifact_generates_draft(monkeypatch, sample_session, sample_intent):

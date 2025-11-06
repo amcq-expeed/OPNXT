@@ -102,9 +102,28 @@ def _slugify(value: str) -> str:
     return slug or "accelerator"
 
 
+def _should_request_ready_bundle(latest_input: str) -> bool:
+    text = (latest_input or "").lower()
+    if not text.strip():
+        return False
+    bundle_tokens = ["bundle", "zip", "ready-to-run", "ready to run", "scaffold"]
+    preview_tokens = ["preview", "html", "mock", "live ui", "ui preview"]
+    bundle_match = any(token in text for token in bundle_tokens)
+    preview_match = any(token in text for token in preview_tokens)
+    return bundle_match and preview_match
+
+
+def _ensure_ready_bundle_flag(payload: Dict[str, Any], latest_input: str) -> Dict[str, Any]:
+    if isinstance(payload, dict) and "include_ready_bundle" not in payload:
+        if _should_request_ready_bundle(latest_input):
+            payload["include_ready_bundle"] = True
+    return payload
+
+
 def _queue_artifact(session_id: str, artifact: Dict[str, Any]) -> None:
     try:
-        artifacts_queue.put_nowait(session_id, artifact)
+        store = get_accelerator_store()
+        store.add_live_artifact(session_id, artifact)
         logger.debug("artifact_enqueued", extra={"session_id": session_id, "type": artifact.get("type")})
     except Exception:
         logger.exception("artifact_enqueue_failed", extra={"session_id": session_id})
@@ -149,9 +168,11 @@ You are the OPNXT Expert Circle, collaborating with delivery leaders. Respond in
 
 When replying inside an accelerator chat:
 - Open with a direct acknowledgement that mirrors the user's latest intent ("Thanks for the context on…"), speaking in first person plural.
+- Sprinkle warm, encouraging phrases (e.g., "Got it", "Thanks for sharing that detail") so newer practitioners feel supported.
 - Lead with the top two insights or next actions already available from context so progress feels immediate.
 - Wherever possible, draft concrete content (tables, bullet lists, checklists) instead of deferring work back to the user.
 - Limit clarification asks to one focused question per turn when additional data is absolutely required.
+- Offer at least one option or next-step suggestion that highlights trade-offs for the user.
 - Close with clear next steps so the user always knows how to proceed.
 
 Use concise Markdown with headings and lists. Avoid repeating previously asked intake questions unless the user contradicts earlier inputs.
@@ -186,7 +207,7 @@ ACCELERATOR_CODE_ASSISTANT_PROMPT = textwrap.dedent(
 You are the OPNXT Engineering Pair Programmer collaborating live with delivery teams.
 
 When replying inside a code-focused accelerator chat:
-- Acknowledge the user's latest goal conversationally (“Let’s sketch that service together…”).
+- Acknowledge the user's latest goal conversationally (“Let’s sketch that service together…”) and include a reassuring phrase (“Got it—here’s how I’m thinking about it”).
 - Highlight immediate next build actions before diving into details.
 - Provide concise, code-oriented guidance (diffs, code blocks, checklists) without executive slide language.
 - Ask at most one clarifying question when more detail is absolutely required.
@@ -1466,7 +1487,7 @@ def _generate_code_payload(session: AcceleratorSession, intent: ChatIntent, late
     payload = _parse_code_payload(text)
     if not payload:
         payload = _fallback_code_payload(latest_input)
-    return payload
+    return _ensure_ready_bundle_flag(payload, latest_input)
 
 
 def _publish_code_artifacts(session: AcceleratorSession, intent: ChatIntent, payload: Dict[str, Any], duration_ms: float) -> None:
@@ -1559,177 +1580,180 @@ def _publish_code_artifacts(session: AcceleratorSession, intent: ChatIntent, pay
         )
 
     if bundle_files:
-        frontend_files = _default_frontend_scaffold(intent.title)
-        bundle_files.update(frontend_files)
-        bundle_files.setdefault("README.md", _build_ready_to_run_readme(intent.title))
-        bundle_files.setdefault(
-            "SUMMARY.md",
-            _compose_capability_summary(intent.title, aggregate_fr_refs, aggregate_nfr_refs),
-        )
-        archive_bytes = _package_ready_to_run_bundle(bundle_files)
-        archive_b64 = base64.b64encode(archive_bytes).decode("utf-8")
-        slug = _slugify(intent.title)
-        bundle_filename = f"{slug}-bundle.zip"
-        bundle_download_path = f"/accelerators/sessions/{session.session_id}/artifacts/{bundle_filename}/download"
-        bundle_meta = {
-            "version": version,
-            "type": "bundle",
-            "language": "binary",
-            "summary": "Ready-to-run project bundle (ZIP)",
-            "gate_stage": _compute_gate_stage("bundle"),
-            "download_path": bundle_download_path,
-        }
-        store.add_artifact(
-            session.session_id,
-            filename=bundle_filename,
-            project_id=session.project_id,
-            meta=bundle_meta,
-        )
-        doc_store.save_accelerator_preview(
-            session.session_id,
-            bundle_filename,
-            archive_b64,
-            bundle_meta,
-        )
-        try:
-            doc_store.save_accelerator_asset(session.session_id, bundle_filename, archive_bytes, bundle_meta)
-        except Exception as exc:  # pragma: no cover - defensive logging
-            _emit_storage_error(session.session_id, bundle_filename, exc)
-        store.save_asset(session.session_id, bundle_filename, archive_bytes)
-        _queue_artifact(
-            session.session_id,
-            {
-                "type": "bundle",
-                "title": "Ready-to-run bundle",
-                "preview": "Download the ZIP to get the full scaffold.",
-                "source": payload.get("source", "llm"),
-                "version": version,
-                "download_path": bundle_download_path,
-            },
-        )
-        version += 1
+        include_ready_bundle = bool(payload.get("include_ready_bundle"))
 
-        live_preview_filename = f"{slug}-preview.html"
-        live_preview_path = f"/accelerators/sessions/{session.session_id}/artifacts/{live_preview_filename}/preview"
-        live_preview_html = _build_live_preview_html(intent.title)
-        live_preview_meta = {
-            "version": version,
-            "type": "preview",
-            "language": "html",
-            "summary": "Interactive budgeting app preview.",
-            "gate_stage": _compute_gate_stage("code"),
-            "iframe_url": live_preview_path,
-        }
-        store.add_artifact(
-            session.session_id,
-            filename=live_preview_filename,
-            project_id=session.project_id,
-            meta=live_preview_meta,
-        )
-        doc_store.save_accelerator_preview(
-            session.session_id,
-            live_preview_filename,
-            live_preview_html,
-            live_preview_meta,
-        )
-        try:
-            doc_store.save_accelerator_asset(
-                session.session_id,
-                live_preview_filename,
-                live_preview_html.encode("utf-8"),
-                live_preview_meta,
+        if include_ready_bundle:
+            frontend_files = _default_frontend_scaffold(intent.title)
+            bundle_files.update(frontend_files)
+            bundle_files.setdefault("README.md", _build_ready_to_run_readme(intent.title))
+            bundle_files.setdefault(
+                "SUMMARY.md",
+                _compose_capability_summary(intent.title, aggregate_fr_refs, aggregate_nfr_refs),
             )
-        except Exception as exc:  # pragma: no cover - defensive logging
-            _emit_storage_error(session.session_id, live_preview_filename, exc)
-        _queue_artifact(
-            session.session_id,
-            {
-                "type": "preview",
-                "title": "Live UI preview",
-                "preview": "Open the embedded preview to explore the scaffolded app.",
-                "source": "system",
+            archive_bytes = _package_ready_to_run_bundle(bundle_files)
+            archive_b64 = base64.b64encode(archive_bytes).decode("utf-8")
+            slug = _slugify(intent.title)
+            bundle_filename = f"{slug}-bundle.zip"
+            bundle_download_path = f"/accelerators/sessions/{session.session_id}/artifacts/{bundle_filename}/download"
+            bundle_meta = {
                 "version": version,
-                "iframe_url": live_preview_path,
-            },
-        )
-        version += 1
-
-        if bundle_files:
-            if aggregate_fr_refs:
-                primary_ref = next(iter(sorted(aggregate_fr_refs)))
-            else:
-                primary_ref = "FR-001"
-            prototype_html = textwrap.dedent(
-                f"""
-                <!doctype html>
-                <html lang="en">
-                  <head>
-                    <meta charset="utf-8" />
-                    <title>Interactive Prototype</title>
-                    <style>
-                      body {{ font-family: Arial, sans-serif; margin: 1.5rem; }}
-                      .trace {{ font-weight: 600; color: #0b7285; }}
-                      button {{ padding: 0.5rem 1rem; border-radius: 0.5rem; border: none; background: #15aabf; color: #fff; }}
-                    </style>
-                  </head>
-                  <body>
-                    <h1>Capability Prototype</h1>
-                    <p>This interaction aligns with <span class="trace">{primary_ref}</span>{' and ' + ', '.join(sorted(aggregate_nfr_refs)) if aggregate_nfr_refs else ''}.</p>
-                    <button id="prototype-action">Simulate Decision</button>
-                    <p id="prototype-status">Awaiting input…</p>
-                    <script>
-                      document.getElementById("prototype-action").addEventListener("click", () => {{
-                        const ts = new Date().toISOString();
-                        document.getElementById("prototype-status").innerText = `Decision captured @ ${{ts}} (trace: {primary_ref})`;
-                      }});
-                    </script>
-                  </body>
-                </html>
-                """
-            ).strip()
-            prototype_meta = {
-                "version": version,
-                "type": "prototype",
-                "language": "html",
-                "summary": "Interactive HTML prototype snippet aligned to FR requirements.",
-                "gate_stage": _compute_gate_stage("code"),
-                "fr_refs": sorted(aggregate_fr_refs) or [primary_ref],
-                "nfr_refs": sorted(aggregate_nfr_refs),
+                "type": "bundle",
+                "language": "binary",
+                "summary": "Ready-to-run project bundle (ZIP)",
+                "gate_stage": _compute_gate_stage("bundle"),
+                "download_path": bundle_download_path,
             }
             store.add_artifact(
                 session.session_id,
-                filename="prototype-inline.html",
+                filename=bundle_filename,
                 project_id=session.project_id,
-                meta=prototype_meta,
+                meta=bundle_meta,
             )
             doc_store.save_accelerator_preview(
                 session.session_id,
-                "prototype-inline.html",
-                prototype_html,
-                prototype_meta,
+                bundle_filename,
+                archive_b64,
+                bundle_meta,
+            )
+            try:
+                doc_store.save_accelerator_asset(session.session_id, bundle_filename, archive_bytes, bundle_meta)
+            except Exception as exc:  # pragma: no cover - defensive logging
+                _emit_storage_error(session.session_id, bundle_filename, exc)
+            store.save_asset(session.session_id, bundle_filename, archive_bytes)
+            _queue_artifact(
+                session.session_id,
+                {
+                    "type": "bundle",
+                    "title": "Ready-to-run bundle",
+                    "preview": "Download the ZIP to get the full scaffold.",
+                    "source": payload.get("source", "llm"),
+                    "version": version,
+                    "download_path": bundle_download_path,
+                },
+            )
+            version += 1
+
+            live_preview_filename = f"{slug}-preview.html"
+            live_preview_path = f"/accelerators/sessions/{session.session_id}/artifacts/{live_preview_filename}/preview"
+            live_preview_html = _build_live_preview_html(intent.title)
+            live_preview_meta = {
+                "version": version,
+                "type": "preview",
+                "language": "html",
+                "summary": "Interactive budgeting app preview.",
+                "gate_stage": _compute_gate_stage("code"),
+                "iframe_url": live_preview_path,
+            }
+            store.add_artifact(
+                session.session_id,
+                filename=live_preview_filename,
+                project_id=session.project_id,
+                meta=live_preview_meta,
+            )
+            doc_store.save_accelerator_preview(
+                session.session_id,
+                live_preview_filename,
+                live_preview_html,
+                live_preview_meta,
             )
             try:
                 doc_store.save_accelerator_asset(
                     session.session_id,
-                    "prototype-inline.html",
-                    prototype_html.encode("utf-8"),
-                    prototype_meta,
+                    live_preview_filename,
+                    live_preview_html.encode("utf-8"),
+                    live_preview_meta,
                 )
-            except Exception as exc:  # pragma: no cover - defensive
-                _emit_storage_error(session.session_id, "prototype-inline.html", exc)
+            except Exception as exc:  # pragma: no cover - defensive logging
+                _emit_storage_error(session.session_id, live_preview_filename, exc)
             _queue_artifact(
                 session.session_id,
                 {
-                    "type": "prototype",
-                    "title": "HTML prototype snippet",
-                    "preview": prototype_html[:240],
+                    "type": "preview",
+                    "title": "Live UI preview",
+                    "preview": "Open the embedded preview to explore the scaffolded app.",
                     "source": "system",
                     "version": version,
-                    "fr_refs": sorted(aggregate_fr_refs) or [primary_ref],
-                    "nfr_refs": sorted(aggregate_nfr_refs),
+                    "iframe_url": live_preview_path,
                 },
             )
             version += 1
+
+            if bundle_files:
+                if aggregate_fr_refs:
+                    primary_ref = next(iter(sorted(aggregate_fr_refs)))
+                else:
+                    primary_ref = "FR-001"
+                prototype_html = textwrap.dedent(
+                    f"""
+                    <!doctype html>
+                    <html lang="en">
+                      <head>
+                        <meta charset="utf-8" />
+                        <title>Interactive Prototype</title>
+                        <style>
+                          body {{ font-family: Arial, sans-serif; margin: 1.5rem; }}
+                          .trace {{ font-weight: 600; color: #0b7285; }}
+                          button {{ padding: 0.5rem 1rem; border-radius: 0.5rem; border: none; background: #15aabf; color: #fff; }}
+                        </style>
+                      </head>
+                      <body>
+                        <h1>Capability Prototype</h1>
+                        <p>This interaction aligns with <span class="trace">{primary_ref}</span>{' and ' + ', '.join(sorted(aggregate_nfr_refs)) if aggregate_nfr_refs else ''}.</p>
+                        <button id="prototype-action">Simulate Decision</button>
+                        <p id="prototype-status">Awaiting input…</p>
+                        <script>
+                          document.getElementById("prototype-action").addEventListener("click", () => {{
+                            const ts = new Date().toISOString();
+                            document.getElementById("prototype-status").innerText = "Decision captured @ " + ts + " (trace: {primary_ref})";
+                          }});
+                        </script>
+                      </body>
+                    </html>
+                    """
+                ).strip()
+                prototype_meta = {
+                    "version": version,
+                    "type": "prototype",
+                    "language": "html",
+                    "summary": "Interactive HTML prototype snippet aligned to FR requirements.",
+                    "gate_stage": _compute_gate_stage("code"),
+                    "fr_refs": sorted(aggregate_fr_refs) or [primary_ref],
+                    "nfr_refs": sorted(aggregate_nfr_refs),
+                }
+                store.add_artifact(
+                    session.session_id,
+                    filename="prototype-inline.html",
+                    project_id=session.project_id,
+                    meta=prototype_meta,
+                )
+                doc_store.save_accelerator_preview(
+                    session.session_id,
+                    "prototype-inline.html",
+                    prototype_html,
+                    prototype_meta,
+                )
+                try:
+                    doc_store.save_accelerator_asset(
+                        session.session_id,
+                        "prototype-inline.html",
+                        prototype_html.encode("utf-8"),
+                        prototype_meta,
+                    )
+                except Exception as exc:  # pragma: no cover - defensive
+                    _emit_storage_error(session.session_id, "prototype-inline.html", exc)
+                _queue_artifact(
+                    session.session_id,
+                    {
+                        "type": "prototype",
+                        "title": "HTML prototype snippet",
+                        "preview": prototype_html[:240],
+                        "source": "system",
+                        "version": version,
+                        "fr_refs": sorted(aggregate_fr_refs) or [primary_ref],
+                        "nfr_refs": sorted(aggregate_nfr_refs),
+                    },
+                )
+                version += 1
 
         guidance = _compose_ready_to_run_instructions()
         guidance_meta = {

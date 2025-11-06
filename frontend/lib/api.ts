@@ -122,22 +122,27 @@ function normalizeBaseUrl(raw?: string): string | undefined {
   return undefined;
 }
 
-function resolveApiBase(): string {
+function resolveApiBase(): { base: string; locked: boolean } {
   const envBase = normalizeBaseUrl(process.env.NEXT_PUBLIC_API_BASE_URL);
-  if (envBase) return envBase;
-
-  if (typeof window !== "undefined") {
-    const browserBase = normalizeBaseUrl("/api");
-    if (browserBase) return browserBase;
+  if (envBase) {
+    return { base: envBase, locked: true };
   }
 
-  return "http://localhost:8000";
+  if (typeof window !== "undefined") {
+    const origin = window.location?.origin;
+    if (origin) {
+      return { base: `${origin.replace(/\/+$/, "")}/api`, locked: false };
+    }
+  }
+
+  return { base: "http://localhost:8000", locked: false };
 }
 
-let API_BASE = resolveApiBase();
+const resolvedBase = resolveApiBase();
+let API_BASE = resolvedBase.base;
 let API_BASE_URL = API_BASE;
 
-if (typeof window !== "undefined") {
+if (typeof window !== "undefined" && !resolvedBase.locked) {
   const runtimeBase = normalizeBaseUrl("/api");
   if (runtimeBase) {
     API_BASE = runtimeBase;

@@ -3,6 +3,7 @@ import { useRouter } from "next/router";
 import type { FormEvent } from "react";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  AcceleratorMessage,
   LaunchAcceleratorResponse,
   getAcceleratorSession,
   launchAcceleratorSession,
@@ -42,6 +43,13 @@ const PERSONA_LABELS: Record<string, string> = {
   people: "People / HR",
 };
 
+const INTENT_ALIASES: Record<string, string> = {
+  "sdlc-docs": "generate-sdlc-doc",
+  "generate-docs": "generate-sdlc-doc",
+  "requirements-baseline": "requirements-baseline", // explicit for clarity
+  "enhance-docs": "enhance-documentation",
+};
+
 type SimplifiedArtifact = {
   filename: string;
   created_at?: string;
@@ -51,6 +59,8 @@ type SimplifiedArtifact = {
   type?: string;
   language?: string;
 };
+
+type ConversationMessage = AcceleratorMessage & { pending?: boolean };
 
 function formatPersonaLabel(code: string | null | undefined): string | null {
   if (!code) return null;
@@ -104,6 +114,9 @@ export default function AcceleratorChatPage() {
   const [heartbeatAt, setHeartbeatAt] = useState<number | null>(null);
   const [streamError, setStreamError] = useState<string | null>(null);
   const heartbeatTimeoutMs = 15000;
+  const artifactCountRef = useRef<number>(0);
+  const [liveDraftPreview, setLiveDraftPreview] = useState<string>("");
+  const [pendingMessages, setPendingMessages] = useState<ConversationMessage[]>([]);
 
   useEffect(() => {
     if (!heartbeatAt) return;
@@ -115,10 +128,16 @@ export default function AcceleratorChatPage() {
     return () => window.clearTimeout(timer);
   }, [heartbeatAt]);
 
-  const intentId = useMemo(() => {
+  const rawIntentId = useMemo(() => {
     const raw = router.query.intentId;
     return typeof raw === "string" ? raw : null;
   }, [router.query.intentId]);
+
+  const intentId = useMemo(() => {
+    if (!rawIntentId) return null;
+    const alias = INTENT_ALIASES[rawIntentId.toLowerCase()] || INTENT_ALIASES[rawIntentId] || null;
+    return alias ?? rawIntentId;
+  }, [rawIntentId]);
 
   const sessionId = useMemo(() => {
     const raw = router.query.session;
@@ -129,6 +148,31 @@ export default function AcceleratorChatPage() {
     const raw = router.query.source;
     return typeof raw === "string" && raw ? raw : "dashboard";
   }, [router.query.source]);
+
+  useEffect(() => {
+    if (!router.isReady || !rawIntentId || !intentId) return;
+    const normalized = intentId;
+    if (normalized === rawIntentId) return;
+    const { intentId: _ignored, ...rest } = router.query;
+    const params = new URLSearchParams();
+    Object.entries(rest).forEach(([key, value]) => {
+      if (Array.isArray(value)) {
+        value.forEach((v) => params.append(key, v));
+      } else if (value != null) {
+        params.append(key, String(value));
+      }
+    });
+    const search = params.toString();
+    const asPath = `/accelerators/${encodeURIComponent(normalized)}${search ? `?${search}` : ""}`;
+    void router.replace(
+      {
+        pathname: "/accelerators/[intentId]",
+        query: { ...rest, intentId: normalized },
+      },
+      asPath,
+      { shallow: true },
+    );
+  }, [router, rawIntentId, intentId]);
 
   useEffect(() => {
     if (!router.isReady || !intentId) return;
@@ -186,6 +230,16 @@ export default function AcceleratorChatPage() {
   const session = data?.session;
   const intent = data?.intent;
   const messages = useMemo(() => data?.messages ?? [], [data?.messages]);
+  const conversationMessages = useMemo<ConversationMessage[]>(() => {
+    const confirmed = messages.map(
+      (message) =>
+        ({
+          ...message,
+          pending: false,
+        }) as ConversationMessage,
+    );
+    return [...confirmed, ...pendingMessages];
+  }, [messages, pendingMessages]);
   const personaLabel = useMemo(() => formatPersonaLabel(session?.persona), [session?.persona]);
   const acceleratorModelOptions = useMemo<ChatModelOption[]>(() => {
     const raw = session?.metadata?.accelerator_models;
@@ -303,7 +357,7 @@ export default function AcceleratorChatPage() {
 
   useEffect(() => {
     requestAnimationFrame(() => messagesEndRef.current?.scrollIntoView({ behavior: "smooth" }));
-  }, [messages.length]);
+  }, [conversationMessages.length]);
 
   useEffect(() => {
     if (!session?.session_id) {
@@ -530,15 +584,14 @@ export default function AcceleratorChatPage() {
         const reader = res.body.getReader();
         const decoder = new TextDecoder();
         let buffer = "";
-        setStreaming(true);
+        let streamActive = false;
         while (!cancelled) {
           const { value, done } = await reader.read();
           if (done) break;
           buffer += decoder.decode(value, { stream: true });
-          let boundary = buffer.indexOf("\n\n");
-          while (boundary !== -1) {
-            const chunk = buffer.slice(0, boundary);
-            buffer = buffer.slice(boundary + 2);
+          const parts = buffer.split("\n\n");
+          while (parts.length > 1) {
+            const chunk = parts.shift() as string;
             const dataLine = chunk
               .split("\n")
               .map((line) => line.trim())
@@ -553,11 +606,44 @@ export default function AcceleratorChatPage() {
                     setStreamError(null);
                   }
                   if (payload?.type === "updates" && Array.isArray(payload?.updates)) {
+                    let sawProgress = false;
+                    let nextLiveDraft: string | null = null;
+                    let shouldOpenDrawer = false;
                     payload.updates.forEach((update: any) => {
                       if (update?.type === "error" && typeof update.preview === "string") {
                         setStreamError(update.preview);
                       }
+                      if (update?.type === "status" && typeof update.preview === "string") {
+                        setActionStatus(update.preview);
+                        sawProgress = true;
+                      }
+                      if (update?.type === "draft_update" && typeof update.preview === "string") {
+                        nextLiveDraft = update.preview;
+                        sawProgress = true;
+                      }
+                      if (update?.type && update.type !== "draft_update") {
+                        shouldOpenDrawer = true;
+                      }
                     });
+                    if (sawProgress && !streamActive) {
+                      streamActive = true;
+                      setStreaming(true);
+                    }
+                    if (typeof nextLiveDraft === "string") {
+                      setLiveDraftPreview(nextLiveDraft);
+                      setDrawerOpen(true);
+                    }
+                    if (shouldOpenDrawer) {
+                      setDrawerOpen(true);
+                    }
+                  }
+                  if (payload?.type === "snapshot") {
+                    if (streamActive) {
+                      streamActive = false;
+                      setStreaming(false);
+                    }
+                    setLiveDraftPreview("");
+                    setDrawerOpen(true);
                   }
                   const nextArtifacts = normalizeArtifacts(payload?.artifacts ?? []);
                   setLiveArtifacts((prev) => {
@@ -579,7 +665,7 @@ export default function AcceleratorChatPage() {
                 }
               }
             }
-            boundary = buffer.indexOf("\n\n");
+            buffer = parts.join("\n\n");
           }
         }
         if (!cancelled) {
@@ -681,6 +767,12 @@ export default function AcceleratorChatPage() {
     const language = typeof selectedPreviewMeta?.language === "string" ? selectedPreviewMeta.language : undefined;
     return language?.toLowerCase() === "html";
   }, [selectedPreview, selectedPreviewMeta]);
+  const diffSummary = useMemo(() => {
+    const raw = selectedPreviewMeta?.diff_summary;
+    if (typeof raw !== "string") return null;
+    const trimmed = raw.trim();
+    return trimmed.length ? trimmed : null;
+  }, [selectedPreviewMeta]);
 
   const htmlIframeUrl = useMemo(() => {
     if (!selectedPreview || previewMode !== "render") return null;
@@ -764,12 +856,27 @@ export default function AcceleratorChatPage() {
       })),
     [displayArtifacts],
   );
+  const hasLiveDraft = useMemo(() => liveDraftPreview.trim().length > 0, [liveDraftPreview]);
 
   useEffect(() => {
     if (!actionStatus) return;
     const timeout = window.setTimeout(() => setActionStatus(null), 2400);
     return () => window.clearTimeout(timeout);
   }, [actionStatus]);
+
+  useEffect(() => {
+    if (artifactCount > artifactCountRef.current) {
+      setDrawerOpen(true);
+      setLiveDraftPreview("");
+    }
+    artifactCountRef.current = artifactCount;
+  }, [artifactCount]);
+
+  useEffect(() => {
+    if (hasRenderContent || hasSourceContent) {
+      setLiveDraftPreview("");
+    }
+  }, [hasRenderContent, hasSourceContent]);
 
   const downloadArtifact = useCallback(
     async (filename?: string | null) => {
@@ -867,6 +974,16 @@ export default function AcceleratorChatPage() {
       }
       setSending(true);
       setError(null);
+      const pendingId = `pending-${Date.now()}`;
+      const optimisticMessage: ConversationMessage = {
+        message_id: pendingId,
+        session_id: session.session_id,
+        role: "user",
+        content: messageToSend,
+        created_at: new Date().toISOString(),
+        pending: true,
+      };
+      setPendingMessages((prev) => [...prev, optimisticMessage]);
 
       try {
         const providerOverride = selectedModelOption?.available ? selectedModelOption.provider : null;
@@ -882,13 +999,15 @@ export default function AcceleratorChatPage() {
           provider: providerOverride,
           model: modelOverride,
         });
-        void refreshSession(session.session_id);
+        await refreshSession(session.session_id);
       } catch (e: any) {
         setError(e?.message || "Unable to send message right now.");
         if (!override) {
           setDraft(messageToSend);
         }
+        setPendingMessages((prev) => prev.filter((msg) => msg.message_id !== pendingId));
       } finally {
+        setPendingMessages((prev) => prev.filter((msg) => msg.message_id !== pendingId));
         setSending(false);
       }
     },
@@ -959,11 +1078,6 @@ export default function AcceleratorChatPage() {
           {streamError}
         </div>
       ) : null}
-      {streaming && !streamError ? (
-        <div className="accelerator-status" role="status">
-          <span className="accelerator-spinner" aria-hidden="true" /> Generating artifacts…
-        </div>
-      ) : null}
 
       <main className="accelerator-main" aria-live="polite">
         <section className="accelerator-chat" aria-label="Conversation">
@@ -971,12 +1085,13 @@ export default function AcceleratorChatPage() {
           {!loading && session && (
             <>
               <ol className="accelerator-messages">
-                {messages.map((message) => {
+                {conversationMessages.map((message) => {
                   const isAssistant = message.role === "assistant";
                   const showArtifactsInline =
                     isAssistant &&
                     message.message_id === latestAssistantMessageId &&
                     displayArtifacts.length > 0;
+                  const isPending = Boolean(message.pending);
 
                   const assistantDisplay = intent?.title ?? "Assistant";
                   const assistantInitials = assistantDisplay
@@ -989,7 +1104,9 @@ export default function AcceleratorChatPage() {
                   return (
                     <li
                       key={message.message_id}
-                      className={`accelerator-message accelerator-message--${message.role}`}
+                      className={`accelerator-message accelerator-message--${message.role} ${
+                        isPending ? "accelerator-message--pending" : ""
+                      }`}
                     >
                       <span className="accelerator-message__role">
                         {isAssistant ? (
@@ -1063,6 +1180,15 @@ export default function AcceleratorChatPage() {
                     </li>
                   );
                 })}
+                {(() => {
+                  const statusText = actionStatus || (streaming && !streamError ? "Generating artifacts…" : null);
+                  if (!statusText) return null;
+                  return (
+                    <li className="accelerator-message accelerator-message--assistant accelerator-message--status" role="status">
+                      <div className="accelerator-message__bubble accelerator-message__bubble--status">{statusText}</div>
+                    </li>
+                  );
+                })()}
               </ol>
               <div ref={messagesEndRef} />
             </>
@@ -1324,6 +1450,11 @@ export default function AcceleratorChatPage() {
                     </div>
                   </header>
                   {actionStatus ? <div className="accelerator-preview-card__status">{actionStatus}</div> : null}
+                  {diffSummary ? (
+                    <div className="accelerator-preview-card__status accelerator-preview-card__status--diff">
+                      {diffSummary}
+                    </div>
+                  ) : null}
                   <div className="accelerator-preview-card__body">
                     {previewMode === "render" ? (
                       selectedIsHtml ? (
@@ -1365,6 +1496,25 @@ export default function AcceleratorChatPage() {
                         Source view is unavailable for this artifact.
                       </div>
                     )}
+                  </div>
+                </div>
+              ) : hasLiveDraft ? (
+                <div className="accelerator-preview-card">
+                  <header className="accelerator-preview-card__header">
+                    <div className="accelerator-preview-card__header-left">
+                      <span className="accelerator-drawer__eyebrow">Draft in progress</span>
+                      <span className="accelerator-drawer__label">We’re assembling your document live.</span>
+                    </div>
+                  </header>
+                  <div className="accelerator-preview-card__body">
+                    <div className="accelerator-preview-card__markdown">
+                      <MarkdownMessage className="accelerator-preview-card__content">
+                        {liveDraftPreview}
+                      </MarkdownMessage>
+                    </div>
+                    <div className="accelerator-preview-card__status">
+                      Updates stream here while the final artifact is prepared.
+                    </div>
                   </div>
                 </div>
               ) : (
