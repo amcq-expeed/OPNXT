@@ -155,6 +155,7 @@ const PUBLIC_MODE =
   process.env.NEXT_PUBLIC_PUBLIC_MODE === "1" ||
   process.env.NEXT_PUBLIC_PUBLIC_MODE === "true";
 const MVP_SERVICE_TOKEN = process.env.NEXT_PUBLIC_MVP_SERVICE_TOKEN || "";
+const TOKEN_STORAGE_KEY = "opnxt_token";
 export const TOKEN_CHANGE_EVENT = "opnxt-token-change";
 const TELEMETRY_ENDPOINT = `${API_BASE}/telemetry/events`;
 const TELEMETRY_SOURCE = "web-app";
@@ -181,32 +182,39 @@ export interface OTPRequestResponse {
 
 // --- Token storage (dev: localStorage + in-memory) ---
 let accessToken: string | null = null;
-try {
-  const t =
-    typeof window !== "undefined"
-      ? window.localStorage.getItem("opnxt_token")
-      : null;
-  if (t) accessToken = t;
-} catch {}
 
-// In public mode, ensure no token is used
-if (PUBLIC_MODE) {
-  accessToken = null;
+const bootstrapToken = () => {
+  if (typeof window === "undefined") return;
   try {
-    if (typeof window !== "undefined")
-      window.localStorage.removeItem("opnxt_token");
-  } catch {}
+    const stored = window.localStorage.getItem(TOKEN_STORAGE_KEY);
+    accessToken = stored || null;
+  } catch {
+    accessToken = null;
+  }
+};
+
+if (!PUBLIC_MODE && typeof window !== "undefined") {
+  bootstrapToken();
+} else {
+  accessToken = null;
 }
+
+const clearStoredToken = () => {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.removeItem(TOKEN_STORAGE_KEY);
+  } catch {}
+};
 
 export function setAccessToken(token: string | null) {
   accessToken = token;
   try {
     if (typeof window !== "undefined") {
-      if (token) window.localStorage.setItem("opnxt_token", token);
-      else window.localStorage.removeItem("opnxt_token");
+      if (token) window.localStorage.setItem(TOKEN_STORAGE_KEY, token);
+      else window.localStorage.removeItem(TOKEN_STORAGE_KEY);
       window.dispatchEvent(
         new StorageEvent("storage", {
-          key: "opnxt_token",
+          key: TOKEN_STORAGE_KEY,
           newValue: token ?? null,
         }),
       );
@@ -220,7 +228,7 @@ export function setAccessToken(token: string | null) {
 export function getAccessToken() {
   if (!accessToken && typeof window !== "undefined") {
     try {
-      const stored = window.localStorage.getItem("opnxt_token");
+      const stored = window.localStorage.getItem(TOKEN_STORAGE_KEY);
       if (stored) accessToken = stored;
     } catch {}
   }
@@ -432,7 +440,13 @@ export async function verifyOtp(email: string, code: string, name?: string): Pro
   return data.user;
 }
 
-export function logout() {
+export async function logout(): Promise<void> {
+  clearStoredToken();
+  if (typeof window !== "undefined") {
+    try {
+      window.localStorage.removeItem("opnxt_mvp_project_id");
+    } catch {}
+  }
   setAccessToken(null);
 }
 
