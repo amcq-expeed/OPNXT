@@ -20,6 +20,32 @@ def test_coerce_text_handles_varied_inputs():
     assert accelerator_service._coerce_text(None) == ""
 
 
+@pytest.mark.parametrize(
+    "latest_input,expected",
+    [
+        ("Need a bundle zip plus HTML preview", True),
+        ("bundle only", False),
+        ("please send preview", False),
+        ("   ", False),
+    ],
+)
+def test_should_request_ready_bundle(latest_input, expected):
+    assert accelerator_service._should_request_ready_bundle(latest_input) is expected
+
+
+def test_ensure_ready_bundle_flag_sets_flag_when_needed():
+    payload = {"type": "bundle"}
+    updated = accelerator_service._ensure_ready_bundle_flag(payload, "ready to run bundle with ui preview")
+    assert updated is payload
+    assert updated["include_ready_bundle"] is True
+
+
+def test_ensure_ready_bundle_flag_respects_existing_flag():
+    payload = {"type": "bundle", "include_ready_bundle": False}
+    updated = accelerator_service._ensure_ready_bundle_flag(payload, "bundle and preview")
+    assert updated["include_ready_bundle"] is False
+
+
 def test_queue_artifact_enqueues_payload(isolated_stream):
     payload = {"type": "test", "data": 123}
     accelerator_service._queue_artifact("session-1", payload)
