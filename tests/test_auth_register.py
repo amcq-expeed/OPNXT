@@ -1,7 +1,7 @@
 from fastapi.testclient import TestClient
 
 from src.orchestrator.api.main import app
-from .utils import otp_login
+from .utils import otp_login, _fetch_otp_from_store
 
 
 client = TestClient(app)
@@ -14,8 +14,7 @@ def test_verify_otp_creates_new_user_and_returns_me():
     # Request OTP
     r = client.post("/auth/request-otp", json={"email": email})
     assert r.status_code == 200
-    data = r.json()
-    code = data.get("code")
+    code = _fetch_otp_from_store(email)
     assert code
 
     # Verify OTP with name to create account

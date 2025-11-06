@@ -17,8 +17,8 @@ def otp_login(
     res = client.post("/auth/request-otp", json=req_body)
     assert res.status_code == 200, res.text
     payload = res.json()
-    otp = code or payload.get("code")
-    assert otp, "OTP code missing from response; ensure OPNXT_INCLUDE_OTP_IN_RESPONSE=1 in tests"
+    otp = code or _fetch_otp_from_store(email)
+    assert otp, "OTP code missing; ensure test OTP retrieval helper is synchronized with auth store"
 
     verify_body: Dict[str, Any] = {"email": email, "code": otp}
     if name:
@@ -28,6 +28,15 @@ def otp_login(
     data = res.json()
     token = data["access_token"]
     return {"Authorization": f"Bearer {token}"}, data
+
+
+def _fetch_otp_from_store(email: str) -> Optional[str]:
+    from src.orchestrator.security import auth
+
+    entry = auth.OTP_STORE.get(email.lower())
+    if not entry:
+        return None
+    return entry.code
 
 
 def admin_headers(client: TestClient) -> Dict[str, str]:

@@ -111,7 +111,10 @@ def _queue_artifact(session_id: str, artifact: Dict[str, Any]) -> None:
 
 
 def _emit_storage_error(session_id: str, filename: str, exc: Exception) -> None:
-    logger.exception("accelerator_storage_failed", extra={"session_id": session_id, "filename": filename})
+    logger.exception(
+        "accelerator_storage_failed",
+        extra={"session_id": session_id, "artifact_filename": filename},
+    )
     _queue_artifact(
         session_id,
         {

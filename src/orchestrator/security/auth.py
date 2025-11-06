@@ -32,6 +32,9 @@ from pydantic import BaseModel, EmailStr
 logger = logging.getLogger(__name__)
 bearer_scheme = HTTPBearer(auto_error=False)
 
+_EPHEMERAL_JWT_SECRET = secrets.token_urlsafe(48)
+_EPHEMERAL_JWT_SECRET_WARNED = False
+
 
 def _get_env(name: str, default: Optional[str] = None) -> str:
     val = os.getenv(name, default)
@@ -48,9 +51,31 @@ class JwtConfig:
 
     @staticmethod
     def from_env() -> "JwtConfig":
-        secret = _get_env("JWT_SECRET", "dev-secret-change-me")
+        secret = _resolve_jwt_secret()
         expires = int(os.getenv("JWT_EXPIRES_MIN", "60"))
         return JwtConfig(secret=secret, expires_min=expires)
+
+
+def _resolve_jwt_secret() -> str:
+    secret = os.getenv("JWT_SECRET")
+    if secret:
+        if len(secret) < 32:
+            raise RuntimeError("JWT_SECRET must be at least 32 characters")
+        return secret
+
+    env = os.getenv("OPNXT_ENV", "dev").lower()
+    if env in {"prod", "production"}:
+        raise RuntimeError("JWT_SECRET environment variable is required in production")
+
+    global _EPHEMERAL_JWT_SECRET_WARNED
+    if not _EPHEMERAL_JWT_SECRET_WARNED:
+        logger.warning(
+            "JWT_SECRET not set; using ephemeral secret for %s environment."
+            " Do not use this configuration in production.",
+            env or "unknown",
+        )
+        _EPHEMERAL_JWT_SECRET_WARNED = True
+    return _EPHEMERAL_JWT_SECRET
 
 
 class User(BaseModel):
@@ -101,7 +126,17 @@ OTP_STORE: Dict[str, OTPEntry] = {}
 OTP_EXP_MINUTES = int(os.getenv("OTP_EXPIRES_MIN", "10"))
 OTP_MAX_ATTEMPTS = int(os.getenv("OTP_MAX_ATTEMPTS", "5"))
 OTP_RESEND_DELAY_SECONDS = int(os.getenv("OTP_RESEND_DELAY_SECONDS", "180"))
-INCLUDE_OTP_IN_RESPONSE = os.getenv("OPNXT_INCLUDE_OTP_IN_RESPONSE", "1").lower() in ("1", "true", "yes")
+
+
+def should_include_otp_in_response() -> bool:
+    flag = os.getenv("OPNXT_INCLUDE_OTP_IN_RESPONSE", "0").lower() in {"1", "true", "yes"}
+    if not flag:
+        return False
+    env = os.getenv("OPNXT_ENV", "dev").lower()
+    if env in {"prod", "production"}:
+        logger.warning("Ignoring OPNXT_INCLUDE_OTP_IN_RESPONSE because environment is %s", env)
+        return False
+    return True
 
 
 def _smtp_configured() -> bool:
@@ -247,12 +282,11 @@ def verify_otp(email: str, code: str, name: Optional[str] = None) -> User:
         OTP_STORE.pop(email_l, None)
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="OTP expired")
 
-    entry.attempts += 1
-    if entry.attempts > OTP_MAX_ATTEMPTS:
-        OTP_STORE.pop(email_l, None)
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Too many invalid attempts")
-
     if entry.code != code:
+        entry.attempts += 1
+        if entry.attempts >= OTP_MAX_ATTEMPTS:
+            OTP_STORE.pop(email_l, None)
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Too many invalid attempts")
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid code")
 
     OTP_STORE.pop(email_l, None)

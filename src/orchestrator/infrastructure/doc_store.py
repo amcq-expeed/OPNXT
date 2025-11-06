@@ -10,6 +10,7 @@ from threading import RLock
 # --- v1.0 update ---
 _db_mode = os.getenv("DB_MODE", "").lower()
 _mongo_doc_store_cls = None
+_doc_store_singleton = None
 if _db_mode == "mongo":
     try:
         from .doc_store_mongo import MongoDocumentStore as _MongoDocumentStore  # type: ignore

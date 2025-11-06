@@ -1,7 +1,7 @@
 from fastapi.testclient import TestClient
 
 from src.orchestrator.api.main import app
-from .utils import otp_login
+from .utils import otp_login, _fetch_otp_from_store
 
 
 client = TestClient(app)
@@ -33,8 +33,7 @@ def test_login_failure_wrong_code():
 def test_login_failure_unknown_user_without_name():
     r = client.post("/auth/request-otp", json={"email": "missing@example.com"})
     assert r.status_code == 200
-    payload = r.json()
-    otp = payload.get("code")
+    otp = _fetch_otp_from_store("missing@example.com")
     assert otp
     r = client.post(
         "/auth/verify-otp",

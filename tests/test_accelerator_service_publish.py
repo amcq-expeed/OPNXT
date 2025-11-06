@@ -119,7 +119,11 @@ def test_publish_code_artifacts_generates_bundle(monkeypatch, sample_session, sa
     monkeypatch.setattr(accelerator_service, "_update_session_metadata", lambda sid, meta: updated_metadata.update(meta))
     monkeypatch.setattr(accelerator_service, "_default_frontend_scaffold", lambda _title: {})
     monkeypatch.setattr(accelerator_service, "_build_ready_to_run_readme", lambda _title: "README")
-    monkeypatch.setattr(accelerator_service, "_compose_capability_summary", lambda _title: "SUMMARY")
+    monkeypatch.setattr(
+        accelerator_service,
+        "_compose_capability_summary",
+        lambda _title, _fr_refs=None, _nfr_refs=None: "SUMMARY",
+    )
     monkeypatch.setattr(accelerator_service, "_package_ready_to_run_bundle", lambda files: b"zip-bytes")
     monkeypatch.setattr(accelerator_service, "_build_live_preview_html", lambda _title: "<html></html>")
     monkeypatch.setattr(accelerator_service, "_compose_ready_to_run_instructions", lambda: "Run it")
