@@ -121,6 +121,15 @@ def _ensure_ready_bundle_flag(payload: Dict[str, Any], latest_input: str) -> Dic
 
 
 def _queue_artifact(session_id: str, artifact: Dict[str, Any]) -> None:
+    # Always enqueue to the stream so listeners receive updates even if persistence fails.
+    try:
+        artifacts_queue.put_nowait(session_id, artifact)
+    except Exception:
+        logger.exception(
+            "artifact_stream_enqueue_failed",
+            extra={"session_id": session_id, "type": artifact.get("type")},
+        )
+
     try:
         store = get_accelerator_store()
         store.add_live_artifact(session_id, artifact)
