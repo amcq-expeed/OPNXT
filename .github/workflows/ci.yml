@@ -23,7 +23,7 @@ jobs:
           python -m pip install --upgrade pip
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
 
-      - name: Run tests (coverage gate ≥80% for src/orchestrator)
+      - name: Run tests (coverage gate ≥75% for src/orchestrator)
         run: |
           pytest -q --cov=src/orchestrator --cov-report=term-missing --cov-report=xml --cov-fail-under=75
 
