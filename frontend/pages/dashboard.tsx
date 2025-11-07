@@ -120,8 +120,8 @@ export default function DashboardPage() {
   const [deepLinkError, setDeepLinkError] = useState<string | null>(null);
 
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
-  const askBottomRef = useRef<HTMLDivElement | null>(null);
   const acceleratorSectionRef = useRef<HTMLDivElement | null>(null);
+  const initialSessionRequestedRef = useRef<boolean>(false);
 
   const autoResize = useCallback(() => {
     const el = composerRef.current;
@@ -209,6 +209,7 @@ export default function DashboardPage() {
     setGuestError(null);
     setChatNotice(null);
     setDeepLinkError(null);
+    initialSessionRequestedRef.current = false;
     void router.replace({ pathname: router.pathname }, undefined, { shallow: true });
   }, [router]);
 
@@ -268,6 +269,47 @@ export default function DashboardPage() {
     };
   }, [router.query.session, guestSession]);
 
+  useEffect(() => {
+    const deepLinkedSessionId = typeof router.query.session === "string" ? router.query.session : null;
+    if (guestSession || guestLoading || deepLinkedSessionId) return;
+    if (initialSessionRequestedRef.current) return;
+
+    initialSessionRequestedRef.current = true;
+    const { provider, model } = resolveModelOverrides();
+    setGuestLoading(true);
+    setChatNotice("Preparing Ask OPNXT…");
+    setGuestError(null);
+
+    const payload: {
+      title: string;
+      persona?: string;
+      provider?: string | null;
+      model?: string | null;
+    } = {
+      title: "Ask OPNXT",
+    };
+    if (persona) payload.persona = persona;
+    if (provider) payload.provider = provider;
+    if (model) payload.model = model;
+
+    createGuestChatSession(payload)
+      .then((sessionWithMessages) => {
+        setGuestSession(sessionWithMessages.session);
+        setGuestMessages(sessionWithMessages.messages || []);
+        setChatNotice(null);
+        requestAnimationFrame(autoResize);
+      })
+      .catch((error: any) => {
+        const detail = error?.message || "Unable to start Ask OPNXT right now.";
+        setGuestError(detail);
+        setChatNotice(null);
+        initialSessionRequestedRef.current = false;
+      })
+      .finally(() => {
+        setGuestLoading(false);
+      });
+  }, [guestSession, guestLoading, router.query.session, persona, resolveModelOverrides, autoResize]);
+
   const launchChat = useCallback(
     (prefill: string) => {
       const message = prefill.trim();
@@ -322,83 +364,77 @@ export default function DashboardPage() {
     const message = draft.trim();
     if (!message) return;
     const { provider, model } = resolveModelOverrides();
+    const baseParams = new URLSearchParams({ source: "dashboard" });
+    if (provider) baseParams.set("provider", provider);
+    if (model) baseParams.set("model", model);
+    const navigateToWorkspace = (sessionId: string) => {
+      const search = baseParams.toString();
+      const target = `/dashboard/ask/${encodeURIComponent(sessionId)}${search ? `?${search}` : ""}`;
+      void router.push(target);
+    };
 
-    if (!guestSession) {
+    let sessionId = guestSession?.session_id ?? null;
+
+    if (!sessionId) {
       setGuestLoading(true);
-      setChatNotice("Launching Ask OPNXT…");
+      setChatNotice("Preparing Ask OPNXT…");
       setGuestError(null);
       try {
         const payload: {
           title: string;
-          initial_message: string;
           persona?: string;
           provider?: string | null;
           model?: string | null;
         } = {
           title: "Ask OPNXT",
-          initial_message: message,
         };
         if (persona) payload.persona = persona;
         if (provider) payload.provider = provider;
         if (model) payload.model = model;
-        const sessionWithMessages = await createGuestChatSession(payload);
-        setGuestSession(sessionWithMessages.session);
-        setGuestMessages(sessionWithMessages.messages || []);
-        setDraft("");
-        requestAnimationFrame(autoResize);
+        const created = await createGuestChatSession(payload);
+        sessionId = created.session.session_id;
+        setGuestSession(created.session);
+        setGuestMessages(created.messages || []);
         setErrorMessage(null);
-        trackEvent("dashboard_ask_started", { source: "dashboard", provider: provider ?? "adaptive" });
+        trackEvent("dashboard_ask_session_prepared", {
+          source: "dashboard",
+          provider: provider ?? "adaptive",
+        });
       } catch (error: any) {
         const detail = error?.message || "Unable to start Ask OPNXT right now.";
         setGuestError(detail);
         setErrorMessage(detail);
-      } finally {
         setGuestLoading(false);
         setChatNotice(null);
+        return;
       }
-      return;
-    }
-
-    setGuestSending(true);
-    setChatNotice("Waiting for assistant response…");
-    setGuestError(null);
-    const optimistic: ChatMessage = {
-      message_id: `local-${Date.now()}`,
-      session_id: guestSession.session_id,
-      role: "user",
-      content: message,
-      created_at: new Date().toISOString(),
-    };
-    setGuestMessages((prev) => prev.concat(optimistic));
-    setDraft("");
-    requestAnimationFrame(autoResize);
-    try {
-      await postChatMessage(guestSession.session_id, message, {
-        provider: provider ?? undefined,
-        model: model ?? undefined,
-      });
-      const latest = await listChatMessages(guestSession.session_id);
-      setGuestMessages(latest ?? []);
-      trackEvent("dashboard_ask_message_sent", {
-        sessionId: guestSession.session_id,
-        provider: provider ?? "adaptive",
-      });
-    } catch (error: any) {
-      const detail = error?.message || "Unable to send message right now.";
-      setGuestError(detail);
-      setGuestMessages((prev) => prev.filter((msg) => msg.message_id !== optimistic.message_id));
-      setDraft(message);
-      requestAnimationFrame(autoResize);
-    } finally {
-      setGuestSending(false);
+      setGuestLoading(false);
       setChatNotice(null);
     }
-  };
 
-  useEffect(() => {
-    if (!guestMessages.length) return;
-    requestAnimationFrame(() => askBottomRef.current?.scrollIntoView({ behavior: "smooth" }));
-  }, [guestMessages.length]);
+    if (!sessionId) return;
+
+    setDraft("");
+    requestAnimationFrame(autoResize);
+    setGuestSending(true);
+    setGuestError(null);
+    setChatNotice("Opening Ask workspace…");
+    trackEvent("dashboard_ask_message_queued", {
+      sessionId,
+      provider: provider ?? "adaptive",
+      source: "dashboard",
+    });
+
+    baseParams.set("prefill", message);
+    baseParams.set("autosend", "1");
+
+    navigateToWorkspace(sessionId);
+
+    setTimeout(() => {
+      setGuestSending(false);
+      setChatNotice(null);
+    }, 0);
+  };
 
   const composerPlaceholder = guestSession
     ? "Share an update with the assistant…"
@@ -606,69 +642,6 @@ export default function DashboardPage() {
           }}
           sendIcon={<span aria-hidden="true">↑</span>}
         />
-        {(guestSession || guestMessages.length > 0 || guestError || chatNotice) && (
-          <div style={{ marginTop: 20 }} aria-live="polite" aria-label="Ask OPNXT conversation">
-            {guestError && (
-              <div className="dashboard-status dashboard-status--error" role="alert">
-                {guestError}
-              </div>
-            )}
-            {deepLinkError && !guestError && (
-              <div className="dashboard-status dashboard-status--error" role="alert">
-                {deepLinkError}
-              </div>
-            )}
-            {chatNotice && !guestError && !deepLinkError && (
-              <div className="dashboard-status" role="status">
-                {chatNotice}
-              </div>
-            )}
-            <div
-              style={{
-                display: "grid",
-                gap: 12,
-                marginTop: 12,
-                maxHeight: 320,
-                overflowY: "auto",
-                padding: 12,
-                borderRadius: 12,
-                border: "1px solid var(--border, #e0e0e0)",
-                background: "var(--surface, #f8f9fb)",
-              }}
-            >
-              {guestMessages.map((msg) => (
-                <div
-                  key={msg.message_id}
-                  style={{
-                    background: msg.role === "assistant" ? "#fff" : "var(--base, #edf2ff)",
-                    borderRadius: 10,
-                    padding: "10px 12px",
-                    boxShadow: "var(--shadow-sm, 0 1px 2px rgba(15, 23, 42, 0.08))",
-                  }}
-                >
-                  <strong>{msg.role === "assistant" ? "Assistant" : "You"}</strong>
-                  <div style={{ marginTop: 6, whiteSpace: "pre-wrap" }}>{msg.content}</div>
-                </div>
-              ))}
-              <div ref={askBottomRef} />
-            </div>
-            {guestSession && (
-              <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 12 }}>
-                <button
-                  type="button"
-                  className="dashboard-composer__link"
-                  onClick={() => {
-                    resetAskExperience();
-                    setDraft("");
-                    requestAnimationFrame(() => composerRef.current?.focus());
-                  }}
-                >
-                  Start a new Ask OPNXT
-                </button>
-              </div>
-            )}
-          </div>
-        )}
       </section>
     </div>
   );

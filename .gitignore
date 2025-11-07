@@ -1,5 +1,6 @@
 # Ignore local environment files
 .env
+frontend/.env.production
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
