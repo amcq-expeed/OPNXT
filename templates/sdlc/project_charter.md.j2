@@ -1,0 +1,115 @@
+{# Project Charter template aligned with PMI best practices #}
+{% set project = project or {} %}
+{% set summaries = summaries or {} %}
+{% set answers = answers or {} %}
+{% set metadata = project.get("metadata", {}) %}
+{% set planning_summary = summaries.get("Planning", "TBD") %}
+{% set objectives = answers.get("Objectives", []) %}
+{% set stakeholders = answers.get("Stakeholders", []) %}
+{% set risks = answers.get("Risks", []) %}
+{% set assumptions = answers.get("Assumptions", []) %}
+{% set project_name = project.get("title") or project.get("name") or "TBD" %}
+{% set doc_id = metadata.get("document_id", "DOC-TBD") %}
+{% set doc_version = metadata.get("version", "0.1-DRAFT") %}
+{% set doc_status = project.get("status", "Draft") %}
+{% set sponsor = metadata.get("sponsor", "TBD") %}
+{% set manager = metadata.get("manager", "TBD") %}
+{% set prepared_by = metadata.get("prepared_by", "OPNXT SDLC Copilot") %}
+{% set prepared_for = metadata.get("prepared_for", sponsor) %}
+{% set classification = metadata.get("classification", "OPNXT Internal - Confidential") %}
+
+# Project Charter
+
+> **Document ID:** {{ doc_id }} · **Classification:** {{ classification }}
+
+## Document Control
+
+| Field | Value |
+| --- | --- |
+| Document Title | {{ project_name }} Project Charter |
+| Document ID | {{ doc_id }} |
+| Version | {{ doc_version }} |
+| Status | {{ doc_status }} |
+| Prepared By | {{ prepared_by }} |
+| Prepared For | {{ prepared_for }} |
+| Sponsor | {{ sponsor }} |
+| Project Manager | {{ manager }} |
+| Date | {{ now() }} |
+| Distribution | {{ metadata.get("distribution", "Executive Steering, Product, Delivery") }} |
+
+## Revision History
+
+| Version | Date | Author | Description |
+| --- | --- | --- | --- |
+| {{ doc_version }} | {{ now() }} | {{ prepared_by }} | {{ metadata.get("revision_notes", "Initial draft generated from accelerator inputs.") }} |
+
+## Table of Contents
+
+1. [Purpose and Background](#1-purpose-and-background)
+2. [Objectives & Success Criteria](#2-objectives--success-criteria)
+3. [Scope](#3-scope)
+4. [Stakeholders and Roles](#4-stakeholders-and-roles)
+5. [High-Level Timeline & Milestones](#5-high-level-timeline--milestones)
+6. [Budget Overview](#6-budget-overview)
+7. [Risks, Issues, and Mitigations](#7-risks-issues-and-mitigations)
+8. [Assumptions & Dependencies](#8-assumptions--dependencies)
+9. [Governance & Approvals](#9-governance--approvals)
+10. [Sign-off](#10-sign-off)
+
+---
+
+## 1. Purpose and Background
+{{ planning_summary or "Summarize the business need, strategic alignment, and context driving this initiative." }}
+
+## 2. Objectives & Success Criteria
+{% if objectives %}
+{% for obj in objectives %}- {{ obj }}
+{% endfor %}
+{% else %}
+List measurable objectives and the success criteria for each objective.
+{% endif %}
+
+## 3. Scope
+### 3.1 In Scope
+Describe the high-level capabilities and deliverables included in this project.
+
+### 3.2 Out of Scope
+Identify related work excluded from this project to manage expectations.
+
+## 4. Stakeholders and Roles
+{% if stakeholders %}
+{% for person in stakeholders %}- {{ person }}
+{% endfor %}
+{% else %}
+List key stakeholders and their responsibilities (e.g., Sponsor, Product Owner, Technical Lead).
+{% endif %}
+
+## 5. High-Level Timeline & Milestones
+Provide major phases, target dates, and gating criteria.
+
+## 6. Budget Overview
+Summarize the budget estimate, funding source, and cost categories.
+
+## 7. Risks, Issues, and Mitigations
+{% if risks %}
+{% for risk in risks %}- {{ risk }}
+{% endfor %}
+{% else %}
+Capture the top risks with probability, impact, and mitigation strategies.
+{% endif %}
+
+## 8. Assumptions & Dependencies
+{% if assumptions %}
+{% for assumption in assumptions %}- {{ assumption }}
+{% endfor %}
+{% else %}
+Document critical assumptions and dependencies that could affect delivery.
+{% endif %}
+
+## 9. Governance & Approvals
+Outline project governance (steering committees, decision cadence) and approval checkpoints.
+
+## 10. Sign-off
+- Sponsor: _________________________  Date: __________
+- Product Owner: ___________________  Date: __________
+- Technical Lead: ___________________  Date: __________

@@ -936,10 +936,10 @@
 .doc-preview p,
 .doc-preview li,
 .doc-preview td,
-.doc-preview th {
-  font-size: 15px;
-  line-height: 1.65;
-  color: rgb(29 46 94 / 92%);
+.workspace-hero__scenario-desc {
+  font-size: 12px;
+  opacity: 0.86;
+  line-height: 1.4;
 }
 
 .doc-preview h1,
@@ -1007,6 +1007,159 @@
   display: inline-flex;
   gap: 8px;
   flex-wrap: wrap;
+}
+
+.stream-notice {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  font-size: 12px;
+  background: rgb(232 241 255 / 92%);
+  color: #0c2b67;
+  box-shadow: var(--shadow-sm, 0 4px 12px rgb(15 38 88 / 20%));
+}
+
+.stream-notice--info {
+  background: rgb(232 241 255 / 92%);
+  color: #0c2b67;
+}
+
+.stream-notice--warn {
+  background: rgb(255 246 224 / 92%);
+  color: #8a5600;
+}
+
+.stream-notice--error {
+  background: rgb(255 232 232 / 94%);
+  color: #a01818;
+}
+
+.stream-notice .btn-inline {
+  background: transparent;
+  border: none;
+  color: inherit;
+  text-decoration: underline;
+  padding: 0;
+  font-size: 12px;
+}
+
+.doc-editor {
+  display: grid;
+  gap: 12px;
+}
+
+.doc-editor__label {
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.doc-editor__textarea {
+  width: 100%;
+  min-height: 360px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  padding: 12px;
+  font-family: var(--font-monospace, "Roboto Mono", ui-monospace);
+  font-size: 13px;
+  line-height: 1.5;
+  resize: vertical;
+  background: rgb(255 255 255 / 96%);
+  color: var(--text);
+}
+
+.doc-editor__textarea:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+.doc-editor__meta-grid {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+.doc-editor__meta-grid label {
+  display: grid;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.doc-editor__meta-grid input {
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  padding: 8px 10px;
+  font-size: 13px;
+  background: rgb(255 255 255 / 96%);
+  color: var(--text);
+}
+
+.doc-editor__meta-grid input:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 1px;
+}
+
+.doc-editor__error {
+  margin: 0;
+  color: #a01818;
+  font-size: 13px;
+}
+
+.doc-editor__success {
+  margin: 0;
+  color: #0a6a32;
+  font-size: 13px;
+}
+
+.doc-editor__actions {
+  display: inline-flex;
+  gap: 10px;
+}
+
+.doc-preview__live {
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgb(244 249 255 / 92%);
+  border: 1px dashed rgb(130 168 240 / 40%);
+  font-size: 13px;
+}
+
+.doc-preview__live pre {
+  margin: 6px 0 0;
+  font-family: var(--font-monospace, "Roboto Mono", ui-monospace);
+  font-size: 12px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.doc-preview__meta {
+  margin-top: 12px;
+  display: grid;
+  gap: 6px;
+  border-top: 1px solid rgb(130 170 236 / 30%);
+  padding-top: 10px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.doc-preview__meta-item {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.doc-preview__meta-label {
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.doc-preview__meta-value {
+  color: var(--text);
 }
 
 .doc-preview__actions-row {
@@ -1287,7 +1440,7 @@
 
 .assistant-overlay__panel {
   position: relative;
-  width: min(540px, 92vw);
+  width: min(980px, 98vw);
   border-radius: 26px;
   padding: clamp(24px, 4vw, 36px);
   background:
@@ -3431,7 +3584,6 @@ select {
     0deg,
     rgb(0 16 48 / 100%) 0%,
     rgb(0 16 48 / 60%) 25%,
-    rgb(0 16 48 / 40%) 35%,
     rgb(0 0 0 / 35%) 65%
   );
   z-index: 1;
@@ -3808,7 +3960,7 @@ select {
   position: absolute;
   top: 0;
   right: 0;
-  width: min(420px, 92vw);
+  width: min(780px, 97vw);
   height: 100%;
   background: #fff;
   border-left: 1px solid var(--border);

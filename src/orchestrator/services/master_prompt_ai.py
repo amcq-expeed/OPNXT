@@ -14,6 +14,8 @@ except Exception:  # pragma: no cover - optional import
     ChatOpenAI = None  # type: ignore
 
 
+# --- Helper Functions (Standard) ---
+
 def _is_placeholder_key(k: Optional[str]) -> bool:
     if not k:
         return True
@@ -43,6 +45,7 @@ def _get_llm() -> object:
 
 def _load_master_prompt() -> str:
     # Resolve repo root (two parents up from services/)
+    # NOTE: Path resolution is kept as-is, but flagged as potentially fragile in analysis.
     here = Path(__file__).resolve()
     repo_root = here.parents[3]
     mp = repo_root / "Master_Prompt_Interactive_SDLC_Doc_Generator.md"
@@ -55,18 +58,46 @@ def _extract_json(text: str) -> dict:
     try:
         return json.loads(text)
     except Exception:
+        # Robust JSON extraction
         m = re.search(r"\{[\s\S]*\}", text)
         if not m:
             raise
         return json.loads(m.group(0))
 
+# --- Main Functions (Updated) ---
 
-def generate_with_master_prompt(project_name: str, input_text: str, doc_types: List[str] | None = None, attachments: Optional[Dict[str, str]] = None) -> Dict[str, str]:
+def generate_with_master_prompt(
+    project_name: str,
+    input_text: str,
+    doc_types: List[str] | None = None,
+    attachments: Optional[Dict[str, str]] = None,
+    current_doc_type: Optional[str] = None, # NEW: For change propagation
+    change_policy: str = 'review' # NEW: For change propagation
+) -> Dict[str, str]:
     """Call the LLM with the Master Prompt to produce full Markdown docs.
 
     Returns mapping filename -> markdown.
     """
     master_prompt = _load_master_prompt()
+    
+    # Allowed/Mapped document types based on the Enhanced Master Prompt
+    ALLOWED_DOC_TYPES = {
+        "project charter": "Project Charter",
+        "charter": "Project Charter",
+        "brd": "BRD", # NEW
+        "business requirements document": "BRD", # NEW
+        "srs": "SRS",
+        "software requirements specification": "SRS",
+        "srd": "SRD", # NEW
+        "security requirements document": "SRD", # NEW
+        "tdd": "SDD",
+        "sdd": "SDD",
+        "system design document": "SDD",
+        "technical design document": "SDD",
+        "test plan": "Test Plan",
+        "testplan": "Test Plan",
+        "test strategy": "Test Plan",
+    }
 
     def _normalize_doc_types(dts: Optional[List[str]]) -> List[str]:
         raw = [str(x) for x in (dts or []) if str(x).strip()]
@@ -74,26 +105,15 @@ def generate_with_master_prompt(project_name: str, input_text: str, doc_types: L
         seen: set[str] = set()
         for dt in raw:
             key = dt.strip().lower().replace("_", " ").replace("-", " ")
-            # Backlog is handled in a separate second pass by the caller
             if "backlog" in key:
                 continue
-            norm = None
-            if key in ("project charter", "projectcharter", "charter"):
-                norm = "Project Charter"
-            elif key in ("srs", "software requirements specification"):
-                norm = "SRS"
-            elif key in ("sdd", "system design document", "technical design document", "tdd"):
-                norm = "SDD"
-            elif key in ("test plan", "testplan", "test strategy", "test strategy/plan"):
-                norm = "Test Plan"
-            else:
-                # Unknown types are ignored for this pass
-                norm = None
+            norm = ALLOWED_DOC_TYPES.get(key)
             if norm and norm not in seen:
                 seen.add(norm)
                 out.append(norm)
         if not out:
-            out = ["Project Charter", "SRS", "SDD", "Test Plan"]
+            # Updated default set to include BRD
+            out = ["Project Charter", "BRD", "SRS", "SDD", "Test Plan"]
         return out
 
     doc_types = _normalize_doc_types(doc_types)
@@ -101,18 +121,24 @@ def generate_with_master_prompt(project_name: str, input_text: str, doc_types: L
     try:
         llm = _get_llm()
     except Exception:
-        # If LLM unavailable, return empty mapping so caller can fall back
         return {}
 
+    # UPDATED: Added BRD and SRD guidance
     guides = {
         "Project Charter": (
             "Include: Purpose, Scope, Objectives, Stakeholders, Risks, Success Criteria, Assumptions, Open Questions. "
             "Add metadata (Project, Version, Date, Author, Approval)."
         ),
+        "BRD": (
+            "Include: Business Needs, Current State vs. Future State, Business Rules, High-Level Requirements, Success Metrics."
+        ),
         "SRS": (
-            "Follow IEEE 29148 style. Include: Introduction (Purpose, Scope, Definitions), Overall Description, Product Functions, "
-            "Nonfunctional Requirements, Constraints, Personas, Acceptance Criteria, Assumptions & Open Questions, Traceability notes. "
-            "Functional requirements should be SHALL statements."
+            "Follow IEEE 830 structure. Include: Functional SHALL statements with IDs, External Interface Requirements, Performance, "
+            "Design Constraints, Software System Attributes (Reliability, Availability, Security, Maintainability, Portability), Logical "
+            "Database needs, Quality attributes, and Verification plans. Ensure traceability to every SHALL requirement."
+        ),
+        "SRD": (
+            "Include: Compliance requirements (e.g., GDPR/HIPAA), Threat Modeling summary, Security Controls, Data Privacy rules, and Vetting processes."
         ),
         "SDD": (
             "Include: Architecture Overview, Modules/Components, Sequence/Flow, Integrations/APIs, Data Model, Error Handling, Security, Deployment."
@@ -129,8 +155,22 @@ def generate_with_master_prompt(project_name: str, input_text: str, doc_types: L
         guide_lines.append(f"- {dt}: {g}")
     guide_block = "\n".join(guide_lines)
 
+    # UPDATED: Added Orchestrator Parameters to the system prompt
+    orchestrator_params = {
+        "current_doc_type": current_doc_type or doc_types[0],
+        "allow_upstream_edits": "true", # Assume editable for now, could be made dynamic
+        "change_policy": change_policy,
+        # doc_registry is implicit via attached docs
+    }
+    
+    orchestrator_block = "\n".join([
+        f"- {k}: {v}" for k, v in orchestrator_params.items()
+    ])
+
     system = (
         master_prompt
+        + "\n\n--- ORCHESTRATOR PARAMETERS ---\n"
+        + orchestrator_block
         + "\n\nIMPORTANT: Generate complete, professional documents per the guidance below. "
         + "Re-use any attached prior docs for consistency. Do not include code fences or backticks. Use GitHub-flavored Markdown. "
         + "Always include metadata (Project, Version, Date, Author, Approval). Append 'Assumptions & Open Questions'. "
@@ -140,7 +180,7 @@ def generate_with_master_prompt(project_name: str, input_text: str, doc_types: L
         + "use attachments only as historical reference for tone/formatting and continuity. Ensure every SHALL from the structured context appears in the SRS and is traceable in SDD and Test Plan.\n\n"
         + "Document Guidance:\n"
         + guide_block
-        + "\n\nOUTPUT SPEC: Return ONLY valid JSON with keys: ProjectCharter, SRS, SDD, TestPlan. Each value MUST be a Markdown string for that document."
+        + "\n\nOUTPUT SPEC: Return ONLY valid JSON with keys: ProjectCharter, BRD, SRS, SRD, SDD, TestPlan, PatchPlan, TraceabilityMatrix, ChangeLog. Each value MUST be a Markdown string for that document. If a document type wasn't requested, its key value can be null or an empty string."
     )
 
     # Attach previously generated docs if provided
@@ -156,7 +196,7 @@ def generate_with_master_prompt(project_name: str, input_text: str, doc_types: L
         "PROJECT NAME: " + project_name + "\n\n"
         "USER INPUT (description/requirements):\n" + (input_text or "") + "\n\n"
         + ("ATTACHED DOCS:\n" + attach_block + "\n\n" if attach_block else "")
-        + "DOC TYPES: " + ", ".join(doc_types)
+        + "DOC TYPES REQUESTED: " + ", ".join(doc_types)
     )
 
     try:
@@ -174,11 +214,17 @@ def generate_with_master_prompt(project_name: str, input_text: str, doc_types: L
         return {}
 
     out: Dict[str, str] = {}
+    # UPDATED: Added BRD, SRD, and Change Propagation artifact outputs
     mapping = {
         "ProjectCharter": "ProjectCharter.md",
+        "BRD": "BRD.md",
         "SRS": "SRS.md",
+        "SRD": "SRD.md",
         "SDD": "SDD.md",
         "TestPlan": "TestPlan.md",
+        "PatchPlan": "PatchPlan.md",
+        "TraceabilityMatrix": "TraceabilityMatrix.md",
+        "ChangeLog": "ChangeLog.md",
     }
     for k, fname in mapping.items():
         val = data.get(k)

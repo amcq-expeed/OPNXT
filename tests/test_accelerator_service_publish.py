@@ -118,7 +118,11 @@ def test_publish_code_artifacts_generates_bundle(monkeypatch, sample_session, sa
 
     monkeypatch.setattr(accelerator_service, "get_accelerator_store", lambda: StoreStub())
     monkeypatch.setattr(accelerator_service, "get_doc_store", lambda: DocStoreStub())
-    monkeypatch.setattr(accelerator_service, "_queue_artifact", lambda sid, payload: queued.append((sid, payload)))
+    monkeypatch.setattr(
+        accelerator_service,
+        "_queue_linked_artifact",
+        lambda sid, payload, message_id=None: queued.append((sid, payload, message_id)),
+    )
     monkeypatch.setattr(accelerator_service, "record_metric", lambda **kwargs: recorded_metrics.append(kwargs))
     monkeypatch.setattr(accelerator_service, "record_event", lambda event: recorded_events.append(event))
     monkeypatch.setattr(accelerator_service, "_update_session_metadata", lambda sid, meta: updated_metadata.update(meta))
@@ -127,18 +131,29 @@ def test_publish_code_artifacts_generates_bundle(monkeypatch, sample_session, sa
     monkeypatch.setattr(
         accelerator_service,
         "_compose_capability_summary",
-        lambda _title, _fr_refs=None, _nfr_refs=None: "SUMMARY",
+        lambda _title, _fr_refs=None, _nfr_refs=None, _meta=None: "SUMMARY",
     )
     monkeypatch.setattr(accelerator_service, "_package_ready_to_run_bundle", lambda files: b"zip-bytes")
-    monkeypatch.setattr(accelerator_service, "_build_live_preview_html", lambda _title: "<html></html>")
+    monkeypatch.setattr(accelerator_service, "_build_live_preview_html", lambda _meta: "<html></html>")
     monkeypatch.setattr(accelerator_service, "_compose_ready_to_run_instructions", lambda: "Run it")
 
-    accelerator_service._publish_code_artifacts(sample_session, sample_intent, payload, duration_ms=123.0)
+    accelerator_service._publish_code_artifacts(
+        sample_session,
+        sample_intent,
+        payload,
+        duration_ms=123.0,
+        latest_input="Design the patient intake experience",
+        trigger_message_id="msg-123",
+    )
 
-    bundle_payloads = [payload for _, payload in queued if payload["type"] == "bundle"]
-    assert bundle_payloads, "bundle artifact should be queued"
-    assert any(args[0][1] == "draft.md" for args, _ in saved_previews) or saved_previews
-    assert saved_assets
+    all_filenames = [kwargs["filename"] for _, kwargs in added_artifacts]
+    bundle_filenames = [name for name in all_filenames if name.endswith("-bundle.zip")]
+    preview_filenames = [name for name in all_filenames if name.endswith("-preview.html")]
+    assert bundle_filenames, f"bundle artifact should be saved (found={all_filenames})"
+    assert preview_filenames, f"preview artifact should be saved (found={all_filenames})"
+    queue_types = [payload.get("type") for _, payload, _ in queued]
+    assert any(t == "preview" for t in queue_types), f"preview should be queued (types={queue_types})"
+    assert saved_doc_assets
     assert recorded_metrics and recorded_events
     assert updated_metadata["status"] == "ready"
 
@@ -183,7 +198,11 @@ def test_publish_code_artifacts_skips_bundle_without_flag(monkeypatch, sample_se
 
     monkeypatch.setattr(accelerator_service, "get_accelerator_store", lambda: StoreStub())
     monkeypatch.setattr(accelerator_service, "get_doc_store", lambda: DocStoreStub())
-    monkeypatch.setattr(accelerator_service, "_queue_artifact", lambda sid, payload: queued.append((sid, payload)))
+    monkeypatch.setattr(
+        accelerator_service,
+        "_queue_linked_artifact",
+        lambda sid, payload, message_id=None: queued.append((sid, payload, message_id)),
+    )
     monkeypatch.setattr(accelerator_service, "record_metric", lambda **kwargs: None)
     monkeypatch.setattr(accelerator_service, "record_event", lambda event: None)
     monkeypatch.setattr(accelerator_service, "_update_session_metadata", lambda sid, meta: None)
@@ -192,19 +211,26 @@ def test_publish_code_artifacts_skips_bundle_without_flag(monkeypatch, sample_se
     monkeypatch.setattr(
         accelerator_service,
         "_compose_capability_summary",
-        lambda _title, _fr_refs=None, _nfr_refs=None: "SUMMARY",
+        lambda _title, _fr_refs=None, _nfr_refs=None, _meta=None: "SUMMARY",
     )
     monkeypatch.setattr(accelerator_service, "_package_ready_to_run_bundle", lambda files: b"zip-bytes")
-    monkeypatch.setattr(accelerator_service, "_build_live_preview_html", lambda _title: "<html></html>")
+    monkeypatch.setattr(accelerator_service, "_build_live_preview_html", lambda _meta: "<html></html>")
     monkeypatch.setattr(accelerator_service, "_compose_ready_to_run_instructions", lambda: "Run it")
 
-    accelerator_service._publish_code_artifacts(sample_session, sample_intent, payload, duration_ms=100.0)
+    accelerator_service._publish_code_artifacts(
+        sample_session,
+        sample_intent,
+        payload,
+        duration_ms=100.0,
+        latest_input="Design the patient intake experience",
+        trigger_message_id="msg-456",
+    )
 
     filenames = [kwargs["filename"] for _, kwargs in added_artifacts]
     assert all(not name.endswith("-bundle.zip") for name in filenames)
-    assert all(kwargs.get("type") != "bundle" for _, kwargs in queued)
-    assert all(kwargs.get("type") != "preview" for _, kwargs in queued)
-    assert all(kwargs.get("type") != "prototype" for _, kwargs in queued)
+    assert any(payload.get("type") == "preview" for _, payload, *_ in queued)
+    assert all(payload.get("type") != "bundle" for _, payload, *_ in queued)
+    assert all(payload.get("type") != "prototype" for _, payload, *_ in queued)
 
 
 def test_seed_baseline_artifact_generates_draft(monkeypatch, sample_session, sample_intent):

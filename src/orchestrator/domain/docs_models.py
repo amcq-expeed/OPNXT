@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import List, Optional, Dict
+from typing import List, Optional, Dict, Any
 from pydantic import BaseModel
 
 
@@ -88,6 +88,22 @@ class UploadAnalyzeItem(BaseModel):
 class UploadAnalyzeResponse(BaseModel):
     project_id: str
     items: List[UploadAnalyzeItem]
+
+
+class DocumentEditRequest(BaseModel):
+    content: str
+    summary: Optional[str] = None
+    section: Optional[str] = None
+    message_id: Optional[str] = None
+    change_description: Optional[str] = None
+
+
+class DocumentEditResponse(BaseModel):
+    filename: str
+    version: int
+    content: str
+    meta: Dict[str, Any]
+    revision: int
 
 
 class UploadApplyRequest(BaseModel):

@@ -4,7 +4,7 @@ from datetime import datetime
 
 import pytest
 
-from src.orchestrator.infrastructure import chat_store, doc_store
+from src.orchestrator.infrastructure import accelerator_store, chat_store, doc_store
 
 
 @pytest.fixture(autouse=True)
@@ -17,6 +17,10 @@ def reset_singletons(monkeypatch):
     monkeypatch.setattr(chat_store, "_store", None, raising=False)
     monkeypatch.setattr(chat_store, "_db_mode_mongo_chat_enabled", False, raising=False)
     monkeypatch.delenv("OPNXT_CHAT_STORE_IMPL", raising=False)
+
+    monkeypatch.setattr(accelerator_store, "_store", None, raising=False)
+    monkeypatch.setattr(accelerator_store, "_db_mode_mongo_accel_enabled", False, raising=False)
+    monkeypatch.delenv("OPNXT_ACCELERATOR_STORE_IMPL", raising=False)
 
 
 # ---------------------- Document Store coverage ----------------------
@@ -125,6 +129,73 @@ def test_doc_store_time_helpers_handle_naive_datetime():
     assert ensured.tzinfo is not None
     iso = doc_store._isoformat_utc(naive)
     assert iso.endswith("Z")
+
+
+# ---------------------- Accelerator Store coverage ----------------------
+
+
+def test_inmemory_accelerator_store_session_lifecycle():
+    store = accelerator_store.InMemoryAcceleratorStore()
+
+    session = store.create_session("intent-demo", "builder@example.com", persona="pm", metadata={"status": "ready"})
+    assert session.accelerator_id == "intent-demo"
+
+    fetched = store.get_session(session.session_id)
+    assert fetched is not None and fetched.session_id == session.session_id
+
+    message = store.add_message(session.session_id, "assistant", "Welcome!", metadata={"provider": "system"})
+    assert message.role == "assistant"
+    assert len(store.list_messages(session.session_id)) == 1
+
+    meta = {"version": 1, "summary": "hello"}
+    artifact = store.add_artifact(session.session_id, "README.md", project_id=None, meta=meta)
+    assert artifact["meta"]["version"] == 1
+
+    live = store.add_live_artifact(session.session_id, {"type": "status", "progress": 0.5})
+    assert live["type"] == "status"
+
+    store.save_asset(session.session_id, "bundle.zip", b"zip-bytes")
+    assert store.get_asset(session.session_id, "bundle.zip") == b"zip-bytes"
+
+    attachment = store.add_attachment(session.session_id, {"id": "att-1", "filename": "notes.txt", "text": "sample"})
+    assert attachment["filename"] == "notes.txt"
+    assert len(store.list_attachments(session.session_id)) == 1
+
+    artifacts, revision = store.artifact_snapshot(session.session_id)
+    assert revision >= 1
+    assert any(item["filename"] == "README.md" for item in artifacts if isinstance(item, dict))
+
+
+def test_get_accelerator_store_prefers_mongo_when_available(monkeypatch):
+    class FakeMongoAcceleratorStore(accelerator_store.InMemoryAcceleratorStore):
+        marker = "fake-accel-mongo"
+
+    monkeypatch.setenv("OPNXT_ACCELERATOR_STORE_IMPL", "mongo")
+    monkeypatch.setattr(accelerator_store, "_store", None, raising=False)
+    monkeypatch.setattr(accelerator_store, "_db_mode_mongo_accel_enabled", False, raising=False)
+
+    fake_module = types.ModuleType("accelerator_store_mongo")
+    fake_module.MongoAcceleratorStore = lambda: FakeMongoAcceleratorStore()
+    monkeypatch.setitem(sys.modules, "src.orchestrator.infrastructure.accelerator_store_mongo", fake_module)
+
+    store = accelerator_store.get_accelerator_store()
+    assert isinstance(store, FakeMongoAcceleratorStore)
+
+
+def test_get_accelerator_store_fallback_when_mongo_unavailable(monkeypatch):
+    def _explode():
+        raise RuntimeError("accelerator mongo boom")
+
+    monkeypatch.setenv("OPNXT_ACCELERATOR_STORE_IMPL", "mongo")
+    monkeypatch.setattr(accelerator_store, "_store", None, raising=False)
+    monkeypatch.setattr(accelerator_store, "_db_mode_mongo_accel_enabled", False, raising=False)
+
+    failing_module = types.ModuleType("accelerator_store_mongo")
+    failing_module.MongoAcceleratorStore = _explode
+    monkeypatch.setitem(sys.modules, "src.orchestrator.infrastructure.accelerator_store_mongo", failing_module)
+
+    store = accelerator_store.get_accelerator_store()
+    assert isinstance(store, accelerator_store.InMemoryAcceleratorStore)
 
 
 # ---------------------- Chat Store coverage ----------------------

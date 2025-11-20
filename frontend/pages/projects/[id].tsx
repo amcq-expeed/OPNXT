@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { useRouter } from "next/router";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import {
@@ -23,17 +24,23 @@ import {
   OrchestrateResponse,
   OrchestrateTimelineEntry,
   trackEvent,
+  patchProjectDocument,
+  DocumentEditRequest,
 } from "../../lib/api";
+import { useProjectDocumentStream } from "../../lib/useProjectDocumentStream";
 import Tabs from "../../components/Tabs";
 import ChatPanel from "../../components/ChatPanel";
-import ProjectLaunchHero, {
-  LaunchScenario,
-} from "../../components/ui/ProjectLaunchHero";
 import NextAction from "../../components/ui/NextAction";
 import Stat from "../../components/ui/Stat";
 import Stepper from "../../components/ui/Stepper";
 import DocList from "../../components/DocList";
 import Modal from "../../components/ui/Modal";
+
+type WorkspaceScenario = {
+  label: string;
+  description: string;
+  prompt: string;
+};
 
 export default function ProjectDetailsPage() {
   const router = useRouter();
@@ -106,6 +113,51 @@ export default function ProjectDetailsPage() {
     Record<string, { approved: boolean; approved_at?: string }>
   >({});
   const [approvalBusy, setApprovalBusy] = useState<boolean>(false);
+
+  const {
+    documents: streamedDocuments,
+    documentMap: streamedDocumentMap,
+    livePreview,
+    status: streamStatus,
+    heartbeatAt: streamHeartbeatAt,
+    streaming: streamDraftActive,
+    streamError,
+    isConnected: streamConnected,
+    reconnect: reconnectStream,
+    recentUpdates,
+  } = useProjectDocumentStream(
+    id ? { projectId: id, autostart: Boolean(id) } : { projectId: null, autostart: false },
+  );
+  const [editMode, setEditMode] = useState(false);
+  const [editDraft, setEditDraft] = useState("");
+  const [editSummary, setEditSummary] = useState("");
+  const [editSection, setEditSection] = useState("");
+  const [editChangeDescription, setEditChangeDescription] = useState("");
+  const [savingEdit, setSavingEdit] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
+  const [lastSavedRevision, setLastSavedRevision] = useState<number | null>(null);
+  const [heartbeatStale, setHeartbeatStale] = useState(false);
+  const streamHeartbeatTimeoutMs = 20000;
+  const lastStreamErrorRef = useRef<string | null>(null);
+  const prevStreamConnectedRef = useRef<boolean | null>(null);
+
+  useEffect(() => {
+    if (!streamHeartbeatAt || typeof window === "undefined") {
+      setHeartbeatStale(false);
+      return;
+    }
+    setHeartbeatStale(Date.now() - streamHeartbeatAt > streamHeartbeatTimeoutMs);
+    const timer = window.setInterval(() => {
+      setHeartbeatStale(Date.now() - streamHeartbeatAt > streamHeartbeatTimeoutMs);
+    }, Math.min(5000, streamHeartbeatTimeoutMs));
+    return () => window.clearInterval(timer);
+  }, [streamHeartbeatAt, streamHeartbeatTimeoutMs]);
+
+  useEffect(() => {
+    if (streamConnected) {
+      setHeartbeatStale(false);
+    }
+  }, [streamConnected]);
 
   const buildOrchestrateGoal = useCallback(() => {
     const details: string[] = [];
@@ -186,32 +238,72 @@ export default function ProjectDetailsPage() {
 
   // AI generation options
   const [includeBacklog, setIncludeBacklog] = useState<boolean>(false);
-  // Scenario chips → prefill chat input
+  // Prefill for requirements chat quick-starts
   const [chipPrefill, setChipPrefill] = useState<string | undefined>(undefined);
-  const scenarioChips = useMemo<LaunchScenario[]>(
+  const prefillHandledRef = useRef<string | null>(null);
+  const heroScenarios = useMemo<WorkspaceScenario[]>(
     () => [
-      { label: "Healthcare", value: "Healthcare Appointment System" },
-      { label: "Banking", value: "Bank Payment Platform" },
-      { label: "E-commerce", value: "E-commerce Store" },
-      { label: "Custom", value: "Custom Application" },
+      {
+        label: "Healthcare",
+        description: "Patient scheduling, telehealth and regulatory-ready journeys.",
+        prompt:
+          "Concept to Deployment scenario: Healthcare Appointment System. Confirm clinical and regulatory context, then drive requirements, architecture guidance, implementation steps, testing coverage, and deployment checklist. Produce Charter, SRS, SDD, and Test Plan when ready.",
+      },
+      {
+        label: "Banking",
+        description: "Payments, authentication, audit controls, and SLA reporting.",
+        prompt:
+          "Concept to Deployment scenario: Bank Payment Platform. Capture compliance constraints, then lead me through requirements, target architecture, implementation plan, testing, and deployment readiness with Charter, SRS, SDD, and Test Plan milestones.",
+      },
+      {
+        label: "E-commerce",
+        description: "Catalog, checkout, and fulfillment orchestration with analytics.",
+        prompt:
+          "Concept to Deployment scenario: E-commerce Store. Gather product, checkout, and fulfillment context, then outline requirements, architecture, implementation, testing, and deployment with Charter, SRS, SDD, and Test Plan outputs.",
+      },
+      {
+        label: "Custom",
+        description: "Bring your own initiative and tailor the SDLC workspace instantly.",
+        prompt:
+          "Concept to Deployment workspace kickoff. Ask for critical context, then guide me through requirements, architecture, implementation, testing, and deployment readiness. Produce Charter, SRS, SDD, and Test Plan as gates are satisfied.",
+      },
     ],
     [],
   );
 
+  const routeToTab = useCallback(
+    (tab: string, prefill?: string) => {
+      if (!id) return;
+      if (prefill) {
+        setChipPrefill(prefill);
+      }
+      void router.push({
+        pathname: `/projects/${id}`,
+        query: { tab },
+      });
+    },
+    [id, router],
+  );
+
   // Read ?prefill= from URL once to seed ChatPanel
   useEffect(() => {
-    const p =
+    const rawPrefill =
       typeof router.query.prefill === "string"
         ? router.query.prefill
         : undefined;
-    if (p && !chipPrefill) {
-      try {
-        setChipPrefill(decodeURIComponent(p));
-      } catch {
-        setChipPrefill(p);
-      }
+    if (!rawPrefill) return;
+    if (prefillHandledRef.current === rawPrefill) return;
+
+    let decoded = rawPrefill;
+    try {
+      decoded = decodeURIComponent(rawPrefill);
+    } catch {
+      /* ignore decode errors; fall back to raw */
     }
-  }, [router.query.prefill, chipPrefill]);
+
+    setChipPrefill(decoded);
+    prefillHandledRef.current = rawPrefill;
+  }, [router.query.prefill]);
 
   // Derived overview metrics
   const answers = useMemo(() => (ctx as any)?.data?.answers || {}, [ctx]);
@@ -232,6 +324,53 @@ export default function ProjectDetailsPage() {
     if (docs?.artifacts) return docs.artifacts.length;
     return Object.keys(versions?.versions || {}).length;
   }, [docs, versions]);
+
+  const workspaceHeroSubtitle = useMemo(() => {
+    const parts: string[] = [];
+    if (project?.current_phase) {
+      parts.push(`Current phase: ${project.current_phase}`);
+    }
+    if (reqCount > 0) {
+      parts.push(`${reqCount} requirement${reqCount === 1 ? "" : "s"} captured`);
+    }
+    if (docCount) {
+      parts.push(`${docCount} document${docCount === 1 ? "" : "s"} generated`);
+    }
+    const base =
+      "Navigate requirements, design, testing, and approvals with live editing and streaming updates.";
+    if (parts.length === 0) return base;
+    return `${base} ${parts.join(" · ")}.`;
+  }, [project?.current_phase, reqCount, docCount]);
+
+  const workspaceQuickLinks = useMemo(
+    () => [
+      {
+        id: "requirements",
+        label: "Requirements",
+        description: "Chat, inline Markdown edits, and live preview streaming.",
+        action: () => routeToTab("Requirements"),
+      },
+      {
+        id: "docs",
+        label: "Docs",
+        description: "Browse, approve, and download generated artifacts.",
+        action: () => routeToTab("Docs"),
+      },
+      {
+        id: "design",
+        label: "Design",
+        description: "Answer open questions and capture architecture decisions.",
+        action: () => routeToTab("Design"),
+      },
+      {
+        id: "settings",
+        label: "Settings",
+        description: "Manage stored context, impact analysis, and approvals.",
+        action: () => routeToTab("Settings"),
+      },
+    ],
+    [routeToTab],
+  );
   const generationProgress = useMemo(() => {
     if (!docGeneration.active && !docGeneration.cancelRequested) return 0;
     switch (docGeneration.stage) {
@@ -470,11 +609,21 @@ export default function ProjectDetailsPage() {
     }
   }
 
+  const combinedArtifacts = useMemo(() => {
+    if (streamedDocuments.length > 0) return streamedDocuments;
+    if (docs?.artifacts) return docs.artifacts;
+    return [] as DocGenResponse["artifacts"];
+  }, [streamedDocuments, docs]);
+
   const selectedArtifact = useMemo(() => {
-    if (!docs) return null;
-    const direct = docs.artifacts.find((a) => a.filename === selected) || null;
-    return direct;
-  }, [docs, selected]);
+    if (!selected) return null;
+    const streamed = streamedDocumentMap[selected];
+    if (streamed) return streamed;
+    if (docs?.artifacts) {
+      return docs.artifacts.find((a) => a.filename === selected) || null;
+    }
+    return null;
+  }, [selected, streamedDocumentMap, docs]);
 
   useEffect(() => {
     if (!selectedArtifact && previewModalOpen) {
@@ -483,6 +632,296 @@ export default function ProjectDetailsPage() {
   }, [selectedArtifact, previewModalOpen]);
 
   const selectedApproval = selected ? approvals?.[selected] : undefined;
+
+  useEffect(() => {
+    if (!editMode) {
+      const meta = (selectedArtifact as any)?.meta || {};
+      setEditDraft(selectedArtifact?.content ?? "");
+      setEditSummary(typeof meta?.summary === "string" ? meta.summary : "");
+      setEditSection(typeof meta?.section === "string" ? meta.section : "");
+      if (!editChangeDescription) {
+        setEditChangeDescription("");
+      }
+    }
+  }, [selectedArtifact, editMode, editChangeDescription]);
+
+  useEffect(() => {
+    setLastSavedRevision(null);
+    setEditError(null);
+    setEditMode(false);
+  }, [selected]);
+
+  const canSaveEdit = useMemo(
+    () => Boolean(selected && !savingEdit && editDraft.trim().length > 0),
+    [selected, savingEdit, editDraft],
+  );
+
+  const showLivePreview = useMemo(
+    () => Boolean(!editMode && livePreview && streamDraftActive),
+    [editMode, livePreview, streamDraftActive],
+  );
+
+  const streamNotice = useMemo(() => {
+    if (streamError) return { variant: "error" as const, text: streamError };
+    if (!streamConnected)
+      return {
+        variant: "warn" as const,
+        text: "Reconnecting you to the live builder…",
+      };
+    if (heartbeatStale)
+      return {
+        variant: "warn" as const,
+        text: "Haven’t heard back from the stream in a moment—tap reconnect if you stop seeing updates.",
+      };
+    if (streamDraftActive)
+      return {
+        variant: "info" as const,
+        text: "✨ I’m weaving your latest details into the draft right now."
+        ,
+      };
+    if (streamStatus?.message) {
+      const suffix = streamStatus.stage ? ` (stage: ${streamStatus.stage})` : "";
+      return {
+        variant: "info" as const,
+        text: `✅ ${streamStatus.message}${suffix}`,
+      };
+    }
+    return null;
+  }, [streamError, streamConnected, heartbeatStale, streamDraftActive, streamStatus]);
+
+  const liveUpdateEntries = useMemo(() => {
+    if (!recentUpdates?.length)
+      return [] as {
+        key: string;
+        label: string;
+        detail?: string | null;
+        messageId?: string | null;
+        timestamp?: string | null;
+        revision?: number | null;
+        diff?: string | null;
+      }[];
+    return recentUpdates
+      .slice()
+      .reverse()
+      .map((update, index) => {
+        const key = `${update.ts || index}-${update.type}-${update.filename ?? ""}`;
+        const baseTs = update.ts ? new Date(update.ts).toLocaleTimeString() : null;
+        const summaryDetail = update.summary ?? update.message ?? null;
+        const changeDetail = update.changeDescription ?? null;
+        const diffDetail = update.diff ? update.diff.slice(0, 200) : null;
+        switch (update.type) {
+          case "document_update": {
+            const fileLabel = update.filename ? `Updated ${update.filename}` : "Document updated";
+            const sectionDetail = update.section ? `Section ${update.section}` : null;
+            const combinedDetail = summaryDetail || changeDetail || sectionDetail || diffDetail;
+            return {
+              key,
+              label: fileLabel,
+              detail: combinedDetail ?? (update.stage ? `Stage ${update.stage}` : null),
+              messageId: update.messageId ?? null,
+              timestamp: baseTs,
+              revision: typeof update.revision === "number" ? update.revision : null,
+              diff: diffDetail,
+            };
+          }
+          case "draft_update":
+            return {
+              key,
+              label: update.filename ? `Drafting ${update.filename}` : "Draft preview updating",
+              detail: update.preview ? update.preview.slice(0, 120) : "Live preview refreshed",
+              messageId: update.messageId ?? null,
+              timestamp: baseTs,
+            };
+          case "status":
+            return {
+              key,
+              label: update.message ? update.message : "Status update",
+              detail: update.stage ? `Stage ${update.stage}` : null,
+              messageId: update.messageId ?? null,
+              timestamp: baseTs,
+              revision: typeof update.revision === "number" ? update.revision : null,
+            };
+          case "error":
+            return {
+              key,
+              label: update.message ? update.message : "Stream error",
+              detail: "Check console or retry generation.",
+              messageId: update.messageId ?? null,
+              timestamp: baseTs,
+              revision: typeof update.revision === "number" ? update.revision : null,
+            };
+          default:
+            return {
+              key,
+              label: "Update received",
+              detail: null,
+              messageId: update.messageId ?? null,
+              timestamp: baseTs,
+              revision: typeof update.revision === "number" ? update.revision : null,
+            };
+        }
+      })
+      .slice(0, 6);
+  }, [recentUpdates]);
+
+  const openChatForMessage = useCallback(
+    (messageId?: string | null) => {
+      if (!messageId) return;
+      setChipPrefill(
+        `Let’s refine the part linked to chat message ${messageId}. Here’s what I’d like to adjust: `,
+      );
+      routeToTab("Requirements");
+    },
+    [routeToTab],
+  );
+
+  const selectedMeta = useMemo(() => {
+    const candidate = (selectedArtifact as any)?.meta;
+    if (!candidate || typeof candidate !== "object") return null;
+    return candidate as Record<string, any>;
+  }, [selectedArtifact]);
+
+  const selectedMetaDetails = useMemo(() => {
+    if (!selectedMeta) return [] as { label: string; value: string }[];
+    const details: { label: string; value: string }[] = [];
+    const revisionValue =
+      selectedArtifact?.revision != null
+        ? `r${selectedArtifact.revision}`
+        : selectedMeta.revision != null
+          ? `r${selectedMeta.revision}`
+          : null;
+    if (revisionValue) {
+      details.push({ label: "Revision", value: revisionValue });
+    }
+    if (selectedMeta.summary) {
+      details.push({ label: "Summary", value: String(selectedMeta.summary) });
+    }
+    if (selectedMeta.section) {
+      details.push({ label: "Section", value: String(selectedMeta.section) });
+    }
+    if (selectedMeta.change_description) {
+      details.push({ label: "Change", value: String(selectedMeta.change_description) });
+    }
+    if (selectedMeta.message_id) {
+      details.push({ label: "Message", value: String(selectedMeta.message_id) });
+    }
+    if (selectedMeta.manual_edit) {
+      const editor = selectedMeta.edited_by ? String(selectedMeta.edited_by) : "Manual edit";
+      const when = selectedMeta.edited_at
+        ? new Date(selectedMeta.edited_at).toLocaleString()
+        : undefined;
+      details.push({
+        label: "Edited",
+        value: when ? `${editor} • ${when}` : editor,
+      });
+    }
+    return details;
+  }, [selectedMeta, selectedArtifact?.revision]);
+
+  const beginEdit = useCallback(() => {
+    if (!selectedArtifact) return;
+    setEditError(null);
+    setEditMode(true);
+    setEditDraft(selectedArtifact.content ?? "");
+  }, [selectedArtifact]);
+
+  const cancelEdit = useCallback(() => {
+    setEditMode(false);
+    setEditError(null);
+    const meta = (selectedArtifact as any)?.meta || {};
+    setEditDraft(selectedArtifact?.content ?? "");
+    setEditSummary(typeof meta?.summary === "string" ? meta.summary : "");
+    setEditSection(typeof meta?.section === "string" ? meta.section : "");
+    setEditChangeDescription("");
+  }, [selectedArtifact]);
+
+  const saveEdit = useCallback(async () => {
+    if (!id || !selected) return;
+    const payload: DocumentEditRequest = {
+      content: editDraft,
+      summary: editSummary.trim() ? editSummary.trim() : undefined,
+      section: editSection.trim() ? editSection.trim() : undefined,
+      change_description: editChangeDescription.trim() ? editChangeDescription.trim() : undefined,
+    };
+    try {
+      setSavingEdit(true);
+      setEditError(null);
+      const response = await patchProjectDocument(id, selected, payload);
+      setNotice(`Saved ${response.filename} (revision ${response.revision}).`);
+      setLastSavedRevision(response.revision);
+      setEditMode(false);
+      const meta = response.meta || {};
+      setEditSummary(typeof meta?.summary === "string" ? meta.summary : "");
+      setEditSection(typeof meta?.section === "string" ? meta.section : "");
+      setEditChangeDescription("");
+      setDocs((prev) => {
+        if (!prev) return prev;
+        const artifacts = prev.artifacts || [];
+        const found = artifacts.some((a) => a.filename === response.filename);
+        const updated = found
+          ? artifacts.map((a) =>
+              a.filename === response.filename
+                ? { ...a, content: response.content, meta: response.meta, revision: response.revision }
+                : a,
+            )
+          : [
+              ...artifacts,
+              {
+                filename: response.filename,
+                content: response.content,
+                meta: response.meta,
+                revision: response.revision,
+              },
+            ];
+        return { ...prev, artifacts: updated } as DocGenResponse;
+      });
+    } catch (err: any) {
+      const msg = err?.message || "Unable to save edit.";
+      setEditError(msg);
+    } finally {
+      setSavingEdit(false);
+    }
+  }, [id, selected, editDraft, editSummary, editSection, editChangeDescription]);
+
+  useEffect(() => {
+    if (!id || !selected || lastSavedRevision === null) return;
+    trackEvent("project_document_edit_saved", {
+      projectId: id,
+      filename: selected,
+      revision: lastSavedRevision,
+      summary: editSummary || undefined,
+      section: editSection || undefined,
+    });
+  }, [id, selected, lastSavedRevision, editSummary, editSection]);
+
+  useEffect(() => {
+    if (!id) return;
+    if (streamError && streamError !== lastStreamErrorRef.current) {
+      trackEvent("project_document_stream_error", {
+        projectId: id,
+        message: streamError,
+      });
+      lastStreamErrorRef.current = streamError;
+    }
+    if (!streamError) {
+      lastStreamErrorRef.current = null;
+    }
+  }, [id, streamError]);
+
+  useEffect(() => {
+    if (!id) return;
+    if (prevStreamConnectedRef.current === null) {
+      prevStreamConnectedRef.current = streamConnected;
+      return;
+    }
+    if (prevStreamConnectedRef.current !== streamConnected) {
+      trackEvent("project_document_stream_status", {
+        projectId: id,
+        connected: streamConnected,
+      });
+    }
+    prevStreamConnectedRef.current = streamConnected;
+  }, [id, streamConnected]);
 
   const artifactSummaries = useMemo(() => {
     const decorate = (filename: string) => {
@@ -499,12 +938,21 @@ export default function ProjectDetailsPage() {
         status,
       };
     };
-    if (docs && Array.isArray(docs.artifacts) && docs.artifacts.length > 0) {
-      return docs.artifacts.map((a) => decorate(a.filename));
+    const seen = new Set<string>();
+    const filenames: string[] = [];
+    combinedArtifacts.forEach((artifact) => {
+      if (!artifact?.filename || seen.has(artifact.filename)) return;
+      seen.add(artifact.filename);
+      filenames.push(artifact.filename);
+    });
+    if (filenames.length === 0) {
+      const versionMap = versions?.versions || {};
+      Object.keys(versionMap).forEach((fname) => {
+        if (!seen.has(fname)) filenames.push(fname);
+      });
     }
-    const versionMap = versions?.versions || {};
-    return Object.keys(versionMap).map((filename) => decorate(filename));
-  }, [approvals, docs, versions]);
+    return filenames.map((fname) => decorate(fname));
+  }, [approvals, combinedArtifacts, versions]);
 
   const hasDocs = useMemo(
     () => artifactSummaries.length > 0,
@@ -1147,7 +1595,7 @@ export default function ProjectDetailsPage() {
         </div>
         {/* Right: Docs preview + versions to be visible alongside chat */}
         <div className="vstack" style={{ minWidth: 0 }}>
-          <div className="card artifact-inspector">
+          <div className="card artifact-inspector" aria-live="polite">
             <div className="artifact-inspector__header">
               <div className="artifact-inspector__title">
                 <strong>Artifacts</strong>
@@ -1175,7 +1623,11 @@ export default function ProjectDetailsPage() {
                 )}
               </div>
               <div className="artifact-inspector__preview">
-                <div className="doc-preview" aria-busy={loading || undefined}>
+                <div
+                  className="doc-preview"
+                  aria-busy={(loading || savingEdit || streamDraftActive) || undefined}
+                  aria-describedby={streamNotice ? "project-stream-notice" : undefined}
+                >
                   {loading && (
                     <div
                       role="status"
@@ -1195,11 +1647,196 @@ export default function ProjectDetailsPage() {
                       <span aria-hidden>⏳</span> Generating…
                     </div>
                   )}
+                  {savingEdit && (
+                    <div
+                      role="status"
+                      aria-live="polite"
+                      style={{
+                        position: "absolute",
+                        top: 6,
+                        left: 6,
+                        background: "var(--surface-1)",
+                        border: "1px solid var(--border)",
+                        borderRadius: 999,
+                        padding: "2px 8px",
+                        fontSize: 12,
+                        boxShadow: "var(--shadow-sm)",
+                      }}
+                    >
+                      <span aria-hidden>💾</span> Saving edit…
+                    </div>
+                  )}
+                  {streamNotice && (
+                    <div
+                      id="project-stream-notice"
+                      className={`stream-notice stream-notice--${streamNotice.variant}`}
+                      role={streamNotice.variant === "error" ? "alert" : "status"}
+                      aria-live={streamNotice.variant === "error" ? "assertive" : "polite"}
+                      style={{
+                        position: "absolute",
+                        top: 6,
+                        right: streamNotice.variant === "error" ? 120 : 6,
+                        maxWidth: "60%",
+                      }}
+                    >
+                      {streamNotice.text}
+                      {streamNotice.variant !== "error" && (!streamConnected || heartbeatStale) && (
+                        <button
+                          type="button"
+                          className="btn-inline"
+                          onClick={reconnectStream}
+                          aria-label="Reconnect to the live builder stream"
+                        >
+                          Reconnect
+                        </button>
+                      )}
+                    </div>
+                  )}
                   {selected ? (
                     selectedArtifact ? (
-                      <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                        {selectedArtifact.content}
-                      </ReactMarkdown>
+                      editMode ? (
+                        <div className="doc-editor">
+                          <label className="doc-editor__label" htmlFor="doc-edit-content">
+                            Markdown content
+                          </label>
+                          <textarea
+                            id="doc-edit-content"
+                            className="doc-editor__textarea"
+                            value={editDraft}
+                            onChange={(event) => setEditDraft(event.target.value)}
+                            rows={24}
+                          />
+                          <div className="doc-editor__meta-grid">
+                            <label>
+                              Summary
+                              <input
+                                type="text"
+                                value={editSummary}
+                                onChange={(event) => setEditSummary(event.target.value)}
+                                placeholder="Optional change summary"
+                              />
+                            </label>
+                            <label>
+                              Section
+                              <input
+                                type="text"
+                                value={editSection}
+                                onChange={(event) => setEditSection(event.target.value)}
+                                placeholder="Optional section"
+                              />
+                            </label>
+                            <label>
+                              Change description
+                              <input
+                                type="text"
+                                value={editChangeDescription}
+                                onChange={(event) => setEditChangeDescription(event.target.value)}
+                                placeholder="Describe the change"
+                              />
+                            </label>
+                          </div>
+                          {editError && (
+                            <p className="doc-editor__error" role="alert">
+                              {editError}
+                            </p>
+                          )}
+                          {lastSavedRevision && (
+                            <p className="doc-editor__success" role="status">
+                              Saved revision {lastSavedRevision} just now.
+                            </p>
+                          )}
+                          <div className="doc-editor__actions">
+                            <button className="btn" type="button" onClick={cancelEdit} disabled={savingEdit}>
+                              Cancel
+                            </button>
+                            <button
+                              className="btn btn-primary"
+                              type="button"
+                              onClick={saveEdit}
+                              disabled={!canSaveEdit}
+                            >
+                              {savingEdit ? "Saving…" : "Save changes"}
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="doc-preview__content">
+                          {showLivePreview && (
+                            <div className="doc-preview__live">
+                              <strong>Live draft</strong>
+                              <pre>{livePreview}</pre>
+                            </div>
+                          )}
+                          {liveUpdateEntries.length > 0 && (
+                            <div
+                              className="doc-preview__updates"
+                              role="region"
+                              aria-live="polite"
+                              aria-atomic="false"
+                              aria-relevant="additions text"
+                              aria-labelledby="doc-preview-updates-heading"
+                            >
+                              <strong id="doc-preview-updates-heading">Live updates linked to chat</strong>
+                              <ul className="doc-preview__updates-list" role="list">
+                                {liveUpdateEntries.map((entry) => (
+                                  <li key={entry.key} role="listitem">
+                                    <div>
+                                      <span>
+                                        {entry.timestamp ? `${entry.timestamp} · ` : ""}
+                                        {entry.label}
+                                      </span>
+                                      {typeof entry.revision === "number" && (
+                                        <div className="muted" style={{ fontSize: 12 }}>
+                                          Revision r{entry.revision}
+                                        </div>
+                                      )}
+                                      {entry.detail && (
+                                        <div className="muted" style={{ fontSize: 12 }}>
+                                          {entry.detail}
+                                        </div>
+                                      )}
+                                      {entry.diff && (
+                                        <details className="doc-preview__diff" style={{ marginTop: 4 }}>
+                                          <summary style={{ cursor: "pointer", fontSize: 12 }}>View diff snippet</summary>
+                                          <pre style={{ marginTop: 4, fontSize: 12, whiteSpace: "pre-wrap" }}>{entry.diff}</pre>
+                                        </details>
+                                      )}
+                                      <span className="sr-only">
+                                        {entry.revision ? `Revision ${entry.revision}. ` : ""}
+                                        {entry.detail ? `${entry.detail}. ` : ""}
+                                        {entry.diff ? "Diff snippet available." : ""}
+                                      </span>
+                                    </div>
+                                    {entry.messageId && (
+                                      <button
+                                        type="button"
+                                        className="btn-inline"
+                                        onClick={() => openChatForMessage(entry.messageId)}
+                                        aria-label="Discuss this update in chat"
+                                      >
+                                        Discuss in chat
+                                      </button>
+                                    )}
+                                  </li>
+                                ))}
+                              </ul>
+                            </div>
+                          )}
+                          <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                            {selectedArtifact.content}
+                          </ReactMarkdown>
+                          {selectedMetaDetails.length > 0 && (
+                            <div className="doc-preview__meta" aria-live="polite">
+                              {selectedMetaDetails.map((item) => (
+                                <div key={item.label} className="doc-preview__meta-item">
+                                  <span className="doc-preview__meta-label">{item.label}</span>
+                                  <span className="doc-preview__meta-value">{item.value}</span>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )
                     ) : (
                       <p className="doc-preview__placeholder">Loading latest version…</p>
                     )
@@ -1217,6 +1854,14 @@ export default function ProjectDetailsPage() {
                     disabled={!selectedArtifact}
                   >
                     Expand
+                  </button>
+                  <button
+                    className="btn"
+                    type="button"
+                    onClick={() => (editMode ? cancelEdit() : beginEdit())}
+                    disabled={!selectedArtifact || savingEdit}
+                  >
+                    {editMode ? "View mode" : "Edit inline"}
                   </button>
                 </div>
                 {selected && (
@@ -1252,9 +1897,7 @@ export default function ProjectDetailsPage() {
                         type="button"
                         onClick={handleRejectSelected}
                         disabled={
-                          approvalBusy ||
-                          !selected ||
-                          selectedApproval?.approved === false
+                          approvalBusy || !selected || selectedApproval?.approved === false
                         }
                       >
                         {approvalBusy ? "Updating…" : "Reject"}
@@ -1889,26 +2532,72 @@ export default function ProjectDetailsPage() {
       )}
       {error && <p className="error">{error}</p>}
       {notice && <p className="notice">{notice}</p>}
-      <ProjectLaunchHero
-        onSubmit={(idea) => {
-          setChipPrefill(
-            `Concept to Deployment workspace: ${idea}. Ask for any missing context, then guide me through requirements, architecture, implementation plan, testing approach, and deployment readiness. Prepare Charter, SRS, SDD, and Test Plan artifacts as we advance.`,
-          );
-          try {
-            router.push(`/projects/${id}?tab=Requirements`);
-          } catch {}
-        }}
-        onScenarioSelect={(scenario) => {
-          setChipPrefill(
-            `Concept to Deployment scenario: ${scenario.value}. Confirm critical context, then drive requirements, architecture guidance, implementation steps, testing coverage, and deployment checklist. Produce Charter, SRS, SDD, and Test Plan when ready.`,
-          );
-          try {
-            router.push(`/projects/${id}?tab=Requirements`);
-          } catch {}
-        }}
-        scenarios={scenarioChips}
-        showForm={false}
-      />
+      <section
+        className="launch-hero launch-hero--wide project-workspace-hero"
+        aria-label="Project workspace overview"
+      >
+        <div className="launch-hero__card">
+          <div className="launch-hero__intro">
+            <span className="launch-hero__badge badge">Project Workspace</span>
+            <h1 className="launch-hero__title">
+              {project?.name || "Concept to Deployment"}
+            </h1>
+            <p className="launch-hero__subtitle">{workspaceHeroSubtitle}</p>
+            <ul className="launch-hero__list" aria-label="Workspace metrics">
+              <li>
+                <strong>Requirements captured</strong>
+                <span>{reqCount}</span>
+              </li>
+              <li>
+                <strong>Documents generated</strong>
+                <span>{docCount}</span>
+              </li>
+              <li>
+                <strong>Approved docs</strong>
+                <span>{approvedCount}</span>
+              </li>
+            </ul>
+            <div
+              className="workspace-hero__actions"
+              role="navigation"
+              aria-label="Workspace quick links"
+            >
+              {workspaceQuickLinks.map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  className="workspace-hero__action"
+                  onClick={item.action}
+                >
+                  <span className="workspace-hero__action-label">{item.label}</span>
+                  <span className="workspace-hero__action-desc">{item.description}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="launch-hero__panel">
+            <span className="launch-hero__panel-label">Jump into a scenario</span>
+            <div className="workspace-hero__scenarios">
+              {heroScenarios.map((scenario) => (
+                <button
+                  key={scenario.label}
+                  type="button"
+                  className="workspace-hero__scenario"
+                  onClick={() => routeToTab("Requirements", scenario.prompt)}
+                >
+                  <span className="workspace-hero__scenario-label">
+                    {scenario.label}
+                  </span>
+                  <span className="workspace-hero__scenario-desc">
+                    {scenario.description}
+                  </span>
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      </section>
       <Tabs tabs={tabs} defaultTabId={defaultTabId} />
       <Modal
         open={previewModalOpen && !!selectedArtifact}

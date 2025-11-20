@@ -76,15 +76,15 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     return classes.join(" ");
   }, [sidebarCollapsed]);
 
-  const isDashboard = router.pathname.startsWith("/dashboard");
+  const isDashboardRoot = router.pathname === "/dashboard";
+  const isDashboardNested = router.pathname.startsWith("/dashboard/");
+  const isDashboard = isDashboardRoot || isDashboardNested;
   const isAccelerator = router.pathname.startsWith("/accelerators");
   const isProject = router.pathname.startsWith("/projects");
 
   const contentClass = useMemo(() => {
     const classes = ["app-shell__content"];
-    if (isDashboard) {
-      classes.push("app-shell__content--dashboard");
-    }
+    if (isDashboardRoot) classes.push("app-shell__content--dashboard");
     if (isAccelerator) {
       classes.push("app-shell__content--accelerator");
     }

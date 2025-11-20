@@ -314,9 +314,13 @@ def _get_llm(
     model_hint: Optional[str] = None,
 ) -> Tuple[object, str, str]:
     router = ModelRouter()
-    if provider:
+    normalized_provider = (provider or "").strip().lower() or None
+    if normalized_provider in {"adaptive", "auto"}:
+        normalized_provider = None
+
+    if normalized_provider:
         try:
-            selection = router.resolve_provider(provider)
+            selection = router.resolve_provider(normalized_provider)
         except KeyError:
             raise RuntimeError(f"Unknown provider override: {provider}")
         if model_hint:

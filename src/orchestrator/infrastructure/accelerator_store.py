@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from threading import RLock
 from typing import Dict, List, Optional, Any, Tuple
+import os
 import uuid
 
 from ..domain.accelerator_session import AcceleratorSession, AcceleratorMessage
@@ -36,6 +37,7 @@ class InMemoryAcceleratorStore:
         self._sessions: Dict[str, _Session] = {}
         self._messages: Dict[str, List[_Message]] = {}
         self._artifacts: Dict[str, List[Dict[str, Any]]] = {}
+        self._live_artifacts: Dict[str, List[Dict[str, Any]]] = {}
         self._artifact_revisions: Dict[str, int] = {}
         self._attachments: Dict[str, Dict[str, Dict[str, Any]]] = {}
         self._assets: Dict[str, Dict[str, bytes]] = {}
@@ -67,6 +69,7 @@ class InMemoryAcceleratorStore:
             self._sessions[sid] = session
             self._messages[sid] = []
             self._artifacts[sid] = []
+            self._live_artifacts[sid] = []
             self._artifact_revisions[sid] = 0
             self._attachments.setdefault(sid, {})
             self._assets.setdefault(sid, {})
@@ -177,6 +180,22 @@ class InMemoryAcceleratorStore:
             self._artifact_revisions[session_id] = self._artifact_revisions.get(session_id, 0) + 1
             return entry
 
+    def add_live_artifact(self, session_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+        with self._lock:
+            if session_id not in self._sessions:
+                raise KeyError("Session not found")
+            events = self._live_artifacts.setdefault(session_id, [])
+            event = dict(payload or {})
+            event.setdefault("id", uuid.uuid4().hex)
+            event.setdefault("created_at", self._now_iso())
+            events.append(event)
+            max_events = 50
+            if len(events) > max_events:
+                events = events[-max_events:]
+            self._live_artifacts[session_id] = events
+            self._artifact_revisions[session_id] = self._artifact_revisions.get(session_id, 0) + 1
+            return event
+
     def save_asset(self, session_id: str, filename: str, content: bytes) -> None:
         with self._lock:
             if session_id not in self._sessions:
@@ -198,7 +217,9 @@ class InMemoryAcceleratorStore:
 
     def artifact_snapshot(self, session_id: str) -> Tuple[List[Dict[str, Any]], int]:
         with self._lock:
-            artifacts = list(self._artifacts.get(session_id, []))
+            static_artifacts = list(self._artifacts.get(session_id, []))
+            live_artifacts = list(self._live_artifacts.get(session_id, []))
+            artifacts = static_artifacts + live_artifacts
             revision = self._artifact_revisions.get(session_id, 0)
             return artifacts, revision
 
@@ -310,9 +331,35 @@ class InMemoryAcceleratorStore:
 
 _store: InMemoryAcceleratorStore | None = None
 
+# --- v1.0 update ---
+_db_mode = os.getenv("DB_MODE", "").lower()
+_mongo_accel_store_cls = None
+if _db_mode == "mongo":
+    try:
+        from .accelerator_store_mongo import MongoAcceleratorStore as _MongoAcceleratorStore  # type: ignore
+
+        _mongo_accel_store_cls = _MongoAcceleratorStore
+    except Exception:
+        _mongo_accel_store_cls = None
+_db_mode_mongo_accel_enabled = _db_mode == "mongo" and _mongo_accel_store_cls is not None
+
 
 def get_accelerator_store() -> InMemoryAcceleratorStore:
     global _store
+    if _store is not None:
+        return _store
+    impl = os.getenv("OPNXT_ACCELERATOR_STORE_IMPL", "memory").lower()
+    if _db_mode_mongo_accel_enabled:
+        _store = _mongo_accel_store_cls()  # type: ignore[operator]
+        return _store
+    if impl == "mongo":
+        try:
+            from .accelerator_store_mongo import MongoAcceleratorStore  # type: ignore
+
+            _store = MongoAcceleratorStore()
+            return _store
+        except Exception:
+            _store = None
     if _store is None:
         _store = InMemoryAcceleratorStore()
     return _store

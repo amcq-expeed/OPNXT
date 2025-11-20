@@ -4,7 +4,7 @@ import io
 import json
 from typing import List, Optional, Dict
 
-from fastapi import APIRouter, Depends, HTTPException, Path, Query, Response, status, UploadFile, File
+from fastapi import APIRouter, Body, Depends, HTTPException, Path, Query, Response, status, UploadFile, File
 from fastapi.responses import PlainTextResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
@@ -23,6 +23,8 @@ from ...services.accelerator_service import (
     remove_accelerator_attachment,
     get_accelerator_asset_blob,
     get_accelerator_preview_html,
+    edit_accelerator_artifact,
+    run_accelerator_tests,
 )
 from ...services.catalog_service import get_intent
 from .catalog import ChatIntentResponse
@@ -68,6 +70,23 @@ class AcceleratorPreviewResponse(BaseModel):
 class AcceleratorMessageCreate(BaseModel):
     content: str = Field(min_length=1)
     attachments: List[str] = Field(default_factory=list)
+    provider: Optional[str] = Field(default=None, description="LLM provider override for this prompt")
+    model: Optional[str] = Field(default=None, description="LLM model override for this prompt")
+
+
+class AcceleratorArtifactEditRequest(BaseModel):
+    content: str
+    summary: Optional[str] = None
+    section: Optional[str] = None
+    change_description: Optional[str] = None
+    message_id: Optional[str] = None
+
+
+class AcceleratorArtifactEditResponse(BaseModel):
+    filename: str
+    version: int
+    content: str
+    meta: dict = Field(default_factory=dict)
 
 
 class AcceleratorAttachmentResponse(BaseModel):
@@ -78,6 +97,25 @@ class AcceleratorAttachmentResponse(BaseModel):
     uploaded_at: Optional[str] = None
     preview: Optional[str] = None
     source: Optional[str] = None
+
+
+class AcceleratorTestRunRequest(BaseModel):
+    test_path: Optional[str] = Field(
+        default=None,
+        description="Optional accelerator test path (must be allow-listed).",
+    )
+
+
+class AcceleratorTestRunResponse(BaseModel):
+    status: str
+    command: str
+    test_path: str
+    exit_code: Optional[int] = None
+    stdout: str
+    stderr: str
+    duration_ms: float
+    started_at: str
+    completed_at: str
 
 
 class PromoteAcceleratorRequest(BaseModel):
@@ -187,6 +225,8 @@ def create_accelerator_message(
             payload.content,
             user,
             attachment_ids=payload.attachments or None,
+            provider=payload.provider,
+            model=payload.model,
         )
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
@@ -361,6 +401,50 @@ async def stream_session_artifacts(
         media_type="text/event-stream",
         headers=headers,
     )
+
+
+@router.patch(
+    "/sessions/{session_id}/artifacts/{filename}",
+    response_model=AcceleratorArtifactEditResponse,
+)
+def patch_accelerator_artifact_endpoint(
+    session_id: str,
+    filename: str,
+    payload: AcceleratorArtifactEditRequest,
+    user: User = Depends(require_permission(Permission.PROJECT_WRITE)),
+) -> AcceleratorArtifactEditResponse:
+    try:
+        result = edit_accelerator_artifact(
+            session_id,
+            filename,
+            content=payload.content,
+            summary=payload.summary,
+            section=payload.section,
+            change_description=payload.change_description,
+            message_id=payload.message_id,
+            edited_by=user.email,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+    return AcceleratorArtifactEditResponse(**result)
+
+
+@router.post(
+    "/sessions/{session_id}/tests/run",
+    response_model=AcceleratorTestRunResponse,
+)
+def run_accelerator_tests_endpoint(
+    session_id: str,
+    payload: Optional[AcceleratorTestRunRequest] = Body(default=None),
+    user: User = Depends(require_permission(Permission.PROJECT_WRITE)),
+) -> AcceleratorTestRunResponse:
+    try:
+        result = run_accelerator_tests(session_id, test_path=payload.test_path if payload else None)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+    return AcceleratorTestRunResponse(**result)
 
 
 @router.post(

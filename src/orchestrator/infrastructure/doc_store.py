@@ -200,6 +200,7 @@ class MongoDocumentStore:
         self._client = None
         self._db = None
         self._fs = None
+        self._previews = None
         try:
             from pymongo import MongoClient  # type: ignore
             import gridfs  # type: ignore
@@ -214,12 +215,19 @@ class MongoDocumentStore:
             # Metadata collection
             self._meta = self._db["documents"]
             self._meta.create_index([("project_id", 1), ("filename", 1), ("version", 1)], unique=True)
+            self._previews = self._db["accelerator_previews"]
+            self._previews.create_index(
+                [("session_id", 1), ("filename", 1), ("version", 1)],
+                unique=True,
+            )
+            self._previews.create_index([("session_id", 1), ("created_at", -1)])
         except Exception:
             # Remain in fallback mode
             self._client = None
             self._db = None
             self._fs = None
             self._meta = None
+            self._previews = None
 
     def _use_fallback(self) -> bool:
         return self._client is None or self._db is None or self._fs is None or self._meta is None
@@ -307,20 +315,96 @@ class MongoDocumentStore:
             content=content,
         )
 
-    def save_accelerator_preview(self, session_id: str, filename: str, content: str, meta: Optional[Dict[str, Any]] = None) -> int:
-        if self._use_fallback():
+    def save_accelerator_preview(
+        self,
+        session_id: str,
+        filename: str,
+        content: str,
+        meta: Optional[Dict[str, Any]] = None,
+    ) -> int:
+        if self._use_fallback() or self._previews is None:
             return self._fallback.save_accelerator_preview(session_id, filename, content, meta)
-        raise NotImplementedError("MongoDocumentStore accelerator previews not yet implemented")
+
+        try:
+            query = {"session_id": session_id, "filename": filename}
+            last_doc_cursor = (
+                self._previews.find(query)
+                .sort("version", -1)
+                .limit(1)
+            )
+            last_doc = next(iter(last_doc_cursor), None)
+            meta_dict = dict(meta or {})
+            if last_doc and str(last_doc.get("content", "")) == content:
+                if meta_dict:
+                    merged_meta = dict(last_doc.get("meta") or {})
+                    merged_meta.update(meta_dict)
+                    self._previews.update_one({"_id": last_doc["_id"]}, {"$set": {"meta": merged_meta}})
+                return int(last_doc.get("version", 1))
+
+            next_version = int(last_doc.get("version", 0)) + 1 if last_doc else 1
+            meta_dict.setdefault("version", next_version)
+            doc = {
+                "session_id": session_id,
+                "filename": filename,
+                "version": next_version,
+                "created_at": _utc_now(),
+                "meta": meta_dict,
+                "content": content,
+            }
+            self._previews.insert_one(doc)
+            return next_version
+        except Exception:
+            return self._fallback.save_accelerator_preview(session_id, filename, content, meta)
 
     def list_accelerator_previews(self, session_id: str) -> List[Dict[str, Any]]:
-        if self._use_fallback():
+        if self._use_fallback() or self._previews is None:
             return self._fallback.list_accelerator_previews(session_id)
-        raise NotImplementedError("MongoDocumentStore accelerator previews not yet implemented")
+
+        try:
+            cursor = self._previews.find({"session_id": session_id}).sort("version", 1)
+            previews: List[Dict[str, Any]] = []
+            for doc in cursor:
+                version = int(doc.get("version", 0))
+                meta = dict(doc.get("meta") or {})
+                meta.setdefault("version", version)
+                previews.append(
+                    {
+                        "version": version,
+                        "filename": str(doc.get("filename", "")),
+                        "created_at": _isoformat_utc(doc.get("created_at")),
+                        "meta": meta,
+                        "content": doc.get("content"),
+                    }
+                )
+            return previews
+        except Exception:
+            return self._fallback.list_accelerator_previews(session_id)
 
     def get_accelerator_preview(self, session_id: str, filename: str) -> Optional[Dict[str, Any]]:
-        if self._use_fallback():
+        if self._use_fallback() or self._previews is None:
             return self._fallback.get_accelerator_preview(session_id, filename)
-        raise NotImplementedError("MongoDocumentStore accelerator previews not yet implemented")
+
+        try:
+            doc_cursor = (
+                self._previews.find({"session_id": session_id, "filename": filename})
+                .sort("version", -1)
+                .limit(1)
+            )
+            doc = next(iter(doc_cursor), None)
+            if not doc:
+                return None
+            version = int(doc.get("version", 0))
+            meta = dict(doc.get("meta") or {})
+            meta.setdefault("version", version)
+            return {
+                "version": version,
+                "filename": str(doc.get("filename", "")),
+                "created_at": _isoformat_utc(doc.get("created_at")),
+                "meta": meta,
+                "content": doc.get("content"),
+            }
+        except Exception:
+            return self._fallback.get_accelerator_preview(session_id, filename)
 
     def save_accelerator_asset(self, session_id: str, filename: str, content: bytes, meta: Optional[Dict[str, Any]] = None) -> int:
         return self._fallback.save_accelerator_asset(session_id, filename, content, meta)

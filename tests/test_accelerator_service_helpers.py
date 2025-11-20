@@ -5,9 +5,12 @@ import pytest
 from src.orchestrator.services import accelerator_service
 
 
+from src.orchestrator.services.artifact_stream import ArtifactStream
+
+
 @pytest.fixture
 def isolated_stream(monkeypatch):
-    stream = accelerator_service._ArtifactStream()
+    stream = ArtifactStream()
     monkeypatch.setattr(accelerator_service, "artifacts_queue", stream)
     return stream
 
@@ -51,6 +54,42 @@ def test_queue_artifact_enqueues_payload(isolated_stream):
     accelerator_service._queue_artifact("session-1", payload)
     stored = asyncio.run(isolated_stream.get_for_session("session-1"))
     assert stored == payload
+
+
+def test_prepare_artifact_payload_merges_message_ids():
+    artifact = {
+        "type": "document",
+        "message_ids": ["msg-1"],
+        "meta": {
+            "message_id": "msg-0",
+            "message_ids": ["msg-0"],
+        },
+    }
+
+    prepared = accelerator_service._prepare_artifact_payload(artifact, "msg-2")
+    meta = prepared["meta"]
+
+    assert prepared["message_ids"] == ["msg-1", "msg-0", "msg-2"]
+    assert meta["message_ids"] == ["msg-1", "msg-0", "msg-2"]
+    assert prepared["message_id"] == "msg-2"
+    assert meta["message_id"] == "msg-2"
+
+
+def test_prepare_artifact_payload_handles_stage_and_progress():
+    artifact = {
+        "type": "status",
+        "stage": " analysis ",
+        "progress": 0.42,
+        "meta": {},
+    }
+
+    prepared = accelerator_service._prepare_artifact_payload(artifact, None)
+    meta = prepared["meta"]
+
+    assert prepared["stage"] == "analysis"
+    assert meta["stage"] == "analysis"
+    assert prepared["progress"] == 0.42
+    assert meta["progress"] == 0.42
 
 
 def test_extract_requirement_refs_normalizes_and_sorts():

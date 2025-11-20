@@ -1,0 +1,312 @@
+uid=25_0 RootWebArea url="http://localhost:3000/accelerators/enhance-documentation/?session=f2f4868ca28f4b6ba35549e642b805c1&source=dashboard"
+  uid=25_1 ignored
+    uid=25_2 ignored
+      uid=25_3 generic
+        uid=25_4 ignored
+          uid=25_5 link "Skip to content" url="http://localhost:3000/accelerators/enhance-documentation/?session=f2f4868ca28f4b6ba35549e642b805c1&source=dashboard#main"
+            uid=25_6 StaticText "Skip to content"
+              uid=25_7 InlineTextBox "Skip "
+              uid=25_8 InlineTextBox "to "
+              uid=25_9 InlineTextBox "content"
+          uid=25_10 complementary "Primary"
+            uid=25_11 ignored
+              uid=25_12 link "OPNXT home" url="http://localhost:3000/"
+                uid=25_13 image "Expeed Software" url="http://localhost:3000/logo-full.svg"
+            uid=25_14 ignored
+              uid=25_15 button "Guest" haspopup="listbox"
+                uid=25_16 ignored
+                  uid=25_17 StaticText "Guest"
+                    uid=25_18 InlineTextBox "Guest"
+            uid=25_19 link "Start New Chat" url="http://localhost:3000/dashboard/"
+              uid=25_20 ignored
+                uid=25_21 StaticText "Start New Chat"
+                  uid=25_22 InlineTextBox "Start New Chat"
+            uid=25_23 navigation
+              uid=25_24 list
+                uid=25_25 listitem level="1"
+                  uid=25_26 link "Chats 2" url="http://localhost:3000/dashboard/"
+                    uid=25_27 ignored
+                      uid=25_28 StaticText "Chats"
+                        uid=25_29 InlineTextBox "Chats"
+                    uid=25_30 generic description="Copilot + chat sessions: 2"
+                      uid=25_31 StaticText "2"
+                        uid=25_32 InlineTextBox "2"
+                uid=25_33 listitem level="1"
+                  uid=25_34 link "Projects 0" url="http://localhost:3000/projects/"
+                    uid=25_35 ignored
+                      uid=25_36 StaticText "Projects"
+                        uid=25_37 InlineTextBox "Projects"
+                    uid=25_38 ignored
+                      uid=25_39 StaticText "0"
+                        uid=25_40 InlineTextBox "0"
+                uid=25_41 listitem level="1"
+                  uid=25_42 link "Templates" url="http://localhost:3000/templates/"
+                    uid=25_43 ignored
+                      uid=25_44 StaticText "Templates"
+                        uid=25_45 InlineTextBox "Templates"
+            uid=25_46 ignored
+              uid=25_47 ignored
+                uid=25_48 ignored
+                  uid=25_49 StaticText "Chats used"
+                    uid=25_50 InlineTextBox "Chats used"
+                uid=25_51 ignored
+                  uid=25_52 StaticText "2 / 3"
+                    uid=25_53 InlineTextBox "2 / 3"
+              uid=25_54 generic
+                uid=25_55 ignored
+              uid=25_56 list
+                uid=25_57 listitem level="1"
+                  uid=25_58 StaticText "Copilot sessions"
+                    uid=25_59 InlineTextBox "Copilot sessions"
+                  uid=25_60 strong
+                    uid=25_61 StaticText "2"
+                      uid=25_62 InlineTextBox "2"
+                uid=25_63 listitem level="1"
+                  uid=25_64 StaticText "Copilot artifacts"
+                    uid=25_65 InlineTextBox "Copilot artifacts"
+                  uid=25_66 strong
+                    uid=25_67 StaticText "0"
+                      uid=25_68 InlineTextBox "0"
+                uid=25_69 listitem level="1"
+                  uid=25_70 StaticText "Copilot messages"
+                    uid=25_71 InlineTextBox "Copilot messages"
+                  uid=25_72 strong
+                    uid=25_73 StaticText "2"
+                      uid=25_74 InlineTextBox "2"
+              uid=25_75 link "Upgrade for unlimited" url="http://localhost:3000/billing/"
+                uid=25_76 StaticText "Upgrade for unlimited"
+                  uid=25_77 InlineTextBox "Upgrade for unlimited"
+            uid=25_78 ignored
+              uid=25_79 ignored
+                uid=25_80 button "Recent"
+                  uid=25_81 StaticText "Recent"
+                    uid=25_82 InlineTextBox "Recent"
+                uid=25_83 button "All chats ▾"
+                  uid=25_84 StaticText "All chats ▾"
+                    uid=25_85 InlineTextBox "All chats ▾"
+              uid=25_86 ignored
+                uid=25_87 StaticText "Press"
+                  uid=25_88 InlineTextBox "Press"
+                uid=25_89 generic
+                  uid=25_90 StaticText "⌘"
+                    uid=25_91 InlineTextBox "⌘"
+                uid=25_92 generic
+                  uid=25_93 StaticText "K"
+                    uid=25_94 InlineTextBox "K"
+                uid=25_95 StaticText "to search"
+                  uid=25_96 InlineTextBox "to search"
+              uid=25_97 ignored
+                uid=25_98 ignored
+                  uid=25_99 heading "Accelerators" level="4"
+                    uid=25_100 StaticText "Accelerators"
+                      uid=25_101 InlineTextBox "Accelerators"
+                  uid=25_102 list
+                    uid=25_103 listitem level="1"
+                      uid=25_104 button "Enhance Existing Documentation 11/17/2025, 3:55:13 PM • 1 msgs"
+                        uid=25_105 ignored
+                          uid=25_106 StaticText "Enhance Existing Documentation"
+                            uid=25_107 InlineTextBox "Enhance Existing Documentation"
+                        uid=25_108 ignored
+                          uid=25_109 StaticText "11/17/2025, 3:55:13 PM"
+                            uid=25_110 InlineTextBox "11/17/2025, 3:55:13 PM"
+                          uid=25_111 StaticText " • "
+                            uid=25_112 InlineTextBox " • "
+                          uid=25_113 StaticText "1"
+                            uid=25_114 InlineTextBox "1"
+                          uid=25_115 StaticText " msgs"
+                            uid=25_116 InlineTextBox " msgs"
+                    uid=25_117 listitem level="1"
+                      uid=25_118 button "Enhance Existing Documentation 11/17/2025, 3:55:13 PM • 1 msgs"
+                        uid=25_119 ignored
+                          uid=25_120 StaticText "Enhance Existing Documentation"
+                            uid=25_121 InlineTextBox "Enhance Existing Documentation"
+                        uid=25_122 ignored
+                          uid=25_123 StaticText "11/17/2025, 3:55:13 PM"
+                            uid=25_124 InlineTextBox "11/17/2025, 3:55:13 PM"
+                          uid=25_125 StaticText " • "
+                            uid=25_126 InlineTextBox " • "
+                          uid=25_127 StaticText "1"
+                            uid=25_128 InlineTextBox "1"
+                          uid=25_129 StaticText " msgs"
+                            uid=25_130 InlineTextBox " msgs"
+            uid=25_131 generic
+              uid=25_132 button "Guest guest@example.com" haspopup="menu"
+                uid=25_133 ignored
+                  uid=25_134 ignored
+                    uid=25_135 StaticText "Guest"
+                      uid=25_136 InlineTextBox "Guest"
+                  uid=25_137 ignored
+                    uid=25_138 StaticText "guest@example.com"
+                      uid=25_139 InlineTextBox "guest@example.com"
+              uid=25_140 menu orientation="vertical"
+                uid=25_141 menuitem "Profile & billing"
+                  uid=25_142 StaticText "Profile & billing"
+                    uid=25_143 InlineTextBox "Profile & billing"
+                uid=25_144 menuitem "Workspace settings"
+                  uid=25_145 StaticText "Workspace settings"
+                    uid=25_146 InlineTextBox "Workspace settings"
+                uid=25_147 menuitem "Sign out"
+                  uid=25_148 StaticText "Sign out"
+                    uid=25_149 InlineTextBox "Sign out"
+          uid=25_150 ignored
+            uid=25_151 main
+              uid=25_152 ignored
+                uid=25_153 sectionheader
+                  uid=25_154 navigation "Breadcrumb"
+                    uid=25_155 link "Workspace" url="http://localhost:3000/dashboard/"
+                      uid=25_156 StaticText "Workspace"
+                        uid=25_157 InlineTextBox "Workspace"
+                    uid=25_158 ignored
+                      uid=25_159 StaticText "Enhance Existing Documentation"
+                        uid=25_160 InlineTextBox "Enhance Existing Documentation"
+                  uid=25_161 heading "Enhance Existing Documentation" level="1"
+                    uid=25_162 StaticText "Enhance Existing Documentation"
+                      uid=25_163 InlineTextBox "Enhance Existing Documentation"
+                  uid=25_164 paragraph
+                    uid=25_165 StaticText "Review and refine your current documents without starting over."
+                      uid=25_166 InlineTextBox "Review and refine your current documents without starting over."
+                  uid=25_167 ignored
+                    uid=25_168 button "Promote to project"
+                      uid=25_169 StaticText "Promote to project"
+                        uid=25_170 InlineTextBox "Promote to project"
+                uid=25_171 main
+                  uid=25_172 ignored
+                    uid=25_173 region "Conversation"
+                      uid=25_174 list
+                        uid=25_175 listitem level="1"
+                          uid=25_176 ignored
+                            uid=25_177 StaticText "ENHANCE EXISTING DOCUMENTATION"
+                              uid=25_178 InlineTextBox "ENHANCE EXISTING DOCUMENTATION"
+                          uid=25_179 ignored
+                            uid=25_180 ignored
+                              uid=25_181 paragraph
+                                uid=25_182 StaticText "🌟 Here's what I'm seeing:"
+                                  uid=25_183 InlineTextBox "🌟 Here's what I'm seeing:"
+                              uid=25_184 paragraph
+                                uid=25_185 StaticText "Documentation is key to project health. I'm ready to review, refine, or update any existing document or code comment in your project. "
+                                  uid=25_186 InlineTextBox "Documentation is key to project health. I'm ready to review, refine, or update any existing document or code"
+                                  uid=25_187 InlineTextBox " "
+                                  uid=25_188 InlineTextBox "comment in your project. "
+                                uid=25_189 strong
+                                  uid=25_190 StaticText "Which file needs enhancement, and what is the specific change or improvement you want me to make (e.g., 'Add a risk analysis section,' or 'Simplify the explanation of the database schema')?"
+                                    uid=25_191 InlineTextBox "Which file needs enhancement, and what is the specific change or improvement"
+                                    uid=25_192 InlineTextBox " "
+                                    uid=25_193 InlineTextBox "you want me to make (e.g., 'Add a risk analysis section,' or 'Simplify the explanation of the database"
+                                    uid=25_194 InlineTextBox " "
+                                    uid=25_195 InlineTextBox "schema')?"
+                              uid=25_196 paragraph
+                                uid=25_197 StaticText "🤝 Want alternatives or deeper dives? Just ask and I'll share playbook-style pointers."
+                                  uid=25_198 InlineTextBox "🤝 Want alternatives or deeper dives? Just ask and I'll share playbook-style pointers."
+                      uid=25_199 ignored
+                      uid=25_200 generic
+                        uid=25_201 generic
+                          uid=25_202 generic
+                            uid=25_203 StaticText "Tone: "
+                              uid=25_204 InlineTextBox "Tone: "
+                            uid=25_205 StaticText "Collaborative expert"
+                              uid=25_206 InlineTextBox "Collaborative expert"
+                            uid=25_207 StaticText "Keeps a collaborative tone, surfaces trade-offs, and moves quickly to decisions."
+                              uid=25_208 InlineTextBox "Keeps a collaborative tone, surfaces trade-offs, and moves quickly to decisions."
+                          uid=25_209 generic
+                            uid=25_210 StaticText "Call out blockers or trade-offs and I'll surface mitigations tied to the SDLC plan."
+                              uid=25_211 InlineTextBox "Call out blockers or trade-offs and I'll surface mitigations tied to the SDLC plan."
+                            uid=25_212 StaticText "Need to pressure-test a requirement? Ask for pros/cons and I’ll benchmark against guardrails."
+                              uid=25_213 InlineTextBox "Need to pressure-test a "
+                              uid=25_214 InlineTextBox "requirement? Ask for pros/cons and I’ll benchmark against guardrails."
+                        uid=25_215 generic
+                          uid=25_216 button "Expert mode" haspopup="menu"
+                            uid=25_217 StaticText "Expert mode"
+                              uid=25_218 InlineTextBox "Expert "
+                              uid=25_219 InlineTextBox "mode"
+                      uid=25_220 generic
+                        uid=25_221 generic
+                          uid=25_222 ignored
+                            uid=25_223 generic
+                              uid=25_224 textbox "Share the next deliverable you'd like me to generate or refine—I'll collaborate like a trusted peer." multiline
+                                uid=25_225 ignored
+                                uid=25_226 generic
+                            uid=25_227 ignored
+                              uid=25_228 group "Composer actions"
+                                uid=25_229 button "Open resources menu" description="Add resources" haspopup="menu"
+                                uid=25_230 ignored
+                                  uid=25_231 ignored
+                                  uid=25_232 ignored
+                                uid=25_233 button "Manage connectors" description="Manage connectors" haspopup="menu"
+                                uid=25_234 ignored
+                                  uid=25_235 ignored
+                                    uid=25_236 ignored
+                                      uid=25_237 ignored
+                                    uid=25_238 ignored
+                                      uid=25_239 ignored
+                                    uid=25_240 ignored
+                                    uid=25_241 ignored
+                                  uid=25_242 ignored
+                                    uid=25_243 ignored
+                                      uid=25_244 ignored
+                                    uid=25_245 ignored
+                                      uid=25_246 ignored
+                                    uid=25_247 ignored
+                                    uid=25_248 ignored
+                                  uid=25_249 ignored
+                                    uid=25_250 ignored
+                                      uid=25_251 ignored
+                                    uid=25_252 ignored
+                                      uid=25_253 ignored
+                                    uid=25_254 ignored
+                                    uid=25_255 ignored
+                                  uid=25_256 ignored
+                                    uid=25_257 ignored
+                                      uid=25_258 ignored
+                                    uid=25_259 ignored
+                                      uid=25_260 ignored
+                                    uid=25_261 ignored
+                                    uid=25_262 ignored
+                                  uid=25_263 ignored
+                                    uid=25_264 ignored
+                                      uid=25_265 ignored
+                                    uid=25_266 ignored
+                                      uid=25_267 ignored
+                                    uid=25_268 ignored
+                                    uid=25_269 ignored
+                                  uid=25_270 ignored
+                                  uid=25_271 ignored
+                                uid=25_272 button "Extended thinking" description="Extended thinking"
+                              uid=25_273 ignored
+                                uid=25_274 generic
+                                  uid=25_275 combobox "Select chat model" haspopup="menu" value="Adaptive model: Auto (OPNXT)"
+                                    uid=25_276 MenuListPopup
+                                      uid=25_277 option "Adaptive model: Auto (OPNXT)" selectable selected value="Adaptive model: Auto (OPNXT)"
+                                      uid=25_278 option "OpenAI (Hosted)" value="OpenAI (Hosted)"
+                                      uid=25_279 option "Gemini (Hosted) (Unavailable)" disableable disabled value="Gemini (Hosted) (Unavailable)"
+                                      uid=25_280 option "xAI (Hosted) (Unavailable)" disableable disabled value="xAI (Hosted) (Unavailable)"
+                                      uid=25_281 option "Local cluster — gpt-oss:120b" value="Local cluster — gpt-oss:120b"
+                                      uid=25_282 option "Local cluster — mixtral:8x22b" value="Local cluster — mixtral:8x22b"
+                                      uid=25_283 option "Local cluster — qwen2.5:72b-instruct" value="Local cluster — qwen2.5:72b-instruct"
+                                      uid=25_284 option "Local cluster — llama3.1:70b" value="Local cluster — llama3.1:70b"
+                                      uid=25_285 option "Local cluster — mistral:latest" value="Local cluster — mistral:latest"
+                                      uid=25_286 option "Local cluster — llama3.2:latest" value="Local cluster — llama3.2:latest"
+                                  uid=25_287 generic
+                                    uid=25_288 StaticText "▾"
+                                      uid=25_289 InlineTextBox "▾"
+                                uid=25_290 button "Send message" disableable disabled
+                                  uid=25_291 ignored
+                                    uid=25_292 StaticText "Send message"
+                                      uid=25_293 InlineTextBox "Send message"
+                uid=25_294 ignored
+                  uid=25_295 ignored
+                    uid=25_296 ignored
+                uid=25_297 ignored
+                  uid=25_298 ignored
+                uid=25_299 ignored
+                  uid=25_300 ignored
+          uid=25_301 generic
+            uid=25_302 button "Open support assistant"
+              uid=25_303 ignored
+                uid=25_304 StaticText "Ask OPNXT"
+                  uid=25_305 InlineTextBox "Ask OPNXT"
+      uid=25_306 generic
+        uid=25_307 ignored
+      uid=25_308 generic
+        uid=25_309 alert
+          uid=25_310 StaticText "Enhance Existing Documentation"
+            uid=25_311 InlineTextBox "Enhance Existing Documentation"

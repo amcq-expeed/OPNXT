@@ -22,15 +22,9 @@ const baseNavItems: NavItem[] = [
   },
   {
     href: "/projects",
-    label: "Documents",
+    label: "Projects",
     match: (path: string) => path.startsWith("/projects"),
     icon: "📄",
-  },
-  {
-    href: "/start",
-    label: "Projects",
-    match: (path: string) => path.startsWith("/start"),
-    icon: "🧭",
   },
   {
     href: "/templates",
@@ -215,11 +209,7 @@ export default function SideNav({ collapsed = false, onToggle, user }: SideNavPr
                   </span>
                   <span className={styles.navLabel}>{item.label}</span>
                   {summary ? (
-                    item.href === "/dashboard" ? (
-                      <span className={styles.navBadge} title={`Copilot + chat sessions: ${summary.chat_sessions}`}>
-                        {summary.chat_sessions}
-                      </span>
-                    ) : item.href === "/projects" ? (
+                    item.href === "/projects" ? (
                       <span className={styles.navBadge}>{summary.documents}</span>
                     ) : null
                   ) : null}
@@ -229,44 +219,6 @@ export default function SideNav({ collapsed = false, onToggle, user }: SideNavPr
           })}
         </ul>
       </nav>
-      <div className={styles.usageCard}>
-        <div className={styles.usageHeader}>
-          <span className={styles.usageLabel}>Chats used</span>
-          <span className={styles.usageValue}>
-            {summary
-              ? `${Math.min(summary.chat_sessions, 3)} / 3`
-              : loadingSummary
-                ? "Loading…"
-                : "—"}
-          </span>
-        </div>
-        <div className={styles.usageMeter}>
-          <span
-            style={{
-              width: summary
-                ? `${Math.min((summary.chat_sessions / 3) * 100, 100)}%`
-                : "0%",
-            }}
-          />
-        </div>
-        <ul className={styles.usageStats}>
-          <li>
-            <span>Copilot sessions</span>
-            <strong>{summary ? summary.accelerator_sessions : loadingSummary ? "—" : "0"}</strong>
-          </li>
-          <li>
-            <span>Copilot artifacts</span>
-            <strong>{summary ? summary.accelerator_artifacts : loadingSummary ? "—" : "0"}</strong>
-          </li>
-          <li>
-            <span>Copilot messages</span>
-            <strong>{summary ? summary.accelerator_messages : loadingSummary ? "—" : "0"}</strong>
-          </li>
-        </ul>
-        <Link href="/billing" className={styles.usageUpgrade}>
-          Upgrade for unlimited
-        </Link>
-      </div>
       <div className={styles.recents}>
         <div className={styles.recentsHeader}>
           <button type="button" className={styles.recentsTab}>

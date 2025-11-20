@@ -1,0 +1,147 @@
+{# IEEE 830 compliant Software Requirements Specification template #}
+{% set project = project or {} %}
+{% set summaries = summaries or {} %}
+{% set answers = answers or {} %}
+{% set metadata = project.get("metadata", {}) %}
+{% set planning_summary = summaries.get("Planning", "TBD") %}
+{% set design_summary = summaries.get("Design", "TBD") %}
+{% set requirements = answers.get("Requirements", []) %}
+{% set stakeholders = answers.get("Stakeholders", []) %}
+{% set constraints = answers.get("Constraints", []) %}
+{% set assumptions = answers.get("Assumptions", []) %}
+{% set project_name = project.get("title") or project.get("name") or "TBD" %}
+{% set doc_id = metadata.get("document_id", "DOC-TBD") %}
+{% set doc_version = metadata.get("version", "0.1-DRAFT") %}
+{% set doc_status = project.get("status", "Draft") %}
+{% set author = metadata.get("author", "OPNXT SDLC Copilot") %}
+{% set approver = metadata.get("approver", "TBD") %}
+{% set classification = metadata.get("classification", "OPNXT Internal - Confidential") %}
+
+# Software Requirements Specification (SRS)
+
+> **Document ID:** {{ doc_id }} · **Classification:** {{ classification }}
+
+## Document Control
+
+| Field | Value |
+| --- | --- |
+| Document Title | {{ project_name }} Software Requirements Specification |
+| Document ID | {{ doc_id }} |
+| Version | {{ doc_version }} |
+| Status | {{ doc_status }} |
+| Prepared By | {{ author }} |
+| Approved By | {{ approver }} |
+| Date | {{ now() }} |
+| Distribution | {{ metadata.get("distribution", "Product, Engineering, QA, Security") }} |
+
+## Revision History
+
+| Version | Date | Author | Description |
+| --- | --- | --- | --- |
+| {{ doc_version }} | {{ now() }} | {{ author }} | {{ metadata.get("revision_notes", "Initial SRS generated from accelerator inputs.") }} |
+
+## Table of Contents
+
+1. [Introduction](#1-introduction)
+2. [Overall Description](#2-overall-description)
+3. [Specific Requirements](#3-specific-requirements)
+4. [Verification](#4-verification)
+5. [Appendices](#5-appendices)
+
+---
+
+## 1. Introduction
+
+### 1.1 Purpose
+{{ planning_summary or "Describe the software product purpose for its stakeholders." }}
+
+### 1.2 Scope
+Provide an overview of the software product capabilities, major functions, and goals.
+
+### 1.3 Definitions, Acronyms, and Abbreviations
+List project-specific terminology and abbreviations.
+
+### 1.4 References
+Reference related documents, standards, or prior versions relevant to this SRS.
+
+### 1.5 Overview
+Summarize the remainder of this SRS and how it is organized.
+
+## 2. Overall Description
+
+### 2.1 Product Perspective
+Explain how the system fits within the business or technical environment.
+
+### 2.2 Product Functions
+Outline the major features and services provided by the system.
+
+### 2.3 User Characteristics
+Describe the user classes, roles, and experience assumptions.
+
+### 2.4 Constraints
+{% if constraints %}
+- {{ constraints | join("\n- ") }}
+{% else %}
+Identify business, regulatory, design, or implementation constraints affecting the product.
+{% endif %}
+
+### 2.5 Assumptions and Dependencies
+{% if assumptions %}
+- {{ assumptions | join("\n- ") }}
+{% else %}
+Capture key assumptions and dependencies that may impact requirements validity.
+{% endif %}
+
+### 2.6 Apportioning of Requirements
+Indicate which requirements may be implemented in future releases.
+
+## 3. Specific Requirements
+
+### 3.1 Functional Requirements
+{% if requirements %}
+{% for req in requirements %}
+- {{ req }}
+{% endfor %}
+{% else %}
+Enumerate functional requirements using SHALL statements with unique identifiers.
+{% endif %}
+
+### 3.2 External Interface Requirements
+Describe user, hardware, software, and communication interfaces.
+
+### 3.3 Performance Requirements
+Specify timing, throughput, latency, and resource utilization targets.
+
+### 3.4 Design Constraints
+Document standards compliance, technology decisions, and architectural constraints.
+
+### 3.5 Software System Attributes
+#### 3.5.1 Reliability
+Define reliability targets (e.g., uptime, MTBF, error handling expectations).
+
+#### 3.5.2 Availability
+Describe availability objectives and failover expectations.
+
+#### 3.5.3 Security
+Outline authentication, authorization, data protection, and audit requirements.
+
+#### 3.5.4 Maintainability
+Describe maintainability goals (e.g., modularity, documentation, logging).
+
+#### 3.5.5 Portability
+Specify portability or deployment requirements.
+
+### 3.6 Logical Database Requirements
+Document data entities, schemas, and persistence expectations.
+
+### 3.7 Design and Implementation Constraints
+Capture programming languages, tools, and design patterns that must be used or avoided.
+
+### 3.8 Software Quality Attributes
+Summarize non-functional attributes and quality goals.
+
+## 4. Verification
+Describe how each requirement will be verified (e.g., test cases, inspections, demonstrations).
+
+## 5. Appendices
+Include supporting information such as traceability matrices, glossary, or data dictionary.

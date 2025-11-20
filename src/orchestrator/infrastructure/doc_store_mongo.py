@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import os
 from datetime import UTC, datetime
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 try:  # pragma: no cover - optional dependency
     from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorGridFSBucket  # type: ignore
@@ -36,6 +36,8 @@ class MongoDocumentStore:
         self._client: AsyncIOMotorClient | None = None
         self._db = None
         self._collection = None
+        self._preview_collection = None
+        self._asset_collection = None
         self._fs: AsyncIOMotorGridFSBucket | None = None
         if AsyncIOMotorClient is None or AsyncIOMotorGridFSBucket is None:
             return
@@ -46,6 +48,8 @@ class MongoDocumentStore:
             self._run(self._client.server_info())
             self._db = self._client[mongo_db]
             self._collection = self._db["documents"]
+            self._preview_collection = self._db["accelerator_previews"]
+            self._asset_collection = self._db["accelerator_assets"]
             self._fs = AsyncIOMotorGridFSBucket(self._db)
             self._run(self._collection.create_index(
                 [
@@ -55,11 +59,40 @@ class MongoDocumentStore:
                 ],
                 unique=True,
             ))
+            if self._preview_collection is not None:
+                self._run(
+                    self._preview_collection.create_index(
+                        [
+                            ("session_id", 1),
+                            ("filename", 1),
+                            ("version", 1),
+                        ],
+                        unique=True,
+                    )
+                )
+                self._run(
+                    self._preview_collection.create_index(
+                        [("session_id", 1), ("created_at", -1)]
+                    )
+                )
+            if self._asset_collection is not None:
+                self._run(
+                    self._asset_collection.create_index(
+                        [
+                            ("session_id", 1),
+                            ("filename", 1),
+                            ("version", 1),
+                        ],
+                        unique=True,
+                    )
+                )
         except Exception:
             self._client = None
             self._collection = None
             self._db = None
             self._fs = None
+            self._preview_collection = None
+            self._asset_collection = None
 
     # --- v1.0 update ---
     def save_document(self, project_id: str, filename: str, content: str, meta: Optional[Dict[str, Any]] = None) -> int:
@@ -155,11 +188,166 @@ class MongoDocumentStore:
 
     # --- v1.0 update ---
     def save_accelerator_preview(self, session_id: str, filename: str, content: str, meta: Optional[Dict[str, Any]] = None) -> int:
-        return self._fallback.save_accelerator_preview(session_id, filename, content, meta)
+        if self._preview_collection is None:
+            return self._fallback.save_accelerator_preview(session_id, filename, content, meta)
+
+        try:
+            query = {"session_id": session_id, "filename": filename}
+            last_docs = self._run(
+                self._preview_collection.find(query)
+                .sort("version", -1)
+                .limit(1)
+                .to_list(length=1)
+            )
+            last_doc = last_docs[0] if last_docs else None
+            meta_dict: Dict[str, Any] = dict(meta or {})
+            if last_doc and str(last_doc.get("content", "")) == content:
+                if meta_dict:
+                    merged_meta = dict(last_doc.get("meta") or {})
+                    merged_meta.update(meta_dict)
+                    self._run(
+                        self._preview_collection.update_one(
+                            {"_id": last_doc["_id"]},
+                            {"$set": {"meta": merged_meta}},
+                        )
+                    )
+                return int(last_doc.get("version", 1))
+
+            next_version = int(last_doc.get("version", 0)) + 1 if last_doc else 1
+            doc = {
+                "session_id": session_id,
+                "filename": filename,
+                "version": next_version,
+                "created_at": self._utc_now(),
+                "meta": meta_dict,
+                "content": content,
+            }
+            self._run(self._preview_collection.insert_one(doc))
+            return next_version
+        except Exception:
+            return self._fallback.save_accelerator_preview(session_id, filename, content, meta)
 
     # --- v1.0 update ---
     def list_accelerator_previews(self, session_id: str):
-        return self._fallback.list_accelerator_previews(session_id)
+        if self._preview_collection is None:
+            return self._fallback.list_accelerator_previews(session_id)
+
+        try:
+            cursor = (
+                self._preview_collection.find({"session_id": session_id})
+                .sort([("version", 1)])
+            )
+            docs = self._run(cursor.to_list(length=5000))
+            previews: List[Dict[str, Any]] = []
+            for doc in docs:
+                previews.append(
+                    {
+                        "version": int(doc.get("version", 0)),
+                        "filename": str(doc.get("filename", "")),
+                        "created_at": self._ensure_utc(doc.get("created_at")).isoformat().replace("+00:00", "Z"),
+                        "meta": dict(doc.get("meta") or {}),
+                        "content": doc.get("content"),
+                    }
+                )
+            return previews
+        except Exception:
+            return self._fallback.list_accelerator_previews(session_id)
+
+    def get_accelerator_preview(self, session_id: str, filename: str) -> Optional[Dict[str, Any]]:
+        if self._preview_collection is None:
+            return self._fallback.get_accelerator_preview(session_id, filename)
+
+        try:
+            doc_list = self._run(
+                self._preview_collection.find({"session_id": session_id, "filename": filename})
+                .sort("version", -1)
+                .limit(1)
+                .to_list(length=1)
+            )
+            doc = doc_list[0] if doc_list else None
+            if not doc:
+                return None
+            return {
+                "version": int(doc.get("version", 0)),
+                "filename": str(doc.get("filename", "")),
+                "created_at": self._ensure_utc(doc.get("created_at")).isoformat().replace("+00:00", "Z"),
+                "meta": dict(doc.get("meta") or {}),
+                "content": doc.get("content"),
+            }
+        except Exception:
+            return self._fallback.get_accelerator_preview(session_id, filename)
+
+    def save_accelerator_asset(self, session_id: str, filename: str, content: bytes, meta: Optional[Dict[str, Any]] = None) -> int:
+        if self._asset_collection is None or self._fs is None:
+            return self._fallback.save_accelerator_asset(session_id, filename, content, meta)
+
+        try:
+            query = {"session_id": session_id, "filename": filename}
+            last_docs = self._run(
+                self._asset_collection.find(query)
+                .sort("version", -1)
+                .limit(1)
+                .to_list(length=1)
+            )
+            last_doc = last_docs[0] if last_docs else None
+            meta_dict: Dict[str, Any] = dict(meta or {})
+            if last_doc and last_doc.get("blob_id") is not None:
+                blob_id = last_doc.get("blob_id")
+                try:
+                    existing = self._run(self._fs.open_download_stream(blob_id).read())
+                    if isinstance(existing, (bytes, bytearray)) and bytes(existing) == bytes(content):
+                        if meta_dict:
+                            merged_meta = dict(last_doc.get("meta") or {})
+                            merged_meta.update(meta_dict)
+                            self._run(
+                                self._asset_collection.update_one(
+                                    {"_id": last_doc["_id"]},
+                                    {"$set": {"meta": merged_meta}},
+                                )
+                            )
+                        return int(last_doc.get("version", 1))
+                except Exception:
+                    pass
+
+            next_version = int(last_doc.get("version", 0)) + 1 if last_doc else 1
+            blob_id = self._run(
+                self._fs.upload_from_stream(
+                    f"{session_id}-{filename}-{next_version}", bytes(content)
+                )
+            )
+            doc = {
+                "session_id": session_id,
+                "filename": filename,
+                "version": next_version,
+                "created_at": self._utc_now(),
+                "meta": meta_dict,
+                "blob_id": blob_id,
+            }
+            self._run(self._asset_collection.insert_one(doc))
+            return next_version
+        except Exception:
+            return self._fallback.save_accelerator_asset(session_id, filename, content, meta)
+
+    def get_accelerator_asset(self, session_id: str, filename: str) -> Optional[bytes]:
+        if self._asset_collection is None or self._fs is None:
+            return self._fallback.get_accelerator_asset(session_id, filename)
+
+        try:
+            doc_list = self._run(
+                self._asset_collection.find({"session_id": session_id, "filename": filename})
+                .sort("version", -1)
+                .limit(1)
+                .to_list(length=1)
+            )
+            doc = doc_list[0] if doc_list else None
+            if not doc or not doc.get("blob_id"):
+                return None
+            data = self._run(self._fs.open_download_stream(doc.get("blob_id")).read())
+            if isinstance(data, (bytes, bytearray)):
+                return bytes(data)
+            return None
+        except Exception:
+            return self._fallback.get_accelerator_asset(session_id, filename)
 
     # --- v1.0 update ---
     def _run(self, awaitable: Any) -> Any:

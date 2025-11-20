@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from typing import List, Dict, Any, Optional
+from functools import lru_cache
+from datetime import datetime, timezone
 import logging
 import re
 from fastapi import APIRouter, HTTPException, status, Response, Depends, Body, UploadFile, File, Query
@@ -28,8 +30,11 @@ from ...domain.docs_models import (
     UploadAnalyzeResponse,
     UploadAnalyzeItem,
     UploadApplyRequest,
+    DocumentEditRequest,
+    DocumentEditResponse,
 )
 from ...security.rbac import require_permission, Permission
+from ...security.auth import User
 from src.core import summarize_project
 from ...services.doc_ai import enrich_answers_with_ai
 from ...services.context_store import get_context_store
@@ -37,11 +42,41 @@ from ...infrastructure.doc_store import get_doc_store
 from ...infrastructure.chat_store import get_chat_store
 from ...services.master_prompt_ai import generate_with_master_prompt, generate_backlog_with_master_prompt
 from ...services.doc_ingest import parse_text_from_bytes, extract_shall_statements
+from ...services.project_stream import stream_project_documents, queue_project_document_update, queue_project_snapshot
+from ...services.doc_validation import enforce_document_compliance
 import zipfile
 import json
 
+from src.sdlc_generator import generate_all_docs
+
 
 DEFAULT_DOC_TYPES = ["Project Charter", "SRS", "SDD", "Test Plan"]
+
+_STREAM_HEADERS = {
+    "Content-Type": "text/event-stream",
+    "Cache-Control": "no-cache, no-transform",
+    "Connection": "keep-alive",
+    "Access-Control-Allow-Origin": "http://localhost:3000",
+    "Access-Control-Allow-Credentials": "true",
+    "X-Accel-Buffering": "no",
+}
+
+
+@lru_cache(maxsize=1)
+def _get_baseline_documents() -> Dict[str, str]:
+    try:
+        baseline = generate_all_docs(
+            {
+                "project": {},
+                "answers": {},
+                "summaries": {},
+                "phases": [],
+                "request": "",
+            }
+        )
+        return baseline or {}
+    except Exception:
+        return {}
 
 
 def _collect_existing_attachments(project_id: str) -> Dict[str, str]:
@@ -287,12 +322,21 @@ def _render_docs_with_master_prompt(
     if not texts:
         raise RuntimeError("Master prompt generation returned no artifacts")
 
+    baseline_docs = _get_baseline_documents()
+    normalized_texts, fallback_flags = enforce_document_compliance(texts, baseline_docs)
+
     out_dir = Path("docs") / "generated" / project_id
     out_dir.mkdir(parents=True, exist_ok=True)
 
     store = get_doc_store()
     artifacts: List[DocumentArtifact] = []
-    for fname, content in texts.items():
+    for fname, content in normalized_texts.items():
+        fallback = fallback_flags.get(fname, False)
+        meta = {
+            "overlay": overlay_flag,
+            "ai_master_prompt": True,
+            "compliance_fallback": fallback,
+        }
         try:
             (out_dir / fname).write_text(content, encoding="utf-8")
         except Exception:
@@ -302,11 +346,20 @@ def _render_docs_with_master_prompt(
                 project_id,
                 fname,
                 content,
-                meta={"overlay": overlay_flag, "ai_master_prompt": True},
+                meta=meta,
             )
         except Exception:
             pass
+        queue_project_document_update(
+            project_id,
+            fname,
+            content,
+            meta=meta,
+            source="generation",
+        )
         artifacts.append(DocumentArtifact(filename=fname, content=content, path=str(out_dir / fname)))
+
+    queue_project_snapshot(project_id)
 
     return artifacts, out_dir
 
@@ -454,7 +507,7 @@ def generate_documents(
                 except Exception:
                     logger.warning("Backlog generation failed for project %s", project_id, exc_info=True)
 
-        return DocGenResponse(project_id=project_id, saved_to=str(out_dir), artifacts=artifacts)
+        return DocGenResponse(project_id=project_id, artifacts=artifacts, saved_to=str(out_dir))
     except RuntimeError as e:
         raise HTTPException(status_code=503, detail=str(e))
     except HTTPException:
@@ -462,6 +515,92 @@ def generate_documents(
     except Exception as e:
         logger.exception("Document generation failed for project %s", project_id)
         raise HTTPException(status_code=500, detail=f"Doc generation failed: {e}")
+
+
+@router.get(
+    "/{project_id}/documents/stream",
+    response_class=StreamingResponse,
+)
+async def stream_project_documents_endpoint(
+    project_id: str,
+    starting_revision: int = Query(0, ge=0, description="Initial document revision"),
+    user: User = Depends(require_permission(Permission.PROJECT_READ)),
+):
+    repo = get_repo()
+    proj = repo.get(project_id)
+    if not proj:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
+
+    queue_project_snapshot(project_id)
+
+    async def event_stream():
+        async for payload in stream_project_documents(project_id, start_revision=starting_revision):
+            yield f"data: {json.dumps(payload)}\n\n"
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream", headers=_STREAM_HEADERS)
+
+
+@router.patch(
+    "/{project_id}/documents/{filename:path}",
+    response_model=DocumentEditResponse,
+)
+def patch_project_document(
+    project_id: str,
+    filename: str,
+    payload: DocumentEditRequest,
+    user: User = Depends(require_permission(Permission.PROJECT_WRITE)),
+) -> DocumentEditResponse:
+    repo = get_repo()
+    proj = repo.get(project_id)
+    if not proj:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
+
+    store = get_doc_store()
+    existing = store.get_document(project_id, filename)
+    if existing is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
+
+    edited_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    meta: Dict[str, Any] = dict(existing.meta or {})
+    meta.update(
+        {
+            "manual_edit": True,
+            "edited_by": user.email,
+            "edited_at": edited_at,
+        }
+    )
+    if payload.summary:
+        meta["summary"] = payload.summary
+    if payload.section:
+        meta["section"] = payload.section
+    if payload.change_description:
+        meta["change_description"] = payload.change_description
+    if payload.message_id:
+        meta["message_id"] = payload.message_id
+
+    version = store.save_document(project_id, filename, payload.content, meta=meta)
+    updated = store.get_document(project_id, filename, version=version)
+    if updated is None:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to persist document edit")
+
+    revision = queue_project_document_update(
+        project_id,
+        filename,
+        updated.content,
+        meta=meta,
+        source="edit",
+        section=payload.section,
+        message_id=payload.message_id,
+    )
+    queue_project_snapshot(project_id)
+
+    return DocumentEditResponse(
+        filename=filename,
+        version=updated.version,
+        content=updated.content,
+        meta=dict(updated.meta or {}),
+        revision=revision,
+    )
 
 
 @router.post("/{project_id}/uploads/analyze", response_model=UploadAnalyzeResponse)
@@ -722,13 +861,13 @@ def download_document(
     repo = get_repo()
     proj = repo.get(project_id)
     if not proj:
-        raise HTTPException(status_code=404, detail="Project not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
+
     store = get_doc_store()
     dv = store.get_document(project_id, filename, version=version)
     if not dv:
-        raise HTTPException(status_code=404, detail="Document or version not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
 
-    # Infer content type by extension
     fname_lower = filename.lower()
     if fname_lower.endswith(".md"):
         media_type = "text/markdown; charset=utf-8"

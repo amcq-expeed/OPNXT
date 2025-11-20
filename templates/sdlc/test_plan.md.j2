@@ -1,0 +1,121 @@
+{# Test Plan template aligned with IEEE 829 / ISO 29119 #}
+{% set project = project or {} %}
+{% set summaries = summaries or {} %}
+{% set answers = answers or {} %}
+{% set metadata = project.get("metadata", {}) %}
+{% set quality_goals = answers.get("QualityGoals", []) %}
+{% set test_env = answers.get("TestEnvironment", []) %}
+{% set test_scope = answers.get("TestScope", []) %}
+{% set risks = answers.get("TestRisks", []) %}
+{% set project_name = project.get("title") or project.get("name") or "TBD" %}
+{% set doc_id = metadata.get("document_id", "DOC-TBD") %}
+{% set doc_version = metadata.get("version", "0.1-DRAFT") %}
+{% set doc_status = project.get("status", "Draft") %}
+{% set owner = metadata.get("qa_lead", "QA Lead TBD") %}
+{% set reviewer = metadata.get("qa_reviewer", "TBD") %}
+{% set classification = metadata.get("classification", "OPNXT Internal - Confidential") %}
+
+# Test Plan
+
+> **Document ID:** {{ doc_id }} · **Classification:** {{ classification }}
+
+## Document Control
+
+| Field | Value |
+| --- | --- |
+| Document Title | {{ project_name }} Test Plan |
+| Document ID | {{ doc_id }} |
+| Version | {{ doc_version }} |
+| Status | {{ doc_status }} |
+| Owner | {{ owner }} |
+| Reviewer | {{ reviewer }} |
+| Date | {{ now() }} |
+| Distribution | {{ metadata.get("distribution", "QA, Engineering, Product") }} |
+
+## Revision History
+
+| Version | Date | Author | Description |
+| --- | --- | --- | --- |
+| {{ doc_version }} | {{ now() }} | {{ owner }} | {{ metadata.get("revision_notes", "Initial Test Plan generated from accelerator inputs.") }} |
+
+## Table of Contents
+
+1. [Introduction](#1-introduction)
+2. [Test Items](#2-test-items)
+3. [Test Objectives](#3-test-objectives)
+4. [Test Scope](#4-test-scope)
+5. [Test Approach](#5-test-approach)
+6. [Test Environment](#6-test-environment)
+7. [Test Schedule](#7-test-schedule)
+8. [Risk & Contingency](#8-risk--contingency)
+
+---
+
+## 1. Introduction
+### 1.1 Purpose
+Describe the purpose of this Test Plan and its intended audience.
+
+### 1.2 Scope
+Summarize features and systems covered by this plan.
+
+### 1.3 References
+List related documents (SRS, SDD, risk assessments, standards) referenced in this plan.
+
+## 2. Test Items
+Identify testable items (modules, APIs, features) and associated version/build identifiers.
+
+## 3. Test Objectives
+{% if quality_goals %}
+{% for goal in quality_goals %}- {{ goal }}
+{% endfor %}
+{% else %}
+Define objectives for verifying functional and non-functional requirements.
+{% endif %}
+
+## 4. Test Scope
+### 4.1 In Scope
+{% if test_scope %}
+{% for item in test_scope %}- {{ item }}
+{% endfor %}
+{% else %}
+List features and scenarios targeted for testing.
+{% endif %}
+
+### 4.2 Out of Scope
+Document items explicitly excluded from testing in this cycle.
+
+## 5. Test Approach
+Describe strategies for each test type (unit, integration, system, performance, security, usability, regression).
+
+## 6. Test Environment
+{% if test_env %}
+{% for item in test_env %}- {{ item }}
+{% endfor %}
+{% else %}
+Specify hardware, software, data sets, tools, and configuration requirements.
+{% endif %}
+
+## 7. Test Deliverables
+List deliverables (test cases, scripts, data sets, logs, reports).
+
+## 8. Schedule & Milestones
+Provide testing timeline, entry/exit criteria per phase, and gating milestones.
+
+## 9. Roles & Responsibilities
+Define roles (QA Lead, Test Engineers, Dev, Product) and responsibilities.
+
+## 10. Risks & Contingencies
+{% if risks %}
+{% for risk in risks %}- {{ risk }}
+{% endfor %}
+{% else %}
+Identify testing risks, likelihood, impact, and mitigation plans.
+{% endif %}
+
+## 11. Metrics & Reporting
+Describe metrics (pass rate, defect density, coverage) and reporting cadence.
+
+## 12. Approvals
+- QA Lead: _________________________  Date: __________
+- Product Owner: ___________________  Date: __________
+- Engineering Lead: ________________  Date: __________

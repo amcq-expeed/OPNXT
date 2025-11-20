@@ -73,3 +73,49 @@ def test_stream_endpoint_not_found(monkeypatch):
     )
     assert resp.status_code == 404
     assert "missing" in resp.json()["detail"].lower()
+
+
+def test_run_tests_success(monkeypatch):
+    monkeypatch.setattr(
+        accel_router,
+        "run_accelerator_tests",
+        lambda session_id, test_path=None: {
+            "status": "passed",
+            "command": "pytest tests/test_clinical_rules.py",
+            "test_path": test_path or "tests/test_clinical_rules.py",
+            "exit_code": 0,
+            "stdout": "ok",
+            "stderr": "",
+            "duration_ms": 1200.0,
+            "started_at": "2025-01-01T00:00:00Z",
+            "completed_at": "2025-01-01T00:00:01Z",
+        },
+    )
+
+    resp = client.post(
+        "/accelerators/sessions/demo-session/tests/run",
+        headers=_headers(),
+        json={"test_path": "tests/test_clinical_rules.py"},
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["status"] == "passed"
+    assert body["command"].startswith("pytest")
+    assert body["test_path"] == "tests/test_clinical_rules.py"
+    assert body["duration_ms"] == 1200.0
+
+
+def test_run_tests_invalid_path(monkeypatch):
+    monkeypatch.setattr(
+        accel_router,
+        "run_accelerator_tests",
+        lambda session_id, test_path=None: (_ for _ in ()).throw(ValueError("Unsupported test path requested")),
+    )
+
+    resp = client.post(
+        "/accelerators/sessions/demo-session/tests/run",
+        headers=_headers(),
+        json={"test_path": "tests/not-allowed.py"},
+    )
+    assert resp.status_code == 400
+    assert "unsupported" in resp.json()["detail"].lower()

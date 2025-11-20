@@ -1,5 +1,6 @@
 import asyncio
 from datetime import datetime, timezone
+from typing import Any, Dict
 
 import pytest
 
@@ -111,6 +112,34 @@ def test_stream_accelerator_artifacts_emits_snapshot_and_updates(monkeypatch, sa
     asyncio.run(generator.aclose())
 
 
+def test_enqueue_immediate_start_adds_stage_and_progress(monkeypatch, sample_session):
+    captured: Dict[str, Any] = {}
+
+    class StoreStub:
+        def get_session(self, session_id):
+            return sample_session
+
+    sample_session.metadata.setdefault("message_count", 1)
+    sample_session.metadata["status"] = "draft"
+
+    monkeypatch.setattr(accelerator_service, "get_accelerator_store", lambda: StoreStub())
+
+    def capture_artifact(session_id: str, artifact: Dict[str, Any], *_args, **_kwargs):
+        captured["session_id"] = session_id
+        captured["artifact"] = artifact
+
+    monkeypatch.setattr(accelerator_service, "_queue_artifact", capture_artifact)
+
+    accelerator_service._enqueue_immediate_start(sample_session.session_id)
+
+    artifact = captured.get("artifact")
+    assert artifact is not None
+    assert artifact.get("stage") == "analysis"
+    assert artifact.get("progress") == pytest.approx(0.05)
+    assert artifact.get("meta", {}).get("stage") == "analysis"
+    assert artifact.get("meta", {}).get("progress") == pytest.approx(0.05)
+
+
 def test_schedule_code_generation_success(monkeypatch, sample_session, sample_intent):
     queued = []
     published = []
@@ -128,7 +157,11 @@ def test_schedule_code_generation_success(monkeypatch, sample_session, sample_in
 
     store = StoreStub()
     monkeypatch.setattr(accelerator_service, "get_accelerator_store", lambda: store)
-    monkeypatch.setattr(accelerator_service, "_queue_artifact", lambda sid, art: queued.append((sid, art)))
+    monkeypatch.setattr(
+        accelerator_service,
+        "_queue_artifact",
+        lambda sid, art, *_args, **_kwargs: queued.append((sid, art)),
+    )
     monkeypatch.setattr(
         accelerator_service,
         "_generate_code_payload",
@@ -140,7 +173,7 @@ def test_schedule_code_generation_success(monkeypatch, sample_session, sample_in
 
     monkeypatch.setattr(accelerator_service, "_update_session_metadata", capture_update)
 
-    def fake_publish(session, intent, payload, duration_ms):
+    def fake_publish(session, intent, payload, duration_ms, *args, **kwargs):
         published.append(payload)
         accelerator_service._update_session_metadata(
             session.session_id,
@@ -186,7 +219,11 @@ def test_schedule_code_generation_error_path(monkeypatch, sample_session, sample
 
     store = StoreStub()
     monkeypatch.setattr(accelerator_service, "get_accelerator_store", lambda: store)
-    monkeypatch.setattr(accelerator_service, "_queue_artifact", lambda sid, art: queued.append(art))
+    monkeypatch.setattr(
+        accelerator_service,
+        "_queue_artifact",
+        lambda sid, art, *_args, **_kwargs: queued.append(art),
+    )
     def _raise(*_args, **_kwargs):
         raise RuntimeError("boom")
 

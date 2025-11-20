@@ -1,0 +1,139 @@
+{# Software Design Description template aligned with IEEE 1016 #}
+{% set project = project or {} %}
+{% set summaries = summaries or {} %}
+{% set answers = answers or {} %}
+{% set metadata = project.get("metadata", {}) %}
+{% set design_notes = answers.get("Design", []) %}
+{% set architecture = answers.get("Architecture", []) %}
+{% set interfaces = answers.get("Interfaces", []) %}
+{% set data_model = answers.get("DataModel", []) %}
+{% set deployment = answers.get("Deployment", []) %}
+{% set project_name = project.get("title") or project.get("name") or "TBD" %}
+{% set doc_id = metadata.get("document_id", "DOC-TBD") %}
+{% set doc_version = metadata.get("version", "0.1-DRAFT") %}
+{% set doc_status = project.get("status", "Draft") %}
+{% set author = metadata.get("architect", "OPNXT SDLC Copilot") %}
+{% set reviewer = metadata.get("reviewer", "TBD") %}
+{% set classification = metadata.get("classification", "OPNXT Internal - Confidential") %}
+
+# Software Design Description (SDD)
+
+> **Document ID:** {{ doc_id }} · **Classification:** {{ classification }}
+
+## Document Control
+
+| Field | Value |
+| --- | --- |
+| Document Title | {{ project_name }} Software Design Description |
+| Document ID | {{ doc_id }} |
+| Version | {{ doc_version }} |
+| Status | {{ doc_status }} |
+| Prepared By | {{ author }} |
+| Reviewer | {{ reviewer }} |
+| Date | {{ now() }} |
+| Distribution | {{ metadata.get("distribution", "Architecture, Engineering, QA, Security") }} |
+
+## Revision History
+
+| Version | Date | Author | Description |
+| --- | --- | --- | --- |
+| {{ doc_version }} | {{ now() }} | {{ author }} | {{ metadata.get("revision_notes", "Initial SDD generated from accelerator inputs.") }} |
+
+## Table of Contents
+
+1. [Introduction](#1-introduction)
+2. [Architectural Overview](#2-architectural-overview)
+3. [Detailed Design](#3-detailed-design)
+4. [Deployment Architecture](#4-deployment-architecture)
+5. [Operational Considerations](#5-operational-considerations)
+
+---
+
+## 1. Introduction
+### 1.1 Purpose
+State the purpose of this design document and its audience.
+
+### 1.2 Scope
+Summarize the system scope covered by the design.
+
+### 1.3 References
+List reference documents (SRS, standards, APIs) relied upon for this design.
+
+### 1.4 Definitions and Acronyms
+Document important terms and abbreviations.
+
+## 2. Architectural Overview
+### 2.1 Design Objectives & Constraints
+{% if design_notes %}
+{% for note in design_notes %}- {{ note }}
+{% endfor %}
+{% else %}
+Capture guiding architectural principles, quality attributes, and major constraints.
+{% endif %}
+
+### 2.2 System Context
+Describe the system in relation to external systems, actors, and data flows.
+
+### 2.3 Architecture Diagram & Narrative
+Provide a high-level component diagram (embed description or link) and narrative of primary tiers/components.
+
+## 3. Detailed Design
+### 3.1 Component Model
+{% if architecture %}
+{% for comp in architecture %}- {{ comp }}
+{% endfor %}
+{% else %}
+Enumerate major components/modules, their responsibilities, and interactions.
+{% endif %}
+
+### 3.2 Interface Design
+{% if interfaces %}
+{% for iface in interfaces %}- {{ iface }}
+{% endfor %}
+{% else %}
+Detail APIs, events, and integration contracts with request/response schemas.
+{% endif %}
+
+### 3.3 Data Design
+{% if data_model %}
+{% for item in data_model %}- {{ item }}
+{% endfor %}
+{% else %}
+Describe data entities, schemas, persistence strategy, and migration considerations.
+{% endif %}
+
+### 3.4 Workflow & Sequence Views
+Illustrate critical workflows or sequence diagrams for key scenarios.
+
+### 3.5 Error Handling & Resilience
+Explain exception handling, retries, fallbacks, and resilience strategies.
+
+### 3.6 Security Architecture
+Document authentication, authorization, encryption, secrets management, and logging/auditing.
+
+### 3.7 Performance & Scalability Considerations
+Outline caching, scaling approach, capacity planning, and performance budgets.
+
+## 4. Deployment Architecture
+{% if deployment %}
+{% for item in deployment %}- {{ item }}
+{% endfor %}
+{% else %}
+Describe environments, infrastructure topology, CI/CD pipeline, and dependencies.
+{% endif %}
+
+## 5. Operational Considerations
+### 5.1 Observability
+Define logging, metrics, tracing, and alerting strategy.
+
+### 5.2 Maintenance & Support
+Summarize maintenance procedures, runbooks, and support model.
+
+### 5.3 Compliance & Regulatory
+Record compliance requirements impacting design (privacy, accessibility, industry-specific regulations).
+
+## 6. Traceability
+Map design elements back to SRS requirements (FR/NFR) or architectural decisions.
+
+## 7. Appendices
+Include supplementary details such as ADRs, detailed API specs, or data dictionaries.

@@ -1,3 +1,5 @@
+import { EventSourcePolyfill } from "event-source-polyfill";
+
 export interface Project {
   project_id: string;
   name: string;
@@ -9,6 +11,154 @@ export interface Project {
   metadata?: Record<string, any>;
 }
 
+export function streamAcceleratorArtifacts(
+  sessionId: string,
+  onEvent: (event: AcceleratorArtifactStreamEvent) => void,
+  onError?: (err: MessageEvent | Event) => void,
+  startingRevision = 0,
+): () => void {
+  if (typeof window === "undefined") {
+    // SSR / build time: nothing to stream.
+    return () => {};
+  }
+  const params = new URLSearchParams();
+  params.set("starting_revision", String(Math.max(0, startingRevision)));
+  const url = `${API_BASE}/accelerators/sessions/${encodeURIComponent(sessionId)}/artifacts/stream?${params.toString()}`;
+  const token = getAccessToken();
+  const eventSourceCtor = resolveEventSource();
+  if (!eventSourceCtor) {
+    console.warn("EventSource is not available in this environment; skipping accelerator stream.");
+    return () => {};
+  }
+  const headers: Record<string, string> = {};
+  if (token) headers.Authorization = `Bearer ${token}`;
+  const nativeCtor = window.EventSource as EventSourceConstructor | undefined;
+  const supportsHeaders = eventSourceCtor !== nativeCtor;
+  if (token && !supportsHeaders) {
+    console.warn(
+      "EventSource polyfill with header support is required for authenticated accelerator streams.",
+    );
+    return () => {};
+  }
+  const source = new eventSourceCtor(url, {
+    withCredentials: true,
+    headers: supportsHeaders ? headers : undefined,
+  } as EventSourceInit & { headers?: Record<string, string> });
+  source.onmessage = (event: MessageEvent<string>) => {
+    if (!onEvent) return;
+    try {
+      const payload = JSON.parse(event.data);
+      if (payload?.type) onEvent(payload as AcceleratorArtifactStreamEvent);
+    } catch (err) {
+      console.error("Failed to parse artifact stream event", err);
+    }
+  };
+  source.onerror = (event: Event) => {
+    if (onError) onError(event);
+  };
+  return () => {
+    source.close();
+  };
+}
+
+export type AcceleratorStreamCallbacks = {
+  onSnapshot: (event: AcceleratorArtifactSnapshotEvent) => void;
+  onUpdates: (event: AcceleratorArtifactUpdatesEvent) => void;
+  onHeartbeat?: (event: AcceleratorArtifactHeartbeatEvent) => void;
+  onStatus?: (status: "connecting" | "open" | "closed" | "error", meta?: { attempt?: number }) => void;
+};
+
+export type AcceleratorStreamFactory = (
+  sessionId: string,
+  onEvent: (event: AcceleratorArtifactStreamEvent) => void,
+  onError: (err: MessageEvent | Event) => void,
+  startingRevision: number,
+) => () => void;
+
+export type AcceleratorReconnectOptions = {
+  initialRevision?: number;
+  maxBackoffMs?: number;
+  baseDelayMs?: number;
+  jitter?: boolean;
+  streamFactory?: AcceleratorStreamFactory;
+};
+
+export function connectAcceleratorArtifactStream(
+  sessionId: string,
+  callbacks: AcceleratorStreamCallbacks,
+  options: AcceleratorReconnectOptions = {},
+) {
+  const hasWindow = typeof window !== "undefined";
+  if (!hasWindow && !options.streamFactory) return () => {};
+  const {
+    initialRevision = 0,
+    maxBackoffMs = 10000,
+    baseDelayMs = 1000,
+    jitter = true,
+    streamFactory,
+  } = options;
+  const scheduleTimeout: typeof window.setTimeout = hasWindow && typeof window.setTimeout === "function"
+    ? window.setTimeout.bind(window)
+    : (globalThis.setTimeout?.bind(globalThis) ?? setTimeout);
+  let unsub: (() => void) | null = null;
+  let closed = false;
+  let attempt = 0;
+  let revisionBaseline = Math.max(0, initialRevision);
+
+  const scheduleReconnect = () => {
+    if (closed) return;
+    attempt += 1;
+    const exponent = Math.min(attempt - 1, 10);
+    let delay = Math.min(baseDelayMs * 2 ** exponent, maxBackoffMs);
+    if (jitter) {
+      const jitterAmount = delay * 0.2;
+      delay = Math.max(baseDelayMs, delay - jitterAmount + Math.random() * jitterAmount * 2);
+    }
+    callbacks.onStatus?.("closed", { attempt });
+    scheduleTimeout(start, delay);
+  };
+
+  const handleEvent = (event: AcceleratorArtifactStreamEvent) => {
+    if (event.type === "snapshot") {
+      revisionBaseline = Math.max(revisionBaseline, event.revision);
+      callbacks.onSnapshot(event);
+    } else if (event.type === "updates") {
+      if (event.revision > revisionBaseline) {
+        revisionBaseline = event.revision;
+        callbacks.onUpdates(event);
+      }
+    } else if (event.type === "heartbeat") {
+      callbacks.onHeartbeat?.(event);
+    }
+  };
+
+  const start = () => {
+    if (closed) return;
+    callbacks.onStatus?.("connecting", { attempt });
+    const disconnect = (streamFactory ?? streamAcceleratorArtifacts)(
+      sessionId,
+      handleEvent,
+      () => {
+        callbacks.onStatus?.("error", { attempt });
+        scheduleReconnect();
+      },
+      revisionBaseline,
+    );
+    unsub = () => {
+      disconnect();
+      unsub = null;
+    };
+    callbacks.onStatus?.("open", { attempt });
+  };
+
+  start();
+
+  return () => {
+    closed = true;
+    unsub?.();
+  };
+}
+
 export async function enrichProject(
   project_id: string,
   prompt: string,
@@ -18,6 +168,88 @@ export async function enrichProject(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ prompt }),
   });
+  return res.json();
+}
+
+export interface AcceleratorArtifactEditRequest {
+  content: string;
+  summary?: string;
+  section?: string;
+  change_description?: string;
+  message_id?: string;
+}
+
+export interface AcceleratorArtifactEditResponse {
+  filename: string;
+  version: number;
+  content: string;
+  meta: Record<string, any>;
+}
+
+export interface AcceleratorArtifactSnapshotEvent {
+  type: "snapshot";
+  revision: number;
+  artifacts: any[];
+}
+
+export interface AcceleratorArtifactUpdatesEvent {
+  type: "updates";
+  revision: number;
+  updates: any[];
+}
+
+export interface AcceleratorArtifactHeartbeatEvent {
+  type: "heartbeat";
+  revision: number;
+  heartbeat: true;
+  ts?: string;
+}
+
+export type AcceleratorArtifactStreamEvent =
+  | AcceleratorArtifactSnapshotEvent
+  | AcceleratorArtifactUpdatesEvent
+  | AcceleratorArtifactHeartbeatEvent;
+
+export async function patchAcceleratorArtifact(
+  sessionId: string,
+  filename: string,
+  payload: AcceleratorArtifactEditRequest,
+): Promise<AcceleratorArtifactEditResponse> {
+  const res = await apiFetch(
+    `${API_BASE}/accelerators/sessions/${encodeURIComponent(sessionId)}/artifacts/${encodeURIComponent(filename)}`,
+    {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    },
+  );
+  return res.json();
+}
+
+export interface AcceleratorTestRunResponse {
+  status: string;
+  command: string;
+  test_path: string;
+  exit_code?: number | null;
+  stdout: string;
+  stderr: string;
+  duration_ms: number;
+  started_at: string;
+  completed_at: string;
+}
+
+export async function runAcceleratorTests(
+  sessionId: string,
+  payload?: { test_path?: string },
+): Promise<AcceleratorTestRunResponse> {
+  const res = await apiFetch(
+    `${API_BASE}/accelerators/sessions/${encodeURIComponent(sessionId)}/tests/run`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload ?? {}),
+    },
+  );
   return res.json();
 }
 
@@ -44,6 +276,10 @@ export interface DocumentArtifact {
   filename: string;
   content: string;
   path?: string;
+  meta?: Record<string, any> | null;
+  version?: number;
+  created_at?: string;
+  revision?: number;
 }
 
 export interface DocGenResponse {
@@ -235,6 +471,35 @@ export function getAccessToken() {
   return accessToken;
 }
 
+type EventSourceConstructor = new (url: string | URL, eventSourceInitDict?: EventSourceInit) => EventSource;
+type PolyfilledEventSource = EventSourceConstructor & {
+  new (url: string, init?: EventSourceInit & { headers?: Record<string, string> }): EventSource;
+};
+
+let cachedEventSource: PolyfilledEventSource | null = null;
+
+function resolveEventSource(): PolyfilledEventSource | null {
+  if (cachedEventSource) return cachedEventSource;
+  if (typeof window === "undefined") {
+    return null;
+  }
+  const candidate = (window as typeof window & { EventSourcePolyfill?: PolyfilledEventSource })
+    .EventSourcePolyfill;
+  if (candidate) {
+    cachedEventSource = candidate;
+    return cachedEventSource;
+  }
+  if (EventSourcePolyfill) {
+    cachedEventSource = EventSourcePolyfill as PolyfilledEventSource;
+    return cachedEventSource;
+  }
+  if (typeof window.EventSource !== "undefined") {
+    cachedEventSource = window.EventSource as PolyfilledEventSource;
+    return cachedEventSource;
+  }
+  return null;
+}
+
 export class ApiError extends Error {
   status?: number;
 }
@@ -385,6 +650,38 @@ export function documentDocxUrl(
   const base = API_BASE.replace(/\/$/, "");
   const v = typeof version === "number" ? `?version=${version}` : "";
   return `${base}/projects/${encodeURIComponent(project_id)}/documents/${encodeURIComponent(filename)}/docx${v}`;
+}
+
+export interface DocumentEditRequest {
+  content: string;
+  summary?: string;
+  section?: string;
+  message_id?: string;
+  change_description?: string;
+}
+
+export interface DocumentEditResponse {
+  filename: string;
+  version: number;
+  content: string;
+  meta: Record<string, any>;
+  revision: number;
+}
+
+export async function patchProjectDocument(
+  project_id: string,
+  filename: string,
+  payload: DocumentEditRequest,
+): Promise<DocumentEditResponse> {
+  const res = await apiFetch(
+    `${API_BASE}/projects/${encodeURIComponent(project_id)}/documents/${encodeURIComponent(filename)}`,
+    {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    },
+  );
+  return res.json();
 }
 
 export async function requestOtp(email: string): Promise<OTPRequestResponse> {
@@ -1085,10 +1382,6 @@ export interface WorkspaceSummary {
   projects: number;
   documents: number;
   chat_sessions: number;
-  accelerator_sessions: number;
-  accelerator_artifacts: number;
-  accelerator_messages: number;
-  chat_sessions_raw?: number;
 }
 
 export async function getWorkspaceSummary(): Promise<WorkspaceSummary> {

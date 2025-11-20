@@ -1,17 +1,20 @@
 from __future__ import annotations
 
-from collections import Counter, defaultdict, deque
+from collections import Counter, defaultdict
 import base64
 import difflib
 import io
+import subprocess
+import tempfile
 from datetime import datetime, timezone
-from threading import Event, Lock, Thread
+from threading import Event, Thread
 from typing import Any, AsyncGenerator, Dict, Iterable, List, Optional, Tuple
 import zipfile
 
 from pathlib import Path
 
 import asyncio
+import html
 import json
 import logging
 import os  # --- opnxt-stream ---
@@ -29,7 +32,10 @@ from ..infrastructure.repository import get_repo
 from ..security.auth import User
 from ..services.catalog_service import get_intent
 from ..services.chat_ai import reply_with_chat_ai
+from ..services.model_router import build_model_catalog
 from ..services.doc_ingest import parse_text_from_bytes
+from ..services.master_prompt_ai import generate_with_master_prompt
+from ..services.artifact_stream import artifact_stream
 from ..services.streaming import iter_as_async  # --- opnxt-stream ---
 from ..services.telemetry_sink import TelemetryEvent, record_event, record_metric
 
@@ -44,36 +50,7 @@ logger.setLevel(logging.INFO)
 
 
 # --- opnxt-stream ---
-class _ArtifactStream:
-    def __init__(self) -> None:
-        self._queues: Dict[str, deque] = {}
-        self._locks: Dict[str, Lock] = {}
-
-    def _queue(self, session_id: str) -> tuple[deque, Lock]:
-        if session_id not in self._queues:
-            self._queues[session_id] = deque()
-            self._locks[session_id] = Lock()
-        return self._queues[session_id], self._locks[session_id]
-
-    def put_nowait(self, session_id: str, payload: Dict[str, Any]) -> None:
-        queue, lock = self._queue(session_id)
-        with lock:
-            queue.append(payload)
-
-    async def get_for_session(self, session_id: str) -> Optional[Dict[str, Any]]:
-        queue, lock = self._queue(session_id)
-        with lock:
-            if queue:
-                return queue.popleft()
-        return None
-
-    def reset(self, session_id: str) -> None:
-        self._queues.pop(session_id, None)
-        self._locks.pop(session_id, None)
-
-
-# --- opnxt-stream ---
-artifacts_queue = _ArtifactStream()
+artifacts_queue = artifact_stream
 
 
 # --- opnxt-stream ---
@@ -102,6 +79,187 @@ def _slugify(value: str) -> str:
     return slug or "accelerator"
 
 
+_PREVIEW_THEME_PRESETS = [
+    {
+        "keywords": {"patient", "health", "care", "clinic", "intake"},
+        "theme": {
+            "background": "#0f172a",
+            "surface": "#ffffff",
+            "surface_alt": "rgba(15, 23, 42, 0.04)",
+            "primary": "#2563eb",
+            "primary_soft": "rgba(37, 99, 235, 0.12)",
+            "accent": "#22d3ee",
+            "accent_soft": "rgba(34, 211, 238, 0.14)",
+            "gradient": "linear-gradient(135deg, #2563eb 0%, #22d3ee 100%)",
+            "text_primary": "#0f172a",
+            "text_muted": "rgba(15, 23, 42, 0.65)",
+            "border": "rgba(15, 23, 42, 0.1)",
+        },
+    },
+    {
+        "keywords": {"finance", "budget", "spend", "analytics", "dashboard"},
+        "theme": {
+            "background": "#111827",
+            "surface": "#1f2937",
+            "surface_alt": "rgba(255, 255, 255, 0.04)",
+            "primary": "#f97316",
+            "primary_soft": "rgba(249, 115, 22, 0.18)",
+            "accent": "#22c55e",
+            "accent_soft": "rgba(34, 197, 94, 0.18)",
+            "gradient": "linear-gradient(135deg, #f97316 0%, #22c55e 100%)",
+            "text_primary": "#f9fafb",
+            "text_muted": "rgba(249, 250, 251, 0.7)",
+            "border": "rgba(249, 250, 251, 0.1)",
+        },
+    },
+]
+
+_DEFAULT_PREVIEW_THEME = {
+    "background": "#0b1120",
+    "surface": "#ffffff",
+    "surface_alt": "rgba(15, 23, 42, 0.05)",
+    "primary": "#7c3aed",
+    "primary_soft": "rgba(124, 58, 237, 0.14)",
+    "accent": "#f472b6",
+    "accent_soft": "rgba(244, 114, 182, 0.18)",
+    "gradient": "linear-gradient(135deg, #7c3aed 0%, #f472b6 100%)",
+    "text_primary": "#0b1120",
+    "text_muted": "rgba(11, 17, 32, 0.68)",
+    "border": "rgba(11, 17, 32, 0.12)",
+}
+
+
+def _choose_preview_theme(context: str) -> Dict[str, str]:
+    lowered = (context or "").lower()
+    for preset in _PREVIEW_THEME_PRESETS:
+        if any(keyword in lowered for keyword in preset["keywords"]):
+            return dict(preset["theme"])
+    return dict(_DEFAULT_PREVIEW_THEME)
+
+
+def _strip_requirement_refs(text: str) -> str:
+    return re.sub(r"\b(?:FR|NFR|QR|DR)-\d+\b", "", text or "", flags=re.IGNORECASE)
+
+
+def _normalise_copy(value: str, limit: int) -> str:
+    cleaned = _strip_requirement_refs(value)
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    if limit and len(cleaned) > limit:
+        cleaned = cleaned[:limit].rstrip()
+        if not cleaned.endswith("…"):
+            cleaned = cleaned.rstrip("., ") + "…"
+    return cleaned
+
+
+def _extract_candidate_title(latest_input: str) -> Optional[str]:
+    text = (latest_input or "").strip()
+    if not text:
+        return None
+    segments = re.split(r"[\n\r\.!?]+", text)
+    for segment in segments:
+        cleaned = _strip_requirement_refs(segment)
+        cleaned = re.sub(r"[^A-Za-z0-9\s:/&'\-]", "", cleaned)
+        cleaned = re.sub(r"\s+", " ", cleaned).strip(" :.-")
+        if len(cleaned) >= 6:
+            return cleaned
+    return None
+
+
+def _extract_supporting_line(latest_input: str, primary_line: str) -> Optional[str]:
+    lines = [
+        re.sub(r"\s+", " ", _strip_requirement_refs(line)).strip(" :.-")
+        for line in re.split(r"[\n\r]+", latest_input or "")
+        if line and line.strip()
+    ]
+    for line in lines:
+        if primary_line and line.lower() == primary_line.lower():
+            continue
+        if len(line) >= 12:
+            return line
+    return None
+
+
+def _infer_preview_metadata(
+    latest_input: str,
+    intent: ChatIntent,
+    fr_refs: Iterable[str],
+    nfr_refs: Iterable[str],
+) -> Dict[str, Any]:
+    base_title = intent.requirement_area or intent.title or "Interactive Prototype"
+    candidate_title = _extract_candidate_title(latest_input)
+    title = candidate_title or base_title
+    title = _normalise_copy(title, 72).rstrip(".")
+    if len(title) < 6:
+        title = base_title or "Interactive Prototype"
+
+    supporting = _extract_supporting_line(latest_input, candidate_title or "")
+    tagline = supporting or f"Interactive preview for {title}."
+    tagline = _normalise_copy(tagline, 140)
+    if not tagline.endswith("."):
+        tagline += "."
+
+    context = f"{title} {latest_input or ''}"
+    theme = _choose_preview_theme(context)
+    lowered_title = title.lower()
+    healthcare_context = any(keyword in lowered_title for keyword in {"intake", "patient", "care"})
+
+    fr_list = sorted({ref.upper() for ref in fr_refs if ref})
+    nfr_list = sorted({ref.upper() for ref in nfr_refs if ref})
+    fr_value = ", ".join(fr_list) if fr_list else "Pending FR mapping"
+    nfr_value = ", ".join(nfr_list) if nfr_list else "Pending NFR mapping"
+
+    if healthcare_context:
+        call_to_action = "Start assessment"
+        secondary_action = "View compliance metrics"
+        form_title = "Capture intake details"
+        form_description = "Submit a sample patient record to review validations and metrics instrumentation."
+    else:
+        call_to_action = "Launch experience"
+        secondary_action = "Review instrumentation"
+        form_title = "Submit sample data"
+        form_description = "Exercise the workflow with representative values to validate logic and observability."
+
+    highlights: List[str] = [
+        f"Traces to {fr_value}." if fr_list else "Trace mapping ready for refinement.",
+        f"Meets {nfr_value}." if nfr_list else "Add NFR instrumentation before release.",
+        "Backed by FastAPI, PostgreSQL, and Prometheus telemetry.",
+    ]
+
+    if healthcare_context:
+        form_fields = [
+            {"label": "Patient age", "type": "number", "placeholder": "e.g. 42"},
+            {"label": "Primary symptoms", "type": "text", "placeholder": "Shortness of breath"},
+            {"label": "Insurance provider", "type": "text", "placeholder": "Enter payer name"},
+        ]
+    else:
+        form_fields = [
+            {"label": "Primary objective", "type": "text", "placeholder": "e.g. Reduce onboarding friction"},
+            {"label": "Success metric", "type": "text", "placeholder": "Target KPI or SLA"},
+            {"label": "Risk flag", "type": "text", "placeholder": "Document known blockers"},
+        ]
+
+    preview_meta: Dict[str, Any] = {
+        "title": title,
+        "tagline": tagline,
+        "call_to_action": call_to_action,
+        "secondary_action": secondary_action,
+        "form_title": form_title,
+        "form_description": form_description,
+        "form_fields": form_fields,
+        "metrics": [
+            {"label": "Functional coverage", "value": fr_value, "hint": "Traceable requirements"},
+            {"label": "NFR guardrail", "value": nfr_value, "hint": "Performance & quality targets"},
+            {"label": "Stack", "value": "FastAPI · PostgreSQL · Prometheus", "hint": "Provisioned components"},
+        ],
+        "highlights": highlights,
+        "footer": "Keyboard accessible prototype: use Tab/Shift+Tab to explore, Enter or Space to trigger actions.",
+        "status_text": "Live prototype",
+        "theme": theme,
+        "slug": _slugify(title),
+    }
+    return preview_meta
+
+
 def _should_request_ready_bundle(latest_input: str) -> bool:
     text = (latest_input or "").lower()
     if not text.strip():
@@ -120,8 +278,132 @@ def _ensure_ready_bundle_flag(payload: Dict[str, Any], latest_input: str) -> Dic
     return payload
 
 
-def _queue_artifact(session_id: str, artifact: Dict[str, Any]) -> None:
-    # Always enqueue to the stream so listeners receive updates even if persistence fails.
+def _dedupe_preserve(items: Iterable[str]) -> List[str]:
+    seen: set[str] = set()
+    ordered: List[str] = []
+    for raw in items:
+        trimmed = raw.strip()
+        if not trimmed or trimmed in seen:
+            continue
+        seen.add(trimmed)
+        ordered.append(trimmed)
+    return ordered
+
+
+def _collect_message_ids_from(source: Any) -> List[str]:
+    if not isinstance(source, dict):
+        return []
+    candidates: List[str] = []
+
+    multi_keys = ("message_ids", "messageIds")
+    single_keys = ("message_id", "messageId")
+
+    for key in multi_keys:
+        value = source.get(key)
+        if isinstance(value, (list, tuple, set)):
+            for entry in value:
+                if isinstance(entry, str) and entry.strip():
+                    candidates.append(entry)
+
+    for key in single_keys:
+        entry = source.get(key)
+        if isinstance(entry, str) and entry.strip():
+            candidates.append(entry)
+
+    return candidates
+
+
+def _merge_message_metadata(payload: Dict[str, Any], meta: Dict[str, Any], message_id: Optional[str]) -> None:
+    collected: List[str] = []
+    collected.extend(_collect_message_ids_from(payload))
+    collected.extend(_collect_message_ids_from(meta))
+    trimmed_message_id = message_id.strip() if isinstance(message_id, str) else None
+    if trimmed_message_id:
+        collected.append(trimmed_message_id)
+
+    if collected:
+        merged = _dedupe_preserve(collected)
+        payload["message_ids"] = merged
+        meta["message_ids"] = merged
+    elif trimmed_message_id:
+        payload.pop("message_ids", None)
+        meta.pop("message_ids", None)
+
+    if trimmed_message_id:
+        payload["message_id"] = trimmed_message_id
+        meta["message_id"] = trimmed_message_id
+    else:
+        if "message_id" in payload and not payload["message_id"]:
+            payload.pop("message_id", None)
+        if "message_id" in meta and not meta["message_id"]:
+            meta.pop("message_id", None)
+
+
+def _prepare_artifact_payload(artifact: Dict[str, Any], message_id: Optional[str]) -> Dict[str, Any]:
+    payload = dict(artifact or {})
+    meta_raw = payload.get("meta")
+    meta = dict(meta_raw or {})
+
+    _merge_message_metadata(payload, meta, message_id)
+
+    stage = payload.get("stage") or meta.get("stage")
+    if isinstance(stage, str) and stage.strip():
+        normalized_stage = stage.strip()
+        payload["stage"] = normalized_stage
+        meta["stage"] = normalized_stage
+    else:
+        payload.pop("stage", None)
+        meta.pop("stage", None)
+
+    progress_value = payload.get("progress")
+    if progress_value is None:
+        progress_value = meta.get("progress")
+    if isinstance(progress_value, (int, float)):
+        payload["progress"] = progress_value
+        meta["progress"] = progress_value
+    else:
+        payload.pop("progress", None)
+        meta.pop("progress", None)
+
+    diff_summary = payload.get("diff")
+    if isinstance(diff_summary, str) and diff_summary.strip():
+        meta.setdefault("diff_summary", diff_summary)
+
+    source_value = payload.get("source") or meta.get("source")
+    if isinstance(source_value, str) and source_value.strip():
+        trimmed = source_value.strip()
+        payload["source"] = trimmed
+        meta["source"] = trimmed
+
+    if meta_raw is not None or meta:
+        payload["meta"] = meta
+    else:
+        payload.pop("meta", None)
+
+    return payload
+
+
+def _queue_artifact(session_id: str, artifact: Dict[str, Any], *, _skip_prepare: bool = False) -> None:
+    if not _skip_prepare:
+        artifact = _prepare_artifact_payload(artifact, None)
+
+    artifact_type = (artifact.get("type") or "").lower()
+
+    store = None
+    if artifact_type not in {"snapshot", "commit"}:
+        try:
+            store = get_accelerator_store()
+            store.add_live_artifact(session_id, artifact)
+        except Exception:
+            logger.exception("accelerator_live_artifact_failed", extra={"session_id": session_id})
+
+    if artifact_type == "commit":
+        try:
+            store = store or get_accelerator_store()
+            store.add_live_artifact(session_id, artifact)
+        except Exception:
+            logger.exception("accelerator_live_artifact_failed", extra={"session_id": session_id, "stage": "commit"})
+
     try:
         artifacts_queue.put_nowait(session_id, artifact)
     except Exception:
@@ -130,12 +412,15 @@ def _queue_artifact(session_id: str, artifact: Dict[str, Any]) -> None:
             extra={"session_id": session_id, "type": artifact.get("type")},
         )
 
-    try:
-        store = get_accelerator_store()
-        store.add_live_artifact(session_id, artifact)
-        logger.debug("artifact_enqueued", extra={"session_id": session_id, "type": artifact.get("type")})
-    except Exception:
-        logger.exception("artifact_enqueue_failed", extra={"session_id": session_id})
+
+def _queue_linked_artifact(
+    session_id: str,
+    artifact: Dict[str, Any],
+    *,
+    message_id: Optional[str] = None,
+) -> None:
+    enriched = _prepare_artifact_payload(artifact, message_id)
+    _queue_artifact(session_id, enriched, _skip_prepare=True)
 
 
 def _emit_storage_error(session_id: str, filename: str, exc: Exception) -> None:
@@ -154,6 +439,55 @@ def _emit_storage_error(session_id: str, filename: str, exc: Exception) -> None:
     )
 
 
+def _hydrate_snapshot_artifacts(session_id: str, artifacts: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    doc_store = get_doc_store()
+    try:
+        previews = doc_store.list_accelerator_previews(session_id)
+    except Exception:
+        logger.exception("accelerator_snapshot_preview_hydration_failed", extra={"session_id": session_id})
+        return artifacts
+
+    indexed: Dict[str, Dict[str, Any]] = {}
+    ordered: List[Dict[str, Any]] = []
+    for artifact in artifacts or []:
+        filename = artifact.get("filename")
+        if not filename:
+            ordered.append(artifact)
+            continue
+        indexed[str(filename)] = artifact
+        ordered.append(artifact)
+
+    for preview in previews:
+        filename = str(preview.get("filename") or "").strip()
+        if not filename:
+            continue
+        preview_meta = dict(preview.get("meta") or {})
+        preview_meta.setdefault("version", preview.get("version"))
+        existing = indexed.get(filename)
+        if existing:
+            existing_meta = dict(existing.get("meta") or {})
+            merged_meta = dict(preview_meta)
+            merged_meta.update(existing_meta)
+            existing["meta"] = merged_meta
+            existing.setdefault("filename", filename)
+            existing.setdefault("created_at", preview.get("created_at"))
+            existing.setdefault("title", merged_meta.get("title") or filename)
+            existing.setdefault("type", merged_meta.get("type") or merged_meta.get("kind"))
+            continue
+
+        hydrated = {
+            "filename": filename,
+            "created_at": preview.get("created_at"),
+            "meta": preview_meta,
+            "type": preview_meta.get("type") or preview_meta.get("kind"),
+            "title": preview_meta.get("title") or filename,
+        }
+        ordered.append(hydrated)
+        indexed[filename] = hydrated
+
+    return ordered
+
+
 def _enqueue_snapshot_refresh(session_id: str) -> None:
     store = get_accelerator_store()
     try:
@@ -161,12 +495,13 @@ def _enqueue_snapshot_refresh(session_id: str) -> None:
     except Exception:
         logger.exception("accelerator_snapshot_failed", extra={"session_id": session_id})
         return
+    hydrated_artifacts = _hydrate_snapshot_artifacts(session_id, artifacts)
     _queue_artifact(
         session_id,
         {
             "type": "snapshot",
             "revision": revision,
-            "artifacts": artifacts,
+            "artifacts": hydrated_artifacts,
         },
     )
 
@@ -182,6 +517,7 @@ When replying inside an accelerator chat:
 - Wherever possible, draft concrete content (tables, bullet lists, checklists) instead of deferring work back to the user.
 - Limit clarification asks to one focused question per turn when additional data is absolutely required.
 - Offer at least one option or next-step suggestion that highlights trade-offs for the user.
+- Include one pair-programming style coaching tip (e.g., alternatives to try, best-practice reminder, or quality check) that the user can act on immediately.
 - Close with clear next steps so the user always knows how to proceed.
 
 Use concise Markdown with headings and lists. Avoid repeating previously asked intake questions unless the user contradicts earlier inputs.
@@ -221,6 +557,7 @@ When replying inside a code-focused accelerator chat:
 - Provide concise, code-oriented guidance (diffs, code blocks, checklists) without executive slide language.
 - Ask at most one clarifying question when more detail is absolutely required.
 - Close by inviting the user to run the scaffold or request additional coverage.
+- Always provide a concrete pair-programming tip that reinforces quality or offers an alternative approach.
 
 Keep the tone collaborative and human. Use Markdown with short sections (Summary, Implementation Notes, Next Steps) and include inline code where it helps.
 """
@@ -265,6 +602,123 @@ def _compose_assistant_system_prompt(intent: Optional[ChatIntent], session: Acce
 _DEFAULT_CODE_PATH = "src/orchestrator/services/clinical_rules.py"
 _DEFAULT_TEST_PATH = "tests/test_clinical_rules.py"
 _DEFAULT_CONFIG_PATH = "config/rules.yaml"
+_ALLOWED_TEST_PATHS = {_DEFAULT_TEST_PATH}
+
+
+def _write_package_file(base_dir: Path, relative_path: str, content: bytes | str) -> Path:
+    target = base_dir / relative_path
+    target.parent.mkdir(parents=True, exist_ok=True)
+    if isinstance(content, bytes):
+        target.write_bytes(content)
+    else:
+        target.write_text(content, encoding="utf-8")
+    if target.suffix == ".py":
+        current = target.parent
+        base = base_dir.resolve()
+        while base in current.resolve().parents or current.resolve() == base:
+            init_file = current / "__init__.py"
+            if not init_file.exists():
+                init_file.write_text("", encoding="utf-8")
+            if current == base:
+                break
+            current = current.parent
+    return target
+
+
+def run_accelerator_tests(
+    session_id: str,
+    *,
+    test_path: str | None = None,
+    timeout_seconds: int = 60,
+) -> Dict[str, Any]:
+    doc_store = get_doc_store()
+    selected_test_path = test_path or _DEFAULT_TEST_PATH
+    if selected_test_path not in _ALLOWED_TEST_PATHS:
+        raise ValueError("Unsupported test path requested")
+
+    required_assets = {
+        _DEFAULT_CODE_PATH: None,
+        selected_test_path: None,
+    }
+    optional_assets = {
+        _DEFAULT_CONFIG_PATH: None,
+    }
+
+    for filename in required_assets.keys():
+        blob = doc_store.get_accelerator_asset(session_id, filename)
+        if blob is None:
+            preview = doc_store.get_accelerator_preview(session_id, filename)
+            content = preview.get("content") if preview else None
+            if isinstance(content, str):
+                blob = content.encode("utf-8")
+        if not blob:
+            raise ValueError(f"Asset '{filename}' not available for session")
+        required_assets[filename] = blob
+
+    for filename in optional_assets.keys():
+        blob = doc_store.get_accelerator_asset(session_id, filename)
+        if blob is None:
+            preview = doc_store.get_accelerator_preview(session_id, filename)
+            content = preview.get("content") if preview else None
+            if isinstance(content, str):
+                blob = content.encode("utf-8")
+        optional_assets[filename] = blob
+
+    command = [
+        "pytest",
+        selected_test_path,
+        "-q",
+        "--disable-warnings",
+        "--maxfail=1",
+    ]
+
+    started_at = datetime.now(timezone.utc)
+    with tempfile.TemporaryDirectory(prefix="opnxt-accel-tests-") as tmp:
+        base_dir = Path(tmp)
+        for rel_path, blob in required_assets.items():
+            _write_package_file(base_dir, rel_path, blob or b"")
+        for rel_path, blob in optional_assets.items():
+            if blob:
+                _write_package_file(base_dir, rel_path, blob)
+
+        env = os.environ.copy()
+        env.setdefault("PYTHONPATH", tmp)
+        start = time.perf_counter()
+        try:
+            result = subprocess.run(
+                command,
+                cwd=tmp,
+                env=env,
+                capture_output=True,
+                text=True,
+                timeout=timeout_seconds,
+                check=False,
+            )
+            status = "passed" if result.returncode == 0 else "failed"
+            stdout = result.stdout or ""
+            stderr = result.stderr or ""
+        except subprocess.TimeoutExpired as exc:
+            status = "timeout"
+            stdout = exc.stdout or ""
+            stderr = (exc.stderr or "") + "\nTest run timed out."
+            result = SimpleNamespace(returncode=None)  # type: ignore
+        duration_ms = (time.perf_counter() - start) * 1000.0
+
+    completed_at = datetime.now(timezone.utc)
+    truncated_stdout = stdout[-10000:]
+    truncated_stderr = stderr[-10000:]
+
+    return {
+        "status": status,
+        "command": " ".join(command),
+        "test_path": selected_test_path,
+        "exit_code": getattr(result, "returncode", None),
+        "stdout": truncated_stdout,
+        "stderr": truncated_stderr,
+        "duration_ms": duration_ms,
+        "started_at": started_at.isoformat().replace("+00:00", "Z"),
+        "completed_at": completed_at.isoformat().replace("+00:00", "Z"),
+    }
 
 
 def _build_ready_to_run_readme(project_name: str) -> str:
@@ -811,24 +1265,30 @@ def _default_frontend_scaffold(project_name: str) -> Dict[str, str]:
     }
 
 
-def _compose_capability_summary(project_name: str, fr_refs: Iterable[str], nfr_refs: Iterable[str]) -> str:
-    fr_list = sorted({ref.upper() for ref in fr_refs if ref}) or ["FR-001"]
+def _compose_capability_summary(project_name: str, fr_refs: Iterable[str], nfr_refs: Iterable[str], preview_meta: Optional[Dict[str, Any]] = None) -> str:
+    meta = dict(preview_meta or {})
+    title = meta.get("title") or project_name or "Interactive Prototype"
+    fr_list = sorted({ref.upper() for ref in fr_refs if ref})
     nfr_list = sorted({ref.upper() for ref in nfr_refs if ref})
-    fr_trace = ", ".join(fr_list)
-    nfr_trace = ", ".join(nfr_list) if nfr_list else "—"
+    fr_trace = ", ".join(fr_list) if fr_list else "Pending mapping"
+    nfr_trace = ", ".join(nfr_list) if nfr_list else "Pending instrumentation"
+    hero_callout = meta.get("tagline") or "Feature-aligned prototype snapshot"
     return textwrap.dedent(
         f"""
-        ## {project_name} – Capability & Traceability Snapshot
+        ## {title} – Capability & Traceability Snapshot
+
+        _{hero_callout}_
 
         | Component | Description | Trace References |
         | --- | --- | --- |
-        | FastAPI rules engine | YAML-driven evaluation with triage logic and alerts | {fr_trace} |
-        | React expense console | Interactive budgeting UI with decision simulation | {fr_trace}{" • " + nfr_trace if nfr_trace != "—" else ""} |
-        | Test scaffolding | PyTest coverage for rules + Jest DOM smoke test for UI | {fr_trace} |
+        | FastAPI_rules service | YAML-driven evaluation with decision triage and observability hooks | {fr_trace} |
+        | React experience layer | High-fidelity UI preview instrumented for telemetry | {fr_trace if fr_list else "FR alignment pending"} |
+        | Quality & guardrails | PyTest + Jest scaffolding with NFR checkpoints | {nfr_trace if nfr_list else "NFR mapping pending"} |
 
         ### Test Scaffolding
-        - `tests/test_clinical_rules.py` validates the core rules service against regression scenarios.
-        - `frontend/src/__tests__/App.test.tsx` boots the SPA with Jest + Testing Library to exercise the primary call-to-action.
+        - `tests/test_clinical_rules.py` defends the critical rules engine with scenario coverage.
+        - `frontend/src/__tests__/App.test.tsx` boots the SPA with Jest + Testing Library to verify interaction flows.
+        - Extend suites with feature-specific scenarios to raise coverage above guardrail targets.
         """
     ).strip()
 
@@ -852,26 +1312,108 @@ def _compose_ready_to_run_instructions() -> str:
     ).strip()
 
 
-def _build_live_preview_html(project_name: str) -> str:
-    title = json.dumps(project_name + " Budget Tracker")
-    default_data = json.dumps(
-        [
-            {"id": "1", "description": "Groceries", "amount": 85.5, "category": "Food"},
-            {"id": "2", "description": "Gas", "amount": 45, "category": "Transportation"},
-            {"id": "3", "description": "Netflix", "amount": 15.99, "category": "Entertainment"},
+def _build_live_preview_html(preview_meta: Dict[str, Any]) -> str:
+    meta = dict(preview_meta or {})
+    theme = dict(meta.get("theme") or {})
+
+    def _theme_value(key: str, fallback: str) -> str:
+        value = theme.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+        return fallback
+
+    palette = {
+        "background": _theme_value("background", "#0b1120"),
+        "surface": _theme_value("surface", "#ffffff"),
+        "surface_alt": _theme_value("surface_alt", "rgba(255, 255, 255, 0.08)"),
+        "primary": _theme_value("primary", "#7c3aed"),
+        "primary_soft": _theme_value("primary_soft", "rgba(124, 58, 237, 0.14)"),
+        "accent": _theme_value("accent", "#22d3ee"),
+        "accent_soft": _theme_value("accent_soft", "rgba(34, 211, 238, 0.16)"),
+        "gradient": _theme_value("gradient", "linear-gradient(135deg, #7c3aed 0%, #f472b6 100%)"),
+        "text_primary": _theme_value("text_primary", "#0b1120"),
+        "text_muted": _theme_value("text_muted", "rgba(11, 17, 32, 0.72)"),
+        "border": _theme_value("border", "rgba(11, 17, 32, 0.12)"),
+    }
+
+    title = html.escape(str(meta.get("title") or "Interactive Prototype"))
+    tagline = html.escape(str(meta.get("tagline") or "Modern product preview."))
+    call_to_action = html.escape(str(meta.get("call_to_action") or "Launch experience"))
+    secondary_action = html.escape(str(meta.get("secondary_action") or "Review instrumentation"))
+    form_title = html.escape(str(meta.get("form_title") or "Submit sample data"))
+    form_description = html.escape(str(meta.get("form_description") or "Exercise the workflow with representative values."))
+    footer_text = html.escape(str(meta.get("footer") or ""))
+    status_text = html.escape(str(meta.get("status_text") or "Live prototype"))
+
+    metrics = meta.get("metrics") if isinstance(meta.get("metrics"), list) else []
+    highlights = meta.get("highlights") if isinstance(meta.get("highlights"), list) else []
+    form_fields = meta.get("form_fields") if isinstance(meta.get("form_fields"), list) else []
+
+    if not metrics:
+        metrics = [
+            {"label": "Functional coverage", "value": "Trace pending", "hint": "Link requirements"},
+            {"label": "NFR guardrail", "value": "TBD", "hint": "Observe performance"},
         ]
-    )
-    categories = json.dumps(
-        [
-            "Food",
-            "Transportation",
-            "Entertainment",
-            "Utilities",
-            "Shopping",
-            "Healthcare",
-            "Other",
+    if not highlights:
+        highlights = [
+            "Modular architecture ready for iteration.",
+            "Instrumentation hooks baked in for observability.",
         ]
-    )
+    if not form_fields:
+        form_fields = [
+            {"label": "Primary input", "type": "text", "placeholder": "Enter sample value"},
+            {"label": "Secondary input", "type": "text", "placeholder": "Add context for validation"},
+        ]
+
+    metric_blocks: List[str] = []
+    for item in metrics:
+        label = html.escape(str(item.get("label") or "Metric"))
+        value = html.escape(str(item.get("value") or "—"))
+        hint = html.escape(str(item.get("hint") or ""))
+        metric_blocks.append(
+            (
+                """
+                <article class="metric-card" role="group" aria-label="{label}">
+                  <span class="metric-label">{label}</span>
+                  <span class="metric-value">{value}</span>
+                  <span class="metric-hint">{hint}</span>
+                </article>
+                """
+            ).format(label=label, value=value, hint=hint).strip()
+        )
+    metrics_html = "\n".join(metric_blocks)
+
+    highlight_blocks: List[str] = []
+    for highlight in highlights:
+        highlight_blocks.append(
+            f"<li class=\"highlight-item\">{html.escape(str(highlight))}</li>"
+        )
+    highlights_html = "\n".join(highlight_blocks)
+
+    form_blocks: List[str] = []
+    for idx, field in enumerate(form_fields):
+        label_text = html.escape(str(field.get("label") or f"Field {idx + 1}"))
+        field_type = html.escape(str(field.get("type") or "text").lower())
+        placeholder = html.escape(str(field.get("placeholder") or ""))
+        field_id = _slugify(field.get("label") or f"field-{idx + 1}")
+        form_blocks.append(
+            (
+                """
+                <label class="field" for="{field_id}">
+                  <span>{label}</span>
+                  <input id="{field_id}" name="{field_id}" type="{field_type}" placeholder="{placeholder}" required />
+                </label>
+                """
+            ).format(field_id=field_id, label=label_text, field_type=field_type, placeholder=placeholder).strip()
+        )
+    form_fields_html = "\n".join(form_blocks)
+
+    status_text_js = json.dumps(str(meta.get("status_text") or "Live prototype"))
+    call_to_action_js = json.dumps(str(meta.get("call_to_action") or "Launch experience"))
+    secondary_action_js = json.dumps(str(meta.get("secondary_action") or "Review instrumentation"))
+
+    footer_block = f"<footer class=\"app-footer\">{footer_text}</footer>" if footer_text else ""
+
     return textwrap.dedent(
         f"""
         <!doctype html>
@@ -879,305 +1421,447 @@ def _build_live_preview_html(project_name: str) -> str:
           <head>
             <meta charset="utf-8" />
             <meta name="viewport" content="width=device-width, initial-scale=1" />
-            <title>{project_name} Budget Tracker Preview</title>
+            <title>{title} Preview</title>
             <style>
               :root {{
                 color-scheme: light;
-                font-family: "Inter", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-                background: linear-gradient(135deg, #f1f5ff 0%, #f9fcff 100%);
-                color: #0b1220;
+                --bg: {palette['background']};
+                --surface: {palette['surface']};
+                --surface-alt: {palette['surface_alt']};
+                --primary: {palette['primary']};
+                --primary-soft: {palette['primary_soft']};
+                --accent: {palette['accent']};
+                --accent-soft: {palette['accent_soft']};
+                --gradient: {palette['gradient']};
+                --text-primary: {palette['text_primary']};
+                --text-muted: {palette['text_muted']};
+                --border: {palette['border']};
+                font-family: "Inter", "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+                background: var(--bg);
+                color: var(--text-primary);
               }}
+
+              * {{ box-sizing: border-box; }}
+
               body {{
                 margin: 0;
-                background: #f5f7ff;
+                background: linear-gradient(180deg, rgba(255, 255, 255, 0.02), rgba(255, 255, 255, 0.35)), var(--bg);
+                min-height: 100vh;
               }}
-              .app-shell {{
-                max-width: 960px;
-                margin: 40px auto;
-                padding: 0 20px 60px;
+
+              header.hero {{
                 display: grid;
-                gap: 24px;
-              }}
-              .card {{
-                background: #fff;
-                padding: 20px clamp(20px, 3vw, 28px);
-                border-radius: 18px;
-                box-shadow: 0 20px 40px rgba(32, 41, 74, 0.1);
-                display: grid;
-                gap: 18px;
-              }}
-              .app-header {{
-                display: grid;
-                gap: 8px;
-                text-align: center;
-              }}
-              .app-header h1 {{
-                margin: 0;
-                font-size: clamp(2rem, 4vw, 3rem);
-              }}
-              .app-subtitle {{
-                margin: 0;
-                color: rgba(11, 18, 32, 0.65);
-              }}
-              .expense-form {{ display: grid; gap: 14px; }}
-              .field {{ display: grid; gap: 6px; }}
-              .field input,
-              .field select {{
-                border: 1px solid rgba(32, 41, 74, 0.2);
-                border-radius: 10px;
-                padding: 10px 12px;
-                font-size: 1rem;
-              }}
-              .form-actions {{ display: flex; gap: 10px; flex-wrap: wrap; }}
-              button.primary {{
-                background: linear-gradient(135deg, #2955ff, #6a7dff);
+                gap: 1rem;
+                padding: clamp(2.5rem, 7vw, 4rem) clamp(1.5rem, 4vw, 3rem) clamp(1.5rem, 4vw, 3rem);
+                background: var(--gradient);
                 color: #fff;
+                border-bottom-left-radius: 32px;
+                border-bottom-right-radius: 32px;
+                position: relative;
+                overflow: hidden;
+              }}
+
+              header.hero::after {{
+                content: "";
+                position: absolute;
+                inset: 0;
+                background: radial-gradient(circle at top right, rgba(255, 255, 255, 0.35), transparent 55%);
+                pointer-events: none;
+              }}
+
+              header.hero h1 {{
+                margin: 0;
+                font-size: clamp(2.6rem, 6vw, 3.8rem);
+                letter-spacing: -0.02em;
+              }}
+
+              header.hero p {{
+                max-width: 54ch;
+                margin: 0;
+                font-size: clamp(1.05rem, 3vw, 1.35rem);
+                color: rgba(255, 255, 255, 0.88);
+              }}
+
+              .status-pill {{
+                display: inline-flex;
+                align-items: center;
+                gap: 0.4rem;
                 border-radius: 999px;
-                padding: 10px 22px;
-                border: none;
-                cursor: pointer;
-                font-weight: 600;
-                letter-spacing: 0.4px;
+                padding: 0.35rem 0.85rem;
+                background: rgba(255, 255, 255, 0.14);
+                color: #fff;
+                font-size: 0.85rem;
+                width: fit-content;
               }}
-              button.primary:hover {{ filter: brightness(1.02); }}
-              .form-actions button:not(.primary) {{
+
+              .status-dot {{
+                width: 0.5rem;
+                height: 0.5rem;
                 border-radius: 999px;
-                padding: 10px 22px;
+                background: #4ade80;
+                box-shadow: 0 0 0 4px rgba(74, 222, 128, 0.12);
+              }}
+
+              .actions {{
+                display: flex;
+                flex-wrap: wrap;
+                gap: 0.75rem;
+                margin-top: 0.5rem;
+              }}
+
+              .actions button {{
                 border: none;
-                cursor: pointer;
+                border-radius: 999px;
+                padding: 0.85rem 1.8rem;
                 font-weight: 600;
-                background: rgba(32, 41, 74, 0.08);
-                color: #20294a;
+                letter-spacing: 0.01em;
+                cursor: pointer;
+                transition: transform 160ms ease, box-shadow 160ms ease;
               }}
-              .summary-grid {{
+
+              .actions button.primary {{
+                background: #ffffff;
+                color: var(--text-primary);
+                box-shadow: 0 16px 35px rgba(15, 17, 35, 0.18);
+              }}
+
+              .actions button.secondary {{
+                background: rgba(255, 255, 255, 0.12);
+                color: #fff;
+                border: 1px solid rgba(255, 255, 255, 0.28);
+              }}
+
+              .actions button:active {{ transform: translateY(1px); }}
+
+              main {{
+                margin: clamp(-2.5rem, -6vw, -3.5rem) auto 3rem;
+                padding: 0 clamp(1.25rem, 5vw, 2.5rem) 4rem;
+                max-width: 1120px;
                 display: grid;
-                gap: 12px;
-                grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+                gap: clamp(1.75rem, 4vw, 2.5rem);
               }}
-              .summary-tile {{
-                background: rgba(41, 85, 255, 0.08);
-                border-radius: 14px;
-                padding: 16px;
+
+              .panel {{
+                background: var(--surface);
+                border: 1px solid var(--border);
+                border-radius: 24px;
+                box-shadow: 0 18px 48px rgba(15, 23, 42, 0.12);
+                padding: clamp(1.5rem, 4vw, 2.4rem);
                 display: grid;
-                gap: 6px;
-                text-align: center;
+                gap: clamp(1.25rem, 3vw, 1.8rem);
               }}
-              .summary-label {{
+
+              .panel header {{
+                display: flex;
+                justify-content: space-between;
+                align-items: flex-start;
+                gap: 1.2rem;
+              }}
+
+              .panel header h2 {{
+                margin: 0;
+                font-size: clamp(1.35rem, 3vw, 1.65rem);
+                letter-spacing: -0.01em;
+              }}
+
+              .panel header p {{
+                margin: 0;
+                color: var(--text-muted);
+                max-width: 42ch;
+                font-size: 0.98rem;
+              }}
+
+              .metrics-grid {{
+                display: grid;
+                gap: 1rem;
+                grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+              }}
+
+              .metric-card {{
+                background: var(--surface-alt);
+                border-radius: 18px;
+                padding: 1.2rem 1.4rem;
+                display: grid;
+                gap: 0.45rem;
+              }}
+
+              .metric-label {{
                 text-transform: uppercase;
                 font-size: 0.75rem;
-                letter-spacing: 0.6px;
-                color: rgba(32, 41, 74, 0.56);
+                letter-spacing: 0.16em;
+                color: var(--text-muted);
               }}
-              .expense-list {{
+
+              .metric-value {{
+                font-size: 1.4rem;
+                font-weight: 700;
+              }}
+
+              .metric-hint {{
+                font-size: 0.88rem;
+                color: var(--text-muted);
+              }}
+
+              .layout {{
+                display: grid;
+                grid-template-columns: minmax(0, 1fr);
+                gap: clamp(1.75rem, 4vw, 2.6rem);
+              }}
+
+              @media (min-width: 980px) {{
+                .layout {{
+                  grid-template-columns: minmax(0, 1.8fr) minmax(0, 1.15fr);
+                  align-items: start;
+                }}
+              }}
+
+              form.intake-form {{
+                display: grid;
+                gap: 1rem;
+              }}
+
+              .field {{
+                display: grid;
+                gap: 0.45rem;
+              }}
+
+              .field input,
+              .field textarea {{
+                padding: 0.9rem 1rem;
+                border-radius: 14px;
+                border: 1px solid var(--border);
+                font-size: 1rem;
+                background: rgba(255,255,255,0.92);
+                transition: border 150ms ease, box-shadow 150ms ease;
+              }}
+
+              .field input:focus-visible,
+              .field textarea:focus-visible {{
+                outline: none;
+                border-color: var(--primary);
+                box-shadow: 0 0 0 4px var(--primary_soft);
+              }}
+
+              .intake-actions {{
+                display: flex;
+                gap: 0.75rem;
+                flex-wrap: wrap;
+              }}
+
+              .intake-actions button {{
+                border-radius: 12px;
+                padding: 0.75rem 1.4rem;
+                border: none;
+                cursor: pointer;
+                font-weight: 600;
+                background: var(--primary);
+                color: #fff;
+              }}
+
+              .intake-actions button.secondary {{
+                background: transparent;
+                color: var(--text-primary);
+                border: 1px solid var(--border);
+              }}
+
+              ul.highlights {{
                 list-style: none;
                 margin: 0;
                 padding: 0;
                 display: grid;
-                gap: 12px;
+                gap: 0.85rem;
               }}
-              .expense-item {{
+
+              .highlight-item {{
+                padding: 0.95rem 1.1rem;
+                border-radius: 14px;
+                background: var(--surface-alt);
+                border: 1px solid rgba(255, 255, 255, 0.08);
+              }}
+
+              .activity-feed {{
+                display: grid;
+                gap: 0.85rem;
+              }}
+
+              .activity-item {{
                 display: flex;
                 justify-content: space-between;
-                align-items: center;
-                padding: 12px 16px;
-                border-radius: 12px;
-                border: 1px solid rgba(32, 41, 74, 0.12);
-                gap: 12px;
-                background: rgba(255, 255, 255, 0.92);
+                align-items: flex-start;
+                gap: 0.75rem;
+                padding: 0.9rem 1.1rem;
+                background: var(--surface-alt);
+                border-radius: 14px;
+                border: 1px dashed rgba(255, 255, 255, 0.06);
               }}
-              .expense-meta {{
-                display: block;
-                font-size: 0.78rem;
-                color: rgba(32, 41, 74, 0.55);
+
+              .activity-item strong {{ font-size: 0.95rem; }}
+
+              .activity-item time {{
+                font-size: 0.82rem;
+                color: var(--text-muted);
               }}
-              .expense-actions {{ display: flex; align-items: center; gap: 10px; }}
-              .expense-actions button {{
-                border: none;
-                background: transparent;
-                cursor: pointer;
-                font-size: 1rem;
+
+              .app-footer {{
+                margin-top: 1rem;
+                font-size: 0.85rem;
+                color: rgba(255, 255, 255, 0.74);
+                text-align: center;
               }}
-              .expense-amount {{ font-weight: 600; }}
-              .empty {{ margin: 0; color: rgba(32, 41, 74, 0.55); text-align: center; }}
-              .card-header {{ display: flex; justify-content: space-between; align-items: baseline; }}
-              .total {{ font-size: 1.1rem; font-weight: 700; }}
-              .toast {{
-                position: fixed;
-                top: 20px;
-                right: 20px;
-                background: rgba(32, 41, 74, 0.92);
-                color: #fff;
-                padding: 12px 16px;
-                border-radius: 12px;
-                box-shadow: 0 18px 32px rgba(32, 41, 74, 0.25);
-                opacity: 0;
-                transform: translateY(-10px);
-                transition: opacity 180ms ease, transform 180ms ease;
+
+              @media (prefers-reduced-motion: reduce) {{
+                *, *::before, *::after {{
+                  animation-duration: 0.01ms !important;
+                  animation-iteration-count: 1 !important;
+                  transition-duration: 0.01ms !important;
+                  scroll-behavior: auto !important;
+                }}
               }}
-              .toast.is-visible {{ opacity: 1; transform: translateY(0); }}
             </style>
           </head>
           <body>
-            <div class="app-shell">
-              <header class="app-header">
-                <h1>{project_name} Budget Tracker</h1>
-                <p class="app-subtitle">Track spending by category, edit entries inline, and keep an up-to-date running total.</p>
-              </header>
-              <section class="card">
-                <h2>Add New Expense</h2>
-                <form id="expense-form" class="expense-form">
-                  <label class="field">
-                    <span>Description</span>
-                    <input type="text" name="description" placeholder="e.g. Grocery run" required />
-                  </label>
-                  <label class="field">
-                    <span>Amount</span>
-                    <input type="number" name="amount" min="0" step="0.01" required />
-                  </label>
-                  <label class="field">
-                    <span>Category</span>
-                    <select name="category" id="category-select"></select>
-                  </label>
-                  <div class="form-actions">
-                    <button type="submit" class="primary">Add</button>
-                    <button type="button" id="reset-form">Reset</button>
+            <header class="hero">
+              <span class="status-pill" data-role="status-pill">
+                <span class="status-dot" aria-hidden="true"></span>
+                <span class="status-label">{status_text}</span>
+              </span>
+              <h1>{title}</h1>
+              <p>{tagline}</p>
+              <div class="actions">
+                <button class="primary" type="button" data-role="primary-action">{call_to_action}</button>
+                <button class="secondary" type="button" data-role="secondary-action">{secondary_action}</button>
+              </div>
+            </header>
+
+            <main>
+              <section class="panel" aria-labelledby="metrics-heading">
+                <header>
+                  <div>
+                    <h2 id="metrics-heading">Operational readiness</h2>
+                    <p>Key delivery signals the team should monitor as we evolve this prototype.</p>
                   </div>
-                </form>
-              </section>
-              <section class="card">
-                <h2>Summary by Category</h2>
-                <div class="summary-grid" id="summary-grid"></div>
-              </section>
-              <section class="card">
-                <header class="card-header">
-                  <h2>All Expenses</h2>
-                  <span class="total" id="total-amount">Total Expenses: $0.00</span>
                 </header>
-                <ul class="expense-list" id="expense-list"></ul>
-                <p class="empty" id="empty-state" hidden>No expenses yet. Add your first entry above!</p>
+                <div class="metrics-grid">
+{textwrap.indent(metrics_html, '                  ')}
+                </div>
               </section>
-            </div>
-            <div class="toast" id="toast">Expense updated!</div>
+
+              <div class="layout">
+                <section class="panel" aria-labelledby="intake-heading">
+                  <header>
+                    <div>
+                      <h2 id="intake-heading">{form_title}</h2>
+                      <p>{form_description}</p>
+                    </div>
+                  </header>
+                  <form class="intake-form" data-role="intake-form">
+{textwrap.indent(form_fields_html, '                    ')}
+                    <div class="intake-actions">
+                      <button type="submit">Capture sample</button>
+                      <button class="secondary" type="reset">Clear</button>
+                    </div>
+                  </form>
+                </section>
+
+                <section class="panel" aria-labelledby="highlights-heading">
+                  <header>
+                    <div>
+                      <h2 id="highlights-heading">Experience highlights</h2>
+                      <p>Use these talking points during stakeholder reviews and design playback sessions.</p>
+                    </div>
+                  </header>
+                  <ul class="highlights">
+{textwrap.indent(highlights_html, '                    ')}
+                  </ul>
+                </section>
+              </div>
+
+              <section class="panel" aria-labelledby="activity-heading">
+                <header>
+                  <div>
+                    <h2 id="activity-heading">Recent prototype activity</h2>
+                    <p>Interactions captured while exploring the preview. Use this to validate traceability.</p>
+                  </div>
+                </header>
+                <div class="activity-feed" data-role="activity-feed">
+                  <div class="activity-item">
+                    <div>
+                      <strong>Prototype initialized</strong>
+                      <p class="metric-hint">Session token established. Observability hooks armed.</p>
+                    </div>
+                    <time data-role="activity-time" datetime="">Moments ago</time>
+                  </div>
+                </div>
+              </section>
+            </main>
+            {footer_block}
+
             <script>
-              const PROJECT_TITLE = {title};
-              const DEFAULT_CATEGORIES = {categories};
-              const INITIAL_EXPENSES = {default_data};
+              const statusText = {status_text_js};
+              const primaryLabel = {call_to_action_js};
+              const secondaryLabel = {secondary_action_js};
 
-              const state = {{
-                expenses: [...INITIAL_EXPENSES],
-                categories: [...DEFAULT_CATEGORIES],
-              }};
+              const statusPill = document.querySelector('[data-role="status-pill"]');
+              const statusLabel = statusPill?.querySelector('.status-label');
+              const activityFeed = document.querySelector('[data-role="activity-feed"]');
+              const intakeForm = document.querySelector('[data-role="intake-form"]');
+              const primaryAction = document.querySelector('[data-role="primary-action"]');
+              const secondaryAction = document.querySelector('[data-role="secondary-action"]');
 
-              const form = document.getElementById("expense-form");
-              const resetBtn = document.getElementById("reset-form");
-              const categorySelect = document.getElementById("category-select");
-              const summaryGrid = document.getElementById("summary-grid");
-              const expenseList = document.getElementById("expense-list");
-              const emptyState = document.getElementById("empty-state");
-              const totalAmount = document.getElementById("total-amount");
-              const toast = document.getElementById("toast");
-
-              function showToast(message) {{
-                toast.textContent = message;
-                toast.classList.add("is-visible");
-                setTimeout(() => toast.classList.remove("is-visible"), 1600);
+              if (statusLabel) {{
+                statusLabel.textContent = statusText;
               }}
 
-              function renderCategories() {{
-                categorySelect.innerHTML = "";
-                state.categories.forEach((category) => {{
-                  const option = document.createElement("option");
-                  option.value = category;
-                  option.textContent = category;
-                  categorySelect.appendChild(option);
+              function addActivity(text, meta) {{
+                if (!activityFeed) return;
+                const item = document.createElement('div');
+                item.className = 'activity-item';
+                const timestamp = new Date();
+                const timeEl = document.createElement('time');
+                timeEl.dateTime = timestamp.toISOString();
+                timeEl.textContent = timestamp.toLocaleTimeString([], {{ hour: '2-digit', minute: '2-digit' }});
+                const strong = document.createElement('strong');
+                strong.textContent = text;
+                const hint = document.createElement('p');
+                hint.className = 'metric-hint';
+                hint.textContent = meta || 'Captured via preview instrumentation.';
+                const content = document.createElement('div');
+                content.appendChild(strong);
+                content.appendChild(hint);
+                item.appendChild(content);
+                item.appendChild(timeEl);
+                activityFeed.prepend(item);
+              }}
+
+              if (intakeForm) {{
+                intakeForm.addEventListener('submit', (event) => {{
+                  event.preventDefault();
+                  const formData = new FormData(intakeForm);
+                  const summary = Array.from(formData.entries())
+                    .map(([key, value]) => `${{key}}: ${{value}}`)
+                    .join(' • ');
+                  addActivity('Intake captured', summary || 'Fields recorded.');
+                  intakeForm.reset();
+                }});
+
+                intakeForm.addEventListener('reset', () => {{
+                  addActivity('Form cleared', 'Input fields cleared for next scenario.');
                 }});
               }}
 
-              function renderSummary() {{
-                const totals = state.expenses.reduce((acc, expense) => {{
-                  acc[expense.category] = (acc[expense.category] || 0) + expense.amount;
-                  return acc;
-                }}, {{}});
-                summaryGrid.innerHTML = "";
-                state.categories.forEach((category) => {{
-                  const tile = document.createElement("div");
-                  tile.className = "summary-tile";
-                  tile.innerHTML = `\n                    <span class="summary-label">${{category}}</span>\n                    <strong>$${{(totals[category] || 0).toFixed(2)}} </strong>\n                  `;
-                  summaryGrid.appendChild(tile);
+              if (primaryAction) {{
+                primaryAction.textContent = primaryLabel;
+                primaryAction.addEventListener('click', () => {{
+                  addActivity(primaryLabel, 'Primary flow triggered. Monitoring metrics…');
                 }});
               }}
 
-              function renderExpenses() {{
-                expenseList.innerHTML = "";
-                if (!state.expenses.length) {{
-                  emptyState.hidden = false;
-                }} else {{
-                  emptyState.hidden = true;
-                }}
-                state.expenses.forEach((expense) => {{
-                  const item = document.createElement("li");
-                  item.className = "expense-item";
-                  item.innerHTML = `\n                    <div>\n                      <strong>${{expense.description}}</strong>\n                      <span class="expense-meta">${{expense.category}}</span>\n                    </div>\n                    <div class="expense-actions">\n                      <span class="expense-amount">$${{expense.amount.toFixed(2)}}</span>\n                      <button type="button" aria-label="Edit expense" data-action="edit">✏️</button>\n                      <button type="button" aria-label="Delete expense" data-action="delete">🗑️</button>\n                    </div>\n                  `;
-                  item.querySelector('[data-action="edit"]').addEventListener("click", () => editExpense(expense));
-                  item.querySelector('[data-action="delete"]').addEventListener("click", () => deleteExpense(expense.id));
-                  expenseList.appendChild(item);
+              if (secondaryAction) {{
+                secondaryAction.textContent = secondaryLabel;
+                secondaryAction.addEventListener('click', () => {{
+                  addActivity(secondaryLabel, 'Secondary telemetry ping acknowledged.');
                 }});
-                const total = state.expenses.reduce((sum, expense) => sum + expense.amount, 0);
-                totalAmount.textContent = `Total Expenses: $${{total.toFixed(2)}}`;
               }}
-
-              function addExpense(event) {{
-                event.preventDefault();
-                const formData = new FormData(form);
-                const description = (formData.get("description") || "").toString().trim();
-                const amount = Number(formData.get("amount"));
-                const category = (formData.get("category") || state.categories[0]).toString();
-                if (!description || !Number.isFinite(amount) || amount <= 0) {{
-                  showToast("Enter a description and a positive amount.");
-                  return;
-                }}
-                const expense = {{
-                  id: crypto.randomUUID(),
-                  description,
-                  amount,
-                  category,
-                }};
-                state.expenses = [expense, ...state.expenses];
-                form.reset();
-                categorySelect.value = state.categories[0];
-                renderSummary();
-                renderExpenses();
-                showToast("Expense added.");
-              }}
-
-              function deleteExpense(id) {{
-                state.expenses = state.expenses.filter((expense) => expense.id !== id);
-                renderSummary();
-                renderExpenses();
-                showToast("Expense removed.");
-              }}
-
-              function editExpense(expense) {{
-                form.description.value = expense.description;
-                form.amount.value = expense.amount.toString();
-                categorySelect.value = expense.category;
-                state.expenses = state.expenses.filter((item) => item.id !== expense.id);
-                renderSummary();
-                renderExpenses();
-                showToast("Editing mode: update the form and click Add.");
-              }}
-
-              function resetForm() {{
-                form.reset();
-                categorySelect.value = state.categories[0];
-              }}
-
-              form.addEventListener("submit", addExpense);
-              resetBtn.addEventListener("click", resetForm);
-
-              renderCategories();
-              renderSummary();
-              renderExpenses();
             </script>
           </body>
         </html>
@@ -1499,7 +2183,15 @@ def _generate_code_payload(session: AcceleratorSession, intent: ChatIntent, late
     return _ensure_ready_bundle_flag(payload, latest_input)
 
 
-def _publish_code_artifacts(session: AcceleratorSession, intent: ChatIntent, payload: Dict[str, Any], duration_ms: float) -> None:
+def _publish_code_artifacts(
+    session: AcceleratorSession,
+    intent: ChatIntent,
+    payload: Dict[str, Any],
+    duration_ms: float,
+    latest_input: str,
+    *,
+    trigger_message_id: Optional[str] = None,
+) -> None:
     sections, notes = _normalise_code_sections(payload)
     if not sections:
         raise ValueError("code_generation_empty_sections")
@@ -1544,6 +2236,8 @@ def _publish_code_artifacts(session: AcceleratorSession, intent: ChatIntent, pay
             "nfr_refs": nfr_refs,
             "gate_stage": gate_stage,
         }
+        if trigger_message_id:
+            meta["message_id"] = trigger_message_id
         store.add_artifact(
             session.session_id,
             filename=section["path"],
@@ -1560,7 +2254,7 @@ def _publish_code_artifacts(session: AcceleratorSession, intent: ChatIntent, pay
             )
         except Exception as exc:  # pragma: no cover - defensive logging
             _emit_storage_error(session.session_id, section["path"], exc)
-        _queue_artifact(
+        _queue_linked_artifact(
             session.session_id,
             {
                 "type": section["kind"],
@@ -1572,13 +2266,16 @@ def _publish_code_artifacts(session: AcceleratorSession, intent: ChatIntent, pay
                 "fr_refs": fr_refs,
                 "nfr_refs": nfr_refs,
                 "gate_stage": gate_stage,
+                "filename": section["path"],
+                "meta": meta,
             },
+            message_id=trigger_message_id,
         )
         bundle_files[section["path"]] = content
         version += 1
 
     if notes:
-        _queue_artifact(
+        _queue_linked_artifact(
             session.session_id,
             {
                 "type": "status",
@@ -1586,22 +2283,36 @@ def _publish_code_artifacts(session: AcceleratorSession, intent: ChatIntent, pay
                 "preview": " ".join(notes)[:240],
                 "source": payload.get("source", "llm"),
             },
+            message_id=trigger_message_id,
         )
+
+    preview_meta = _infer_preview_metadata(
+        latest_input,
+        intent,
+        aggregate_fr_refs,
+        aggregate_nfr_refs,
+    )
+    preview_title = preview_meta.get("title") or intent.requirement_area or intent.title or "Interactive Prototype"
+    slug = preview_meta.get("slug") or _slugify(preview_title)
 
     if bundle_files:
         include_ready_bundle = bool(payload.get("include_ready_bundle"))
 
         if include_ready_bundle:
-            frontend_files = _default_frontend_scaffold(intent.title)
+            frontend_files = _default_frontend_scaffold(preview_title)
             bundle_files.update(frontend_files)
-            bundle_files.setdefault("README.md", _build_ready_to_run_readme(intent.title))
+            bundle_files.setdefault("README.md", _build_ready_to_run_readme(preview_title))
             bundle_files.setdefault(
                 "SUMMARY.md",
-                _compose_capability_summary(intent.title, aggregate_fr_refs, aggregate_nfr_refs),
+                _compose_capability_summary(
+                    preview_title,
+                    aggregate_fr_refs,
+                    aggregate_nfr_refs,
+                    preview_meta,
+                ),
             )
             archive_bytes = _package_ready_to_run_bundle(bundle_files)
             archive_b64 = base64.b64encode(archive_bytes).decode("utf-8")
-            slug = _slugify(intent.title)
             bundle_filename = f"{slug}-bundle.zip"
             bundle_download_path = f"/accelerators/sessions/{session.session_id}/artifacts/{bundle_filename}/download"
             bundle_meta = {
@@ -1629,7 +2340,7 @@ def _publish_code_artifacts(session: AcceleratorSession, intent: ChatIntent, pay
             except Exception as exc:  # pragma: no cover - defensive logging
                 _emit_storage_error(session.session_id, bundle_filename, exc)
             store.save_asset(session.session_id, bundle_filename, archive_bytes)
-            _queue_artifact(
+            _queue_linked_artifact(
                 session.session_id,
                 {
                     "type": "bundle",
@@ -1639,130 +2350,138 @@ def _publish_code_artifacts(session: AcceleratorSession, intent: ChatIntent, pay
                     "version": version,
                     "download_path": bundle_download_path,
                 },
+                message_id=trigger_message_id,
             )
             version += 1
 
-            live_preview_filename = f"{slug}-preview.html"
-            live_preview_path = f"/accelerators/sessions/{session.session_id}/artifacts/{live_preview_filename}/preview"
-            live_preview_html = _build_live_preview_html(intent.title)
-            live_preview_meta = {
-                "version": version,
+        live_preview_filename = f"{slug}-preview.html"
+        live_preview_path = f"/accelerators/sessions/{session.session_id}/artifacts/{live_preview_filename}/preview"
+        live_preview_html = _build_live_preview_html(preview_meta)
+        live_preview_meta = {
+            "version": version,
+            "type": "preview",
+            "language": "html",
+            "title": preview_title,
+            "summary": preview_meta.get("tagline") or "Interactive preview ready.",
+            "gate_stage": _compute_gate_stage("code"),
+            "iframe_url": live_preview_path,
+            "preview_meta": preview_meta,
+            "fr_refs": sorted(aggregate_fr_refs),
+            "nfr_refs": sorted(aggregate_nfr_refs),
+        }
+        store.add_artifact(
+            session.session_id,
+            filename=live_preview_filename,
+            project_id=session.project_id,
+            meta=live_preview_meta,
+        )
+        doc_store.save_accelerator_preview(
+            session.session_id,
+            live_preview_filename,
+            live_preview_html,
+            live_preview_meta,
+        )
+        try:
+            doc_store.save_accelerator_asset(
+                session.session_id,
+                live_preview_filename,
+                live_preview_html.encode("utf-8"),
+                live_preview_meta,
+            )
+        except Exception as exc:  # pragma: no cover - defensive logging
+            _emit_storage_error(session.session_id, live_preview_filename, exc)
+        _queue_linked_artifact(
+            session.session_id,
+            {
                 "type": "preview",
-                "language": "html",
-                "summary": "Interactive budgeting app preview.",
-                "gate_stage": _compute_gate_stage("code"),
+                "title": preview_title,
+                "preview": live_preview_meta["summary"],
+                "source": "system",
+                "version": version,
                 "iframe_url": live_preview_path,
+                "meta": live_preview_meta,
+            },
+            message_id=trigger_message_id,
+        )
+        version += 1
+
+        if include_ready_bundle and bundle_files:
+            if aggregate_fr_refs:
+                primary_ref = next(iter(sorted(aggregate_fr_refs)))
+            else:
+                primary_ref = "FR-001"
+            prototype_html = textwrap.dedent(
+                f"""
+                <!doctype html>
+                <html lang="en">
+                  <head>
+                    <meta charset="utf-8" />
+                    <title>Interactive Prototype</title>
+                    <style>
+                      body {{ font-family: Arial, sans-serif; margin: 1.5rem; }}
+                      .trace {{ font-weight: 600; color: #0b7285; }}
+                      button {{ padding: 0.5rem 1rem; border-radius: 0.5rem; border: none; background: #15aabf; color: #fff; }}
+                    </style>
+                  </head>
+                  <body>
+                    <h1>Capability Prototype</h1>
+                    <p>This interaction aligns with <span class="trace">{primary_ref}</span>{' and ' + ', '.join(sorted(aggregate_nfr_refs)) if aggregate_nfr_refs else ''}.</p>
+                    <button id="prototype-action">Simulate Decision</button>
+                    <p id="prototype-status">Awaiting input…</p>
+                    <script>
+                      document.getElementById("prototype-action").addEventListener("click", () => {{
+                        const ts = new Date().toISOString();
+                        document.getElementById("prototype-status").innerText = "Decision captured @ " + ts + " (trace: {primary_ref})";
+                      }});
+                    </script>
+                  </body>
+                </html>
+                """
+            ).strip()
+            prototype_meta = {
+                "version": version,
+                "type": "prototype",
+                "language": "html",
+                "summary": "Interactive HTML prototype snippet aligned to FR requirements.",
+                "gate_stage": _compute_gate_stage("code"),
+                "fr_refs": sorted(aggregate_fr_refs) or [primary_ref],
+                "nfr_refs": sorted(aggregate_nfr_refs),
             }
             store.add_artifact(
                 session.session_id,
-                filename=live_preview_filename,
+                filename="prototype-inline.html",
                 project_id=session.project_id,
-                meta=live_preview_meta,
+                meta=prototype_meta,
             )
             doc_store.save_accelerator_preview(
                 session.session_id,
-                live_preview_filename,
-                live_preview_html,
-                live_preview_meta,
+                "prototype-inline.html",
+                prototype_html,
+                prototype_meta,
             )
             try:
                 doc_store.save_accelerator_asset(
                     session.session_id,
-                    live_preview_filename,
-                    live_preview_html.encode("utf-8"),
-                    live_preview_meta,
-                )
-            except Exception as exc:  # pragma: no cover - defensive logging
-                _emit_storage_error(session.session_id, live_preview_filename, exc)
-            _queue_artifact(
-                session.session_id,
-                {
-                    "type": "preview",
-                    "title": "Live UI preview",
-                    "preview": "Open the embedded preview to explore the scaffolded app.",
-                    "source": "system",
-                    "version": version,
-                    "iframe_url": live_preview_path,
-                },
-            )
-            version += 1
-
-            if bundle_files:
-                if aggregate_fr_refs:
-                    primary_ref = next(iter(sorted(aggregate_fr_refs)))
-                else:
-                    primary_ref = "FR-001"
-                prototype_html = textwrap.dedent(
-                    f"""
-                    <!doctype html>
-                    <html lang="en">
-                      <head>
-                        <meta charset="utf-8" />
-                        <title>Interactive Prototype</title>
-                        <style>
-                          body {{ font-family: Arial, sans-serif; margin: 1.5rem; }}
-                          .trace {{ font-weight: 600; color: #0b7285; }}
-                          button {{ padding: 0.5rem 1rem; border-radius: 0.5rem; border: none; background: #15aabf; color: #fff; }}
-                        </style>
-                      </head>
-                      <body>
-                        <h1>Capability Prototype</h1>
-                        <p>This interaction aligns with <span class="trace">{primary_ref}</span>{' and ' + ', '.join(sorted(aggregate_nfr_refs)) if aggregate_nfr_refs else ''}.</p>
-                        <button id="prototype-action">Simulate Decision</button>
-                        <p id="prototype-status">Awaiting input…</p>
-                        <script>
-                          document.getElementById("prototype-action").addEventListener("click", () => {{
-                            const ts = new Date().toISOString();
-                            document.getElementById("prototype-status").innerText = "Decision captured @ " + ts + " (trace: {primary_ref})";
-                          }});
-                        </script>
-                      </body>
-                    </html>
-                    """
-                ).strip()
-                prototype_meta = {
-                    "version": version,
-                    "type": "prototype",
-                    "language": "html",
-                    "summary": "Interactive HTML prototype snippet aligned to FR requirements.",
-                    "gate_stage": _compute_gate_stage("code"),
-                    "fr_refs": sorted(aggregate_fr_refs) or [primary_ref],
-                    "nfr_refs": sorted(aggregate_nfr_refs),
-                }
-                store.add_artifact(
-                    session.session_id,
-                    filename="prototype-inline.html",
-                    project_id=session.project_id,
-                    meta=prototype_meta,
-                )
-                doc_store.save_accelerator_preview(
-                    session.session_id,
                     "prototype-inline.html",
-                    prototype_html,
+                    prototype_html.encode("utf-8"),
                     prototype_meta,
                 )
-                try:
-                    doc_store.save_accelerator_asset(
-                        session.session_id,
-                        "prototype-inline.html",
-                        prototype_html.encode("utf-8"),
-                        prototype_meta,
-                    )
-                except Exception as exc:  # pragma: no cover - defensive
-                    _emit_storage_error(session.session_id, "prototype-inline.html", exc)
-                _queue_artifact(
-                    session.session_id,
-                    {
-                        "type": "prototype",
-                        "title": "HTML prototype snippet",
-                        "preview": prototype_html[:240],
-                        "source": "system",
-                        "version": version,
-                        "fr_refs": sorted(aggregate_fr_refs) or [primary_ref],
-                        "nfr_refs": sorted(aggregate_nfr_refs),
-                    },
-                )
-                version += 1
+            except Exception as exc:  # pragma: no cover - defensive
+                _emit_storage_error(session.session_id, "prototype-inline.html", exc)
+            _queue_linked_artifact(
+                session.session_id,
+                {
+                    "type": "prototype",
+                    "title": "HTML prototype snippet",
+                    "preview": prototype_html[:240],
+                    "source": "system",
+                    "version": version,
+                    "fr_refs": sorted(aggregate_fr_refs) or [primary_ref],
+                    "nfr_refs": sorted(aggregate_nfr_refs),
+                },
+                message_id=trigger_message_id,
+            )
+            version += 1
 
         guidance = _compose_ready_to_run_instructions()
         guidance_meta = {
@@ -1778,7 +2497,16 @@ def _publish_code_artifacts(session: AcceleratorSession, intent: ChatIntent, pay
             guidance,
             guidance_meta,
         )
-        _queue_artifact(
+        try:
+            doc_store.save_accelerator_asset(
+                session.session_id,
+                "READY-TO-RUN.md",
+                guidance.encode("utf-8"),
+                guidance_meta,
+            )
+        except Exception as exc:  # pragma: no cover - defensive logging
+            _emit_storage_error(session.session_id, "READY-TO-RUN.md", exc)
+        _queue_linked_artifact(
             session.session_id,
             {
                 "type": "summary",
@@ -1787,15 +2515,9 @@ def _publish_code_artifacts(session: AcceleratorSession, intent: ChatIntent, pay
                 "source": "system",
                 "version": version,
             },
+            message_id=trigger_message_id,
         )
         version += 1
-
-    metadata = dict(session.metadata or {})
-    metadata.setdefault("artifacts", store.list_artifacts(session.session_id))
-    metadata["status"] = "ready"
-    metadata["last_generated_at"] = time.time()
-    _update_session_metadata(session.session_id, metadata)
-    _enqueue_snapshot_refresh(session.session_id)
 
     record_metric(
         name="accelerator_code_generation_ms",
@@ -1826,19 +2548,120 @@ def _publish_code_artifacts(session: AcceleratorSession, intent: ChatIntent, pay
         )
     )
 
+    metadata = dict(session.metadata or {})
+    metadata.setdefault("artifacts", store.list_artifacts(session.session_id))
+    metadata["status"] = "ready"
+    metadata["last_generated_at"] = time.time()
+    _update_session_metadata(session.session_id, metadata)
+    _enqueue_snapshot_refresh(session.session_id)
 
-def _schedule_code_generation(session_id: str, intent: ChatIntent, latest_input: str) -> None:
+
+def edit_accelerator_artifact(
+    session_id: str,
+    filename: str,
+    *,
+    content: str,
+    summary: Optional[str] = None,
+    section: Optional[str] = None,
+    change_description: Optional[str] = None,
+    message_id: Optional[str] = None,
+    edited_by: Optional[str] = None,
+) -> Dict[str, Any]:
+    store = get_accelerator_store()
+    session = store.get_session(session_id)
+    if not session:
+        raise ValueError("Session not found")
+
+    doc_store = get_doc_store()
+    previous_preview = doc_store.get_accelerator_preview(session_id, filename) or {}
+    previous_meta = dict(previous_preview.get("meta") or {})
+    previous_content = str(previous_preview.get("content") or "")
+
+    edited_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    meta: Dict[str, Any] = {
+        **previous_meta,
+        "manual_edit": True,
+        "edited_at": edited_at,
+    }
+    if edited_by:
+        meta["edited_by"] = edited_by
+    if summary is not None:
+        meta["summary"] = summary
+    if section is not None:
+        meta["section"] = section
+    if change_description:
+        meta["change_description"] = change_description
+    if message_id:
+        meta["message_id"] = message_id
+
+    version = doc_store.save_accelerator_preview(session_id, filename, content, meta)
+    meta["version"] = version
+    try:
+        doc_store.save_accelerator_asset(session_id, filename, content.encode("utf-8"), meta)
+    except Exception as exc:  # pragma: no cover - defensive logging
+        _emit_storage_error(session_id, filename, exc)
+
+    store.add_artifact(
+        session_id,
+        filename=filename,
+        project_id=session.project_id,
+        meta=meta,
+    )
+
+    diff_summary = _summarize_diff(previous_content, content)
+    _queue_linked_artifact(
+        session_id,
+        {
+            "type": "document_update",
+            "title": meta.get("title") or filename,
+            "preview": summary or meta.get("summary") or "Manual edit applied.",
+            "source": "edit",
+            "stage": "edit",
+            "filename": filename,
+            "version": version,
+            "meta": meta,
+            "diff": diff_summary,
+            "content": content,
+        },
+        message_id=message_id,
+    )
+
+    metadata = dict(session.metadata or {})
+    metadata.setdefault("artifacts", store.list_artifacts(session_id))
+    metadata["last_activity"] = edited_at
+    metadata["status"] = "ready"
+    _update_session_metadata(session_id, metadata)
+    _enqueue_snapshot_refresh(session_id)
+
+    return {
+        "filename": filename,
+        "version": version,
+        "content": content,
+        "meta": meta,
+    }
+
+
+def _schedule_code_generation(
+    session_id: str,
+    intent: ChatIntent,
+    latest_input: str,
+    *,
+    trigger_message_id: Optional[str] = None,
+) -> None:
     store = get_accelerator_store()
 
     def worker() -> None:
-        _queue_artifact(
+        _queue_linked_artifact(
             session_id,
             {
                 "type": "status",
                 "title": "Generating code scaffold",
-                "preview": "Producing service, tests, and YAML config…",
+                "preview": "Collecting context and preparing scaffolds…",
+                "stage": "code_generation",
+                "progress": 0.1,
                 "source": "system",
             },
+            message_id=trigger_message_id,
         )
         time.sleep(0.5)
         try:
@@ -1846,19 +2669,53 @@ def _schedule_code_generation(session_id: str, intent: ChatIntent, latest_input:
             if not session:
                 return
             start = time.perf_counter()
+            _queue_linked_artifact(
+                session_id,
+                {
+                    "type": "status",
+                    "title": "Drafting code components",
+                    "preview": "Assembling feature modules and tests…",
+                    "stage": "code_generation",
+                    "progress": 0.4,
+                    "source": "system",
+                },
+                message_id=trigger_message_id,
+            )
             payload = _generate_code_payload(session, intent, latest_input)
             duration_ms = (time.perf_counter() - start) * 1000.0
-            _publish_code_artifacts(session, intent, payload, duration_ms)
+            _publish_code_artifacts(
+                session,
+                intent,
+                payload,
+                duration_ms,
+                latest_input,
+                trigger_message_id=trigger_message_id,
+            )
+            _queue_linked_artifact(
+                session_id,
+                {
+                    "type": "status",
+                    "title": "Code scaffold ready",
+                    "preview": "Scaffolds generated and linked to the latest request.",
+                    "stage": "code_generation",
+                    "progress": 1.0,
+                    "source": "system",
+                },
+                message_id=trigger_message_id,
+            )
         except Exception as exc:  # pragma: no cover - defensive
             logger.exception("code_generation_failed session=%s err=%s", session_id, exc)
-            _queue_artifact(
+            _queue_linked_artifact(
                 session_id,
                 {
                     "type": "status",
                     "title": "Code scaffolding delayed",
                     "preview": "We hit an error while generating code snippets. Please retry or adjust inputs.",
                     "source": "system",
+                    "stage": "code_generation",
+                    "progress": 0.0,
                 },
+                message_id=trigger_message_id,
             )
             refreshed = store.get_session(session_id)
             if refreshed:
@@ -1894,13 +2751,32 @@ def _compose_document_system_prompt(intent: Optional[ChatIntent], session: Accel
 
 
 # --- opnxt-stream ---
-def _enqueue_immediate_start(session_id: str) -> None:
+def _enqueue_immediate_start(session_id: str, *, force: bool = False) -> None:
+    store = get_accelerator_store()
+    if not force:
+        try:
+            meta = store.get_session(session_id).metadata  # type: ignore[attr-defined]
+        except Exception:
+            meta = None
+        if not meta:
+            return
+        already_sent = bool(meta.get("status") in {"thinking", "drafting"})
+        if meta.get("message_count", 0) == 0 or already_sent:
+            return
+
+    progress_value = 0.05
     artifact = {
         "type": "status",
         "title": "Generation started",
         "preview": "Preparing your draft…",
         "ts": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         "source": "system",
+        "stage": "analysis",
+        "progress": progress_value,
+        "meta": {
+            "stage": "analysis",
+            "progress": progress_value,
+        },
     }
     _queue_artifact(session_id, artifact)
 
@@ -1958,6 +2834,10 @@ def _seed_baseline_artifact(
         },
     )
     doc_store.save_accelerator_preview(session.session_id, filename, draft)
+    try:
+        doc_store.save_accelerator_asset(session.session_id, filename, draft.encode("utf-8"))
+    except Exception as exc:  # pragma: no cover - defensive logging
+        _emit_storage_error(session.session_id, filename, exc)
     _queue_artifact(
         session.session_id,
         {
@@ -1967,25 +2847,87 @@ def _seed_baseline_artifact(
             "source": "seed",
         },
     )
+    _enqueue_snapshot_refresh(session.session_id)
     refreshed = store.get_session(session.session_id)
     return refreshed or session
 
 
 # --- opnxt-stream ---
-def _emit_stream_chunks(session_id: str, text: str) -> None:
+def _emit_stream_chunks(
+    session_id: str,
+    text: str,
+    *,
+    stage: str = "draft",
+    progress: Optional[float] = None,
+) -> None:
     if not text:
         return
     chunk_size = max(40, min(160, len(text) // 12 or 40))
     for idx in range(0, len(text), chunk_size):
         segment = text[idx : idx + chunk_size]
+        ts_value = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
         artifact = {
             "type": "draft_update",
             "title": "Draft (streaming)",
             "preview": segment,
             "source": "stream",
+            "ts": ts_value,
         }
+        if stage:
+            artifact["stage"] = stage
+        if progress is not None:
+            artifact["progress"] = progress
+        artifact.setdefault("meta", {})
+        artifact["meta"].update(
+            {
+                "stage": stage,
+                "progress": progress,
+                "chunk_index": idx // chunk_size,
+                "ts": ts_value,
+            }
+        )
         _queue_artifact(session_id, artifact)
         time.sleep(0.05)
+
+
+# --- opnxt-stream ---
+def _queue_stream_commit(
+    session_id: str,
+    preview: str,
+    *,
+    title: str = "Assistant draft ready",
+    stage: str = "ready",
+    progress: float = 0.98,
+) -> None:
+    ts_value = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    payload = {
+        "type": "commit",
+        "title": title,
+        "preview": preview,
+        "source": "stream",
+        "stage": stage,
+        "progress": progress,
+        "ts": ts_value,
+        "meta": {
+            "stage": stage,
+            "progress": progress,
+            "ts": ts_value,
+        },
+    }
+    _queue_artifact(session_id, payload)
+
+
+# --- opnxt-stream ---
+def _simulate_stream_from_text(session_id: str, text: str) -> None:
+    """Emit draft/commit events when provider response is non-streaming."""
+
+    trimmed = (text or "").strip()
+    if not trimmed:
+        return
+
+    _emit_stream_chunks(session_id, trimmed, stage="draft", progress=0.7)
+    commit_preview = trimmed[-320:].strip() if len(trimmed) > 320 else trimmed
+    _queue_stream_commit(session_id, commit_preview or "Assistant draft ready.")
 
 
 # --- opnxt-stream ---
@@ -1993,6 +2935,9 @@ async def _stream_tokens_to_artifacts(session_id: str, token_iter: Iterable[Dict
     buffer: List[str] = []
     last_flush = time.time()
     flush_interval = 0.5
+    flush_count = 0
+    progress_floor = 0.35
+    progress_cap = 0.85
     async for token in iter_as_async(token_iter):
         piece = token.get("token")
         if not piece:
@@ -2000,17 +2945,32 @@ async def _stream_tokens_to_artifacts(session_id: str, token_iter: Iterable[Dict
         buffer.append(piece)
         if time.time() - last_flush >= flush_interval:
             preview = "".join(buffer)[-600:]
+            ts_value = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
             artifact = {
                 "type": "draft_update",
                 "title": "Draft (streaming)",
                 "preview": preview,
                 "source": "stream",
+                "ts": ts_value,
+            }
+            flush_count += 1
+            progress_value = min(progress_cap, progress_floor + flush_count * 0.06)
+            artifact["stage"] = "draft"
+            artifact["progress"] = progress_value
+            artifact["meta"] = {
+                "stage": "draft",
+                "progress": progress_value,
+                "flush_count": flush_count,
+                "ts": ts_value,
             }
             _queue_artifact(session_id, artifact)
             last_flush = time.time()
     full_text = "".join(buffer)
     if full_text:
-        _emit_stream_chunks(session_id, full_text[-600:])
+        final_progress = min(0.92, progress_floor + (flush_count + 1) * 0.06)
+        _emit_stream_chunks(session_id, full_text[-600:], stage="draft", progress=final_progress)
+        commit_preview = full_text[-320:].strip() or "Assistant draft ready for review."
+        _queue_stream_commit(session_id, commit_preview)
     return full_text  # --- opnxt-stream ---
 
 
@@ -2361,19 +3321,28 @@ We spotted existing workspace documents. Highlight anything we should repurpose 
     return prompts
 
 
-def _schedule_background_generation(session_id: str, intent: ChatIntent, latest_input: str) -> None:
+def _schedule_background_generation(
+    session_id: str,
+    intent: ChatIntent,
+    latest_input: str,
+    *,
+    trigger_message_id: Optional[str] = None,
+) -> None:
     store = get_accelerator_store()
     doc_store = get_doc_store()
 
     def worker():
-        _queue_artifact(
+        _queue_linked_artifact(
             session_id,
             {
                 "type": "status",
                 "title": "Drafting accelerator deliverable",
                 "preview": "Generating the next document revision…",
                 "source": "system",
+                "stage": "analysis",
+                "progress": 0.1,
             },
+            message_id=trigger_message_id,
         )
         time.sleep(0.5)
         try:
@@ -2381,6 +3350,18 @@ def _schedule_background_generation(session_id: str, intent: ChatIntent, latest_
             session = store.get_session(session_id)
             if not session:
                 return
+            _queue_linked_artifact(
+                session_id,
+                {
+                    "type": "status",
+                    "title": "Collecting workspace context",
+                    "preview": "Summarizing recent chat and artifacts…",
+                    "source": "system",
+                    "stage": "analysis",
+                    "progress": 0.3,
+                },
+                message_id=trigger_message_id,
+            )
             artifacts, revision = store.artifact_snapshot(session_id)
             version = revision + 1
             history = [
@@ -2397,6 +3378,18 @@ Latest user input:
 {latest_input}
                 """
             ).strip()
+            _queue_linked_artifact(
+                session_id,
+                {
+                    "type": "status",
+                    "title": "Drafting executive summary",
+                    "preview": "Rendering updated narrative…",
+                    "source": "system",
+                    "stage": "analysis",
+                    "progress": 0.6,
+                },
+                message_id=trigger_message_id,
+            )
             draft = reply_with_chat_ai(
                 project_name=intent.title,
                 user_message=prompt,
@@ -2455,7 +3448,133 @@ Latest user input:
                 "source": "llm" if provider else "fallback",
                 "version": version,
             }
-            _queue_artifact(session_id, ready_artifact)
+            _queue_linked_artifact(
+                session_id,
+                ready_artifact,
+                message_id=trigger_message_id,
+            )
+
+            # Attempt full SDLC document generation using master prompt
+            generation_context = textwrap.dedent(
+                f"""
+                SESSION PERSONA: {session.persona or 'unspecified'}
+                LATEST INPUT:
+                {latest_input or 'No additional context supplied.'}
+
+                MOST RECENT EXECUTIVE DRAFT:
+                {draft_text}
+                """
+            ).strip()
+            existing_previews = doc_store.list_accelerator_previews(session_id)
+            attachment_map = {
+                item.get("filename", f"artifact-{idx}.md"): str(item.get("content") or "")
+                for idx, item in enumerate(existing_previews)
+                if item.get("content")
+            }
+
+            _queue_artifact(
+                session_id,
+                {
+                    "type": "status",
+                    "title": "Generating SDLC documents",
+                    "preview": "Creating charter, SRS, SDD, and Test Plan drafts…",
+                    "source": "system",
+                    "stage": "analysis",
+                    "progress": 0.7,
+                },
+            )
+
+            doc_map = {}
+            try:
+                doc_map = generate_with_master_prompt(
+                    project_name=intent.title,
+                    input_text=generation_context,
+                    doc_types=None,
+                    attachments=attachment_map,
+                )
+            except Exception as gen_exc:
+                logger.exception(
+                    "sdlc_master_prompt_failed",
+                    extra={"session": session_id, "intent": intent.intent_id, "err": str(gen_exc)},
+                )
+
+            if doc_map:
+                def _doc_kind(name: str) -> str:
+                    lowered = name.lower()
+                    if "charter" in lowered:
+                        return "Project Charter"
+                    if "srs" in lowered:
+                        return "SRS"
+                    if "sdd" in lowered:
+                        return "SDD"
+                    if "test" in lowered:
+                        return "Test Plan"
+                    return "Document"
+
+                for fname, content in doc_map.items():
+                    doc_version = version + 1
+                    meta = {
+                        "version": doc_version,
+                        "type": "document",
+                        "document_name": fname,
+                        "document_kind": _doc_kind(fname),
+                        "summary": (content or "")[:240],
+                        "source": "llm",
+                    }
+                    store.add_artifact(
+                        session_id,
+                        filename=fname,
+                        project_id=session.project_id,
+                        meta=meta,
+                    )
+                    doc_store.save_accelerator_preview(session_id, fname, content, meta)
+                    try:
+                        doc_store.save_accelerator_asset(session_id, fname, content.encode("utf-8"), meta)
+                    except Exception as exc:  # pragma: no cover - defensive
+                        _emit_storage_error(session_id, fname, exc)
+                    _queue_artifact(
+                        session_id,
+                        {
+                            "type": "document",
+                            "title": meta["document_kind"],
+                            "preview": meta["summary"] or "Generated SDLC draft ready for review.",
+                            "source": "llm",
+                            "filename": fname,
+                            "version": doc_version,
+                            "stage": "analysis",
+                            "progress": 0.85,
+                            "meta": meta,
+                            "message_id": trigger_message_id,
+                        },
+                    )
+                    version = doc_version
+
+                _queue_artifact(
+                    session_id,
+                    {
+                        "type": "status",
+                        "title": "SDLC package ready",
+                        "preview": "Project Charter, SRS, SDD, and Test Plan drafts generated.",
+                        "source": "system",
+                        "stage": "analysis",
+                        "progress": 1.0,
+                        "message_id": trigger_message_id,
+                    },
+                )
+            else:
+                _queue_linked_artifact(
+                    session_id,
+                    {
+                        "type": "status",
+                        "title": "SDLC document generation skipped",
+                        "preview": "Master prompt did not return documents; keeping executive draft only.",
+                        "source": "system",
+                        "stage": "analysis",
+                        "progress": 0.8,
+                    },
+                    message_id=trigger_message_id,
+                )
+
             metadata = session.metadata or {}
             metadata.setdefault("artifacts", store.list_artifacts(session_id))
             metadata["last_generated_at"] = time.time()
@@ -2488,8 +3607,10 @@ Latest user input:
                 "title": "Draft generation delayed",
                 "preview": "We hit an error generating the latest draft. Please retry or adjust inputs.",
                 "source": "system",
+                "stage": "analysis",
+                "progress": 0.0,
             }
-            _queue_artifact(session_id, error_artifact)
+            _queue_linked_artifact(session_id, error_artifact, message_id=trigger_message_id)
 
     Thread(target=worker, daemon=True).start()
 
@@ -2510,6 +3631,10 @@ async def stream_accelerator_artifacts(session_id: str, start_revision: int = 0)
     last_heartbeat = 0.0  # --- opnxt-stream ---
     revision = max(0, start_revision)  # --- opnxt-stream ---
     try:
+        logger.info(
+            "artifact_stream_client_connected",
+            extra={"session_id": session_id, "start_revision": revision},
+        )
         artifacts, current_revision = store.artifact_snapshot(session_id)
         if current_revision >= revision:  # --- opnxt-stream ---
             revision = current_revision  # --- opnxt-stream ---
@@ -2546,6 +3671,10 @@ async def stream_accelerator_artifacts(session_id: str, start_revision: int = 0)
                     "type": "heartbeat",
                     "ts": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
                 }
+                logger.debug(
+                    "artifact_stream_heartbeat",
+                    extra={"session_id": session_id, "revision": revision},
+                )
                 last_heartbeat = now
             await asyncio.sleep(poll_interval)
     finally:
@@ -2557,6 +3686,7 @@ async def stream_accelerator_artifacts(session_id: str, start_revision: int = 0)
             },
             metric_type="gauge_delta",
         )
+        logger.info("artifact_stream_client_closed", extra={"session_id": session_id})
 
 
 def _infer_persona(text: str) -> Tuple[Optional[str], List[str]]:
@@ -2676,7 +3806,8 @@ def launch_accelerator_session(intent_id: str, user: User, persona: Optional[str
         )
     )
 
-    return session, message_batch, intent
+    hydrated = _hydrate_session_metadata(session)
+    return hydrated, message_batch, intent
 
 
 def load_accelerator_context(session_id: str) -> Tuple[AcceleratorSession, ChatIntent, List[AcceleratorMessage]]:
@@ -2690,7 +3821,8 @@ def load_accelerator_context(session_id: str) -> Tuple[AcceleratorSession, ChatI
     if not intent:
         raise ValueError("Accelerator intent metadata missing")
     messages = store.list_messages(session_id)
-    return session, intent, messages
+    hydrated = _hydrate_session_metadata(session)
+    return hydrated, intent, messages
 
 
 def _update_session_metadata(session_id: str, metadata: Dict[str, Any]) -> AcceleratorSession:
@@ -2703,6 +3835,40 @@ def _update_session_metadata(session_id: str, metadata: Dict[str, Any]) -> Accel
     else:
         metadata_copy.pop("attachments", None)
     return store.update_session_metadata(session_id, metadata_copy)
+
+
+def _hydrate_session_metadata(session: AcceleratorSession) -> AcceleratorSession:
+    """Ensure metadata surfaces persisted artifacts and accelerator model catalog."""
+
+    store = get_accelerator_store()
+    metadata = dict(session.metadata or {})
+
+    try:
+        artifacts, revision = store.artifact_snapshot(session.session_id)
+    except Exception:
+        artifacts = metadata.get("artifacts") or []
+        revision = metadata.get("artifact_revision")
+
+    if artifacts:
+        metadata["artifacts"] = artifacts
+        if revision is not None:
+            metadata["artifact_revision"] = revision
+    else:
+        metadata.pop("artifacts", None)
+        metadata.pop("artifact_revision", None)
+
+    try:
+        catalog = build_model_catalog()
+    except Exception:
+        catalog = []
+
+    if catalog:
+        metadata["accelerator_models"] = [option.model_dump() for option in catalog]
+    else:
+        metadata.pop("accelerator_models", None)
+
+    session.metadata = metadata
+    return session
 
 
 def list_accelerator_previews(session_id: str) -> List[Dict[str, Any]]:
@@ -2725,10 +3891,11 @@ def get_accelerator_asset_blob(session_id: str, filename: str) -> bytes:
         return bytes(asset)
     preview = doc_store.get_accelerator_preview(session_id, filename)
     if preview and isinstance(preview.get("content"), str):
+        content_str = preview["content"]
         try:
-            return base64.b64decode(preview["content"].encode("utf-8"))
-        except Exception as exc:  # pragma: no cover - defensive
-            raise FileNotFoundError(filename) from exc
+            return base64.b64decode(content_str.encode("utf-8"))
+        except Exception:
+            return content_str.encode("utf-8")
     raise FileNotFoundError(filename)
 
 
@@ -2854,6 +4021,8 @@ def post_accelerator_message(
     user: User,
     *,
     attachment_ids: Optional[List[str]] = None,
+    provider: Optional[str] = None,
+    model: Optional[str] = None,
 ) -> AcceleratorMessage:
     if not content or not content.strip():
         raise ValueError("Message content required")
@@ -2933,12 +4102,20 @@ def post_accelerator_message(
     ]
     system_prompt = _compose_assistant_system_prompt(intent, session)
     assistant_history = [{"role": "system", "content": system_prompt}] + history
+    # surface immediate progress feedback for client streams
+    try:
+        _enqueue_immediate_start(session.session_id, force=True)
+    except Exception:
+        logger.exception("accelerator_enqueue_start_failed", extra={"session": session.session_id})
+
     assistant_reply = reply_with_chat_ai(
         project_name=title,
         user_message=trimmed,
         history=assistant_history,
         attachments=attachment_payload,
         persona=session.persona,
+        provider=provider,
+        model=model,
         intent_override="documentation",
         purpose_override="accelerator_executive",
         streaming_aware=True,
@@ -2947,19 +4124,25 @@ def post_accelerator_message(
     assistant_provider = assistant_reply.get("provider") if isinstance(assistant_reply, dict) else None
     assistant_model = assistant_reply.get("model") if isinstance(assistant_reply, dict) else None
     assistant_text = ""
+    stream_used = False
 
     if stream_client and hasattr(stream_client, "stream"):
         messages_for_stream = assistant_reply.get("messages") if isinstance(assistant_reply, dict) else None
         token_iter = stream_client.stream(messages_for_stream or history or [])
         try:
             assistant_text = _run_stream_task(_stream_tokens_to_artifacts(session_id, token_iter))
+            stream_used = True
         except Exception as exc:
             logger.exception("accelerator_stream_failed session=%s err=%s", session_id, exc)
             assistant_text = ""
+            stream_used = False
     else:
         assistant_text = (
             str(assistant_reply.get("text", "")) if isinstance(assistant_reply, dict) else str(assistant_reply)
         )
+
+    if not stream_used and assistant_text.strip():
+        _simulate_stream_from_text(session_id, assistant_text)
 
     if not assistant_text.strip():
         logger.warning(
@@ -3022,9 +4205,19 @@ def post_accelerator_message(
     intent = get_intent(metadata.get("intent_id") or session.accelerator_id)
     if intent:
         if _is_code_intent(intent):
-            _schedule_code_generation(session_id, intent, trimmed)
+            _schedule_code_generation(
+                session_id,
+                intent,
+                trimmed,
+                trigger_message_id=assistant_message.message_id,
+            )
         else:
-            _schedule_background_generation(session_id, intent, trimmed)
+            _schedule_background_generation(
+                session_id,
+                intent,
+                trimmed,
+                trigger_message_id=assistant_message.message_id,
+            )
 
     record_event(
         TelemetryEvent(

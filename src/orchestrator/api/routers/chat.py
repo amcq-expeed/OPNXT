@@ -20,110 +20,14 @@ from ...infrastructure.chat_store import get_chat_store
 from ...infrastructure.repository import get_repo
 from ...infrastructure.doc_store import get_doc_store
 from ...services.chat_ai import reply_with_chat_ai
-from ...services.model_router import ModelRouter
-
-
-def _unique_models(values: List[str]) -> List[str]:
-    seen = set()
-    ordered: List[str] = []
-    for value in values:
-        if not value:
-            continue
-        trimmed = value.strip()
-        if not trimmed or trimmed in seen:
-            continue
-        seen.add(trimmed)
-        ordered.append(trimmed)
-    return ordered
-
-
-def _provider_label(name: str) -> str:
-    if name == "local":
-        return "Local cluster"
-    if name == "openai":
-        return "OpenAI (Hosted)"
-    if name == "gemini":
-        return "Gemini (Hosted)"
-    if name == "xai":
-        return "xAI (Hosted)"
-    return name.capitalize()
-
-
-def _build_model_catalog() -> List[ChatModelOption]:
-    router = ModelRouter()
-    catalog: List[ChatModelOption] = [
-        ChatModelOption(
-            provider="adaptive",
-            model="auto",
-            label="Adaptive model: Auto (OPNXT)",
-            description="Let OPNXT choose the best model per request.",
-            available=True,
-            adaptive=True,
-        )
-    ]
-    env = router._env  # type: ignore[attr-defined]
-    for provider_name, cfg in router.PROVIDER_CONFIG.items():
-        if provider_name in ("search", "adaptive"):
-            continue
-        try:
-            available = router.provider_available(provider_name)
-        except Exception:
-            available = False
-
-        model_env_values: List[str] = []
-        model_env_key = cfg.get("model_env")
-        if model_env_key:
-            raw = env.get(str(model_env_key), "")
-            if raw:
-                model_env_values.extend(raw.split(","))
-
-        fallbacks_env_key = cfg.get("fallbacks_env")
-        if fallbacks_env_key:
-            raw = env.get(str(fallbacks_env_key), "")
-            if raw:
-                model_env_values.extend(raw.split(","))
-
-        if provider_name == "local":
-            fallback_cfg = cfg.get("model_fallbacks")
-            if isinstance(fallback_cfg, (list, tuple)):
-                model_env_values.extend(str(m) for m in fallback_cfg)
-
-        default_model = cfg.get("default_model")
-        if default_model:
-            model_env_values.append(str(default_model))
-
-        models = _unique_models(model_env_values)
-        if not models:
-            continue
-
-        base_label = _provider_label(provider_name)
-        description = None
-        if provider_name == "local":
-            description = "Uses on-prem LLM host." if available else "Local host unavailable."
-
-        for idx, model_name in enumerate(models):
-            label = base_label
-            if provider_name == "local" or len(models) > 1:
-                label = f"{base_label} — {model_name}"
-            catalog.append(
-                ChatModelOption(
-                    provider=provider_name,
-                    model=model_name,
-                    label=label,
-                    description=description if idx == 0 else None,
-                    available=available,
-                    adaptive=False,
-                )
-            )
-
-    return catalog
+from ...services.model_router import build_model_catalog
 
 router = APIRouter(prefix="/chat", tags=["chat"])
 
 
 @router.get("/models", response_model=List[ChatModelOption])
 def list_models(user: User = Depends(require_permission(Permission.PROJECT_READ))) -> List[ChatModelOption]:
-    return _build_model_catalog()
+    return build_model_catalog()
 
 
 _CHAT_CAPABILITY_TEMPLATES: List[ChatTemplate] = [

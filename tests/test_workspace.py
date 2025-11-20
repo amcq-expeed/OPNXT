@@ -20,20 +20,15 @@ def test_workspace_summary_and_recent_chats():
     projects = repo.list()
 
     chat_store = get_chat_store()
-    accelerator_store = get_accelerator_store()
-
     # Fire summary endpoint
     resp = client.get("/api/workspace/summary", headers=_auth_headers())
     assert resp.status_code == 200
     summary = resp.json()
     expected_projects = len(projects)
     expected_chat_raw = chat_store.count_sessions()
-    expected_accel = accelerator_store.count_sessions()
 
     assert summary["projects"] == expected_projects
-    assert summary["chat_sessions"] == expected_chat_raw + expected_accel
-    assert summary["accelerator_sessions"] == expected_accel
-    assert summary.get("chat_sessions_raw") == expected_chat_raw
+    assert summary["chat_sessions"] == expected_chat_raw
 
     # Add a chat session via guest API to exercise list_recent_sessions
     headers = _auth_headers()

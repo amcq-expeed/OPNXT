@@ -24,6 +24,9 @@ htmlcov/
 logs/
 *.log
 
+# Runtime artifacts
+run/*.pid
+
 # VSCode / IDE
 .vscode/
 .idea/

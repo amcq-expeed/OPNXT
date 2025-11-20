@@ -20,10 +20,6 @@ class WorkspaceSummaryResponse(BaseModel):
     projects: int
     documents: int
     chat_sessions: int
-    accelerator_sessions: int
-    accelerator_artifacts: int
-    accelerator_messages: int
-    chat_sessions_raw: int | None = None
 
 
 class AcceleratorSessionSummary(BaseModel):
@@ -56,28 +52,10 @@ def workspace_summary(
     chat_store = get_chat_store()
     chat_sessions_raw = chat_store.count_sessions()
 
-    accelerator_store = get_accelerator_store()
-    sessions = accelerator_store.list_sessions()
-    accelerator_sessions = len(sessions)
-    accelerator_artifacts = 0
-    accelerator_messages = 0
-    for session in sessions:
-        artifacts = session.metadata.get("artifacts", []) if session.metadata else []
-        accelerator_artifacts += len(artifacts)
-        message_count = session.metadata.get("message_count") if session.metadata else None
-        if isinstance(message_count, int):
-            accelerator_messages += message_count
-        else:
-            accelerator_messages += len(accelerator_store.list_messages(session.session_id))
-
     return WorkspaceSummaryResponse(
         projects=len(projects),
         documents=total_documents,
-        chat_sessions=chat_sessions_raw + accelerator_sessions,
-        accelerator_sessions=accelerator_sessions,
-        accelerator_artifacts=accelerator_artifacts,
-        accelerator_messages=accelerator_messages,
-        chat_sessions_raw=chat_sessions_raw,
+        chat_sessions=chat_sessions_raw,
     )
 
 

@@ -20,6 +20,22 @@ export type ChatComposerConnectorToggle = {
   onChange: (next: boolean) => void;
 };
 
+export type ChatComposerToneOption = {
+  value: string;
+  label: ReactNode;
+  description?: ReactNode;
+  tip?: ReactNode;
+};
+
+export type ChatComposerToneSelector = {
+  value: string;
+  label: ReactNode;
+  description?: ReactNode;
+  tips?: ReactNode[];
+  options: ChatComposerToneOption[];
+  onChange: (value: string) => void;
+};
+
 export interface ChatComposerProps {
   draft: string;
   onDraftChange: (value: string) => void;
@@ -66,6 +82,7 @@ export interface ChatComposerProps {
   };
   sendIcon?: ReactNode;
   modelAriaLabel?: string;
+  toneSelector?: ChatComposerToneSelector;
 }
 
 export default function ChatComposer({
@@ -95,16 +112,20 @@ export default function ChatComposer({
   extendedThinking,
   sendIcon,
   modelAriaLabel = "Select chat model",
+  toneSelector,
 }: ChatComposerProps) {
   const actionsDisabled = !hasSession;
   const [resourceMenuOpen, setResourceMenuOpen] = useState(false);
   const [connectorMenuOpen, setConnectorMenuOpen] = useState(false);
+  const [toneMenuOpen, setToneMenuOpen] = useState(false);
   const resourceMenuRef = useRef<HTMLDivElement | null>(null);
   const resourceMenuButtonRef = useRef<HTMLButtonElement | null>(null);
   const resourceMenuSearchRef = useRef<HTMLInputElement | null>(null);
   const connectorMenuRef = useRef<HTMLDivElement | null>(null);
   const connectorMenuButtonRef = useRef<HTMLButtonElement | null>(null);
   const connectorMenuSearchRef = useRef<HTMLInputElement | null>(null);
+  const toneMenuRef = useRef<HTMLDivElement | null>(null);
+  const toneMenuButtonRef = useRef<HTMLButtonElement | null>(null);
 
   const selectedModelOption = useMemo(() => {
     return modelOptions.find((opt) => `${opt.provider}:${opt.model}` === selectedModelKey) ?? null;
@@ -166,6 +187,29 @@ export default function ChatComposer({
     };
   }, [connectorMenuOpen]);
 
+  useEffect(() => {
+    if (!toneSelector || !toneMenuOpen) return;
+    const clickHandler = (event: MouseEvent) => {
+      const target = event.target as Node;
+      if (toneMenuRef.current?.contains(target) || toneMenuButtonRef.current?.contains(target)) {
+        return;
+      }
+      setToneMenuOpen(false);
+    };
+    const keyHandler = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setToneMenuOpen(false);
+        toneMenuButtonRef.current?.focus();
+      }
+    };
+    document.addEventListener("mousedown", clickHandler);
+    document.addEventListener("keydown", keyHandler);
+    return () => {
+      document.removeEventListener("mousedown", clickHandler);
+      document.removeEventListener("keydown", keyHandler);
+    };
+  }, [toneMenuOpen, toneSelector]);
+
   const handleSubmit = useCallback(
     (event: FormEvent<HTMLFormElement>) => {
       event.preventDefault();
@@ -181,6 +225,68 @@ export default function ChatComposer({
       <form onSubmit={handleSubmit} className="chat-composer__form">
         <div className="composer-shell">
           <div className="composer-shell__input">
+            {toneSelector ? (
+              <div className="composer-tone" ref={toneMenuRef}>
+                <div className="composer-tone__summary">
+                  <button
+                    type="button"
+                    className={toneMenuOpen ? "composer-tone__button composer-tone__button--active" : "composer-tone__button"}
+                    onClick={() => {
+                      if (actionsDisabled) return;
+                      setToneMenuOpen((open) => !open);
+                      setResourceMenuOpen(false);
+                      setConnectorMenuOpen(false);
+                    }}
+                    aria-haspopup="true"
+                    aria-expanded={toneMenuOpen}
+                    aria-label={toneMenuOpen ? "Close tone menu" : "Change assistant tone"}
+                    disabled={actionsDisabled}
+                    ref={toneMenuButtonRef}
+                  >
+                    <div>
+                      <span className="composer-tone__label">Tone · {toneSelector.label}</span>
+                      {toneSelector.description ? (
+                        <span className="composer-tone__description">{toneSelector.description}</span>
+                      ) : null}
+                    </div>
+                    <span aria-hidden="true" className="composer-tone__caret">▾</span>
+                  </button>
+                  <div className={toneMenuOpen ? "composer-tone__menu composer-tone__menu--open" : "composer-tone__menu"} role="menu">
+                    {toneSelector.options.map((option) => {
+                      const active = option.value === toneSelector.value;
+                      return (
+                        <button
+                          key={option.value}
+                          type="button"
+                          role="menuitemradio"
+                          aria-checked={active}
+                          className={active ? "composer-tone__option composer-tone__option--active" : "composer-tone__option"}
+                          onClick={() => {
+                            toneSelector.onChange(option.value);
+                            setToneMenuOpen(false);
+                          }}
+                        >
+                          <div className="composer-tone__option-body">
+                            <span className="composer-tone__option-title">{option.label}</span>
+                            {option.description ? (
+                              <span className="composer-tone__option-description">{option.description}</span>
+                            ) : null}
+                          </div>
+                          {actionIndicator(active)}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+                {toneSelector.tips?.length ? (
+                  <div className="composer-tone__tips" aria-live="polite">
+                    {toneSelector.tips.map((tip, index) => (
+                      <span key={`tip-${index}`}>{tip}</span>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
             <textarea
               id={textareaId}
               ref={textareaRef}
@@ -419,5 +525,13 @@ export default function ChatComposer({
         {modelError ? <div className="composer-model__error" role="alert">{modelError}</div> : null}
       </form>
     </div>
+  );
+}
+
+function actionIndicator(active: boolean) {
+  return (
+    <span className="composer-tone__option-indicator" aria-hidden="true">
+      {active ? "●" : "○"}
+    </span>
   );
 }

@@ -23,6 +23,127 @@
   padding: 12px 14px;
 }
 
+.composer-tone {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.composer-tone__summary {
+  position: relative;
+}
+
+.composer-tone__button {
+  width: 100%;
+  border: 1px solid rgba(204, 198, 190, 0.9);
+  background: rgba(245, 242, 236, 0.6);
+  border-radius: 12px;
+  padding: 10px 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: #4a3b2a;
+  cursor: pointer;
+}
+
+.composer-tone__button--active,
+.composer-tone__button:hover,
+.composer-tone__button:focus-visible {
+  background: #f0ede8;
+  outline: none;
+}
+
+.composer-tone__label {
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.composer-tone__description {
+  display: block;
+  font-size: 0.76rem;
+  color: rgba(74, 59, 42, 0.75);
+}
+
+.composer-tone__caret {
+  font-size: 0.75rem;
+  color: rgba(74, 59, 42, 0.6);
+}
+
+.composer-tone__menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  width: 100%;
+  border-radius: 14px;
+  border: 1px solid rgba(219, 210, 198, 0.9);
+  background: #ffffff;
+  box-shadow: 0 18px 28px rgba(38, 24, 6, 0.15);
+  padding: 8px;
+  display: none;
+  flex-direction: column;
+  gap: 6px;
+  z-index: 20;
+}
+
+.composer-tone__menu--open {
+  display: flex;
+}
+
+.composer-tone__option {
+  border: none;
+  background: transparent;
+  border-radius: 10px;
+  padding: 8px 10px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  cursor: pointer;
+  color: #4a3b2a;
+}
+
+.composer-tone__option:hover,
+.composer-tone__option:focus-visible {
+  background: #f7f3ee;
+  outline: none;
+}
+
+.composer-tone__option--active {
+  background: rgba(238, 223, 210, 0.7);
+}
+
+.composer-tone__option-title {
+  font-weight: 600;
+  font-size: 0.85rem;
+}
+
+.composer-tone__option-description {
+  display: block;
+  font-size: 0.74rem;
+  color: rgba(74, 59, 42, 0.75);
+}
+
+.composer-tone__option-indicator {
+  font-size: 0.85rem;
+  color: rgba(74, 59, 42, 0.7);
+}
+
+.composer-tone__tips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  font-size: 0.72rem;
+  color: rgba(74, 59, 42, 0.75);
+}
+
+.composer-tone__tips span {
+  background: rgba(247, 243, 237, 0.9);
+  border-radius: 999px;
+  padding: 4px 10px;
+}
+
 .composer-shell__input textarea {
   width: 100%;
   border: none;
